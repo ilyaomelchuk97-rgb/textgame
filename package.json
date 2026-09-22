@@ -1,0 +1,25 @@
+{
+  "name": "dice-tales",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Кости и Судьбы — мобильная текстовая RPG с ИИ-мастером, генерацией картинок и бросками кубика",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "python3 build.py",
+    "test": "node --test tests/",
+    "smoke": "node tools/smoke.js http://localhost:3000/game.html",
+    "smoke:live": "node tools/smoke.js http://localhost:3000/game.html --live",
+    "smoke:mock": "node tools/smoke.js http://localhost:8123/index.html",
+    "layout": "node tools/layout.js http://localhost:3000/game.html",
+    "check": "node --check src/engine.js && node --check src/backdrop.js && node --check src/api.js && node --check src/app.js && node --test tests/ && node tools/layout.js http://localhost:3000/game.html"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.2"
+  },
+  "license": "MIT"
+}

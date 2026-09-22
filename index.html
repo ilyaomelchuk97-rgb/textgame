@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Кости и Судьбы — текстовая RPG</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b0d">
+  <meta name="description" content="Текстовая ролевая игра с ИИ-мастером, генерацией картинок и бросками кубика. Оптимизировано под iPhone 13 mini.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Кости и Судьбы">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body data-screen="menu">
+  <div id="app">
+
+    <!-- ============ ЭКРАН 1: ГЛАВНОЕ МЕНЮ ============ -->
+    <section class="screen screen--menu" id="screen-menu">
+      <div class="menu-bg"></div>
+      <div class="menu-veil"></div>
+      <div class="menu-inner">
+        <div class="menu-head">
+          <div class="menu-dice">🎲</div>
+          <h1 class="logo">Кости и Судьбы</h1>
+          <p class="logo-sub">текстовые приключения с ИИ-мастером</p>
+        </div>
+
+        <div class="menu-buttons">
+          <button class="btn btn--primary" type="button" data-act="new-game">Начать новую игру</button>
+          <button class="btn btn--ghost" type="button" data-act="my-games">
+            Мои игры <span class="badge" id="menu-saves-count" hidden></span>
+          </button>
+        </div>
+
+        <div class="menu-stage" id="menu-critters" aria-hidden="true"></div>
+
+        <div class="menu-foot">
+          <button class="icon-btn" type="button" id="sound-toggle" data-act="toggle-sound" aria-label="Звук">🔊</button>
+          <button class="icon-btn" type="button" data-act="settings" aria-label="Настройки">⚙️</button>
+          <span class="ai-status" id="ai-status">ИИ: проверяем связь…</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ЭКРАН 2: ВЫБОР МИРА ============ -->
+    <section class="screen" id="screen-scenarios" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back" aria-label="Назад">‹</button>
+        <h2>Новая игра</h2>
+        <button class="icon-btn" type="button" data-act="reroll-scenarios" aria-label="Другие миры">🎲</button>
+      </header>
+
+      <div class="tabs" id="mode-tabs">
+        <button class="tab is-active" type="button" data-mode="random">Случайные</button>
+        <button class="tab" type="button" data-mode="games">По играм</button>
+        <button class="tab" type="button" data-mode="custom">Свой мир</button>
+      </div>
+
+      <div class="scroll" id="scenario-scroll">
+        <!-- случайная подборка -->
+        <div id="pane-random"></div>
+
+        <!-- миры по популярным играм + своя игра -->
+        <div id="pane-games" hidden>
+          <div class="notice notice--info">
+            Фан-режимы: ИИ ведёт игру в духе знакомого мира — со своей лексикой, правилами и атмосферой.
+          </div>
+          <div id="game-worlds-list"></div>
+          <div class="section-title">Своя игра</div>
+          <div class="field">
+            <span class="field__label">Название или описание игры</span>
+            <input class="input" id="own-game-input" type="text" maxlength="80"
+                   placeholder="Например: Dark Souls, Mass Effect, Stardew Valley" autocomplete="off">
+            <p class="hint">ИИ построит мир по её духу: жанр, лексика, правила, темп.</p>
+          </div>
+          <button class="btn btn--primary" type="button" data-act="start-own-game">Играть по своей игре</button>
+        </div>
+
+        <!-- конструктор мира -->
+        <div id="pane-custom" hidden>
+          <div class="notice notice--info">
+            Соберите мир как конструктор: выбирайте готовые варианты, комбинируйте и добавляйте свои.
+          </div>
+          <label class="field" for="wc-title">
+            <span class="field__label">Название мира (необязательно)</span>
+            <input class="input" id="wc-title" type="text" maxlength="60" placeholder="Например: Пепел Астры" autocomplete="off">
+          </label>
+
+          <div class="section-title">Жанр</div>
+          <div class="chips" id="wc-genres"></div>
+          <input class="input input--slim" id="wc-genre-own" type="text" maxlength="40" placeholder="или впишите свой жанр" autocomplete="off">
+
+          <div class="section-title">Тон</div>
+          <div class="chips" id="wc-tones"></div>
+
+          <div class="section-title">Где начинается история</div>
+          <div class="chips" id="wc-places"></div>
+          <input class="input input--slim" id="wc-place-own" type="text" maxlength="40" placeholder="или своё место" autocomplete="off">
+
+          <label class="field" for="wc-goal">
+            <span class="field__label">Цель героя</span>
+            <input class="input" id="wc-goal" type="text" maxlength="120" placeholder="Например: найти пропавшую сестру" autocomplete="off">
+          </label>
+
+          <div class="section-title">Кем ты начинаешь</div>
+          <div class="chips" id="wc-roles"></div>
+
+          <div class="section-title">Особенности мира (можно несколько)</div>
+          <div class="chips chips--multi" id="wc-ingredients"></div>
+
+          <div class="section-title">Опасность</div>
+          <div class="chips" id="wc-danger"></div>
+
+          <label class="field" for="wc-extra">
+            <span class="field__label">Любые пожелания</span>
+            <textarea class="input input--area" id="wc-extra" maxlength="400" rows="3"
+                      placeholder="Например: пусть в мире почти нет магии, а деньги решают всё"></textarea>
+          </label>
+
+          <div class="row-actions">
+            <button class="btn btn--ghost btn--sm" type="button" data-act="save-world">Сохранить мир</button>
+            <button class="btn btn--quiet btn--sm" type="button" data-act="random-world">Случайный набор</button>
+          </div>
+
+          <div class="section-title" id="saved-worlds-title" hidden>Сохранённые миры</div>
+          <div id="saved-worlds"></div>
+        </div>
+      </div>
+
+      <div class="footer-bar" id="scenarios-footer">
+        <button class="btn btn--primary" type="button" data-act="create-custom-world">Собрать мир и выбрать героя</button>
+      </div>
+    </section>
+
+    <!-- ============ ЭКРАН 3: СОЗДАНИЕ ГЕРОЯ ============ -->
+    <section class="screen" id="screen-hero" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back" aria-label="Назад">‹</button>
+        <h2>Создание героя</h2>
+        <span style="width:38px"></span>
+      </header>
+      <div class="scroll">
+        <div class="scenario-banner" id="hero-scenario"></div>
+
+        <label class="field" for="hero-name">
+          <span class="field__label">Имя героя</span>
+          <div class="row-input">
+            <input class="input" id="hero-name" type="text" maxlength="24" placeholder="Например, Кай"
+                   autocomplete="off" autocapitalize="words" enterkeyhint="done" spellcheck="false">
+            <button class="icon-btn" type="button" data-act="random-name" aria-label="Случайное имя">🎲</button>
+          </div>
+        </label>
+
+        <div class="section-title">Класс</div>
+        <div class="arch-list" id="class-list"></div>
+
+        <div class="section-title">Раса / вид</div>
+        <div class="chips chips--race" id="race-list"></div>
+        <p class="hint" id="race-hint"></p>
+
+        <div class="section-title">Происхождение</div>
+        <div class="arch-list arch-list--compact" id="origin-list"></div>
+
+        <div class="section-title">Итоговые характеристики</div>
+        <div class="stat-grid" id="stat-preview"></div>
+        <p class="hint" id="hero-hint"></p>
+      </div>
+      <div class="footer-bar">
+        <button class="btn btn--primary" type="button" data-act="start-adventure">Начать приключение</button>
+      </div>
+    </section>
+
+    <!-- ============ ЭКРАН 4: ИГРА ============ -->
+    <section class="screen screen--game" id="screen-game" hidden>
+      <!-- 8% сверху: название игры + закрыть -->
+      <header class="game-topbar">
+        <div class="game-topbar__text">
+          <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
+          <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
+        </div>
+        <button class="icon-btn icon-btn--close" type="button" data-act="close-game" aria-label="Закрыть игру">✕</button>
+        <div class="hp-track"><div class="hp-fill" id="game-hp"></div></div>
+      </header>
+
+      <!-- 22%: картинка окружающего мира (мгновенный фон + ИИ поверх) -->
+      <div class="scene-media" id="scene-media">
+        <canvas id="scene-canvas" aria-hidden="true"></canvas>
+        <img id="scene-img" alt="Сцена" hidden>
+        <div class="scene-media__status" id="scene-status">
+          <span class="dot"></span><span id="scene-status-text">рисуем…</span>
+        </div>
+        <span class="scene-media__badge" id="scene-badge" hidden></span>
+        <button class="icon-btn scene-media__reload" type="button" data-act="reload-image" aria-label="Перерисовать">⟳</button>
+      </div>
+
+      <!-- Текст ИИ-мастера -->
+      <div class="panel" id="panel">
+        <div class="notices" id="notices"></div>
+        <div class="scene-text__body" id="scene-text"></div>
+        <div class="scene-npc" id="scene-npc" hidden></div>
+        <div class="log-bar">
+          <button class="log-toggle" type="button" id="log-toggle">История</button>
+        </div>
+        <div class="log-wrap" id="log-wrap" hidden>
+          <div id="log-list"></div>
+        </div>
+      </div>
+
+      <!-- Умение класса + кнопки выбора действия -->
+      <div class="actions" id="actions"></div>
+    </section>
+
+    <!-- ============ ЭКРАН 5: МОИ ИГРЫ ============ -->
+    <section class="screen" id="screen-saves" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back" aria-label="Назад">‹</button>
+        <h2>Мои игры</h2>
+        <button class="icon-btn" type="button" data-act="export-all" aria-label="Скачать все сохранения">⬇</button>
+      </header>
+      <div class="scroll" id="saves-list"></div>
+      <div class="footer-bar">
+        <button class="btn btn--ghost" type="button" data-act="import-save">Импорт из файла</button>
+        <button class="btn btn--primary" type="button" data-act="new-game">Новая игра</button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ============ ОВЕРЛЕЙ БРОСКА КУБИКА ============ -->
+  <div class="overlay" id="dice-overlay" hidden>
+    <div class="dice-scene">
+      <div class="dice-caption"></div>
+      <div class="die" id="die">
+        <div class="die__face die__face--front">7</div>
+        <div class="die__face die__face--back">13</div>
+        <div class="die__face die__face--right">19</div>
+        <div class="die__face die__face--left">4</div>
+        <div class="die__face die__face--top">16</div>
+        <div class="die__face die__face--bottom">11</div>
+      </div>
+      <div class="die-shadow"></div>
+      <div class="dice-result"></div>
+      <div class="dice-hint">нажмите, чтобы продолжить</div>
+    </div>
+  </div>
+
+  <!-- ============ ОВЕРЛЕЙ ОЖИДАНИЯ (сборка мира) ============ -->
+  <div class="overlay" id="loading" hidden>
+    <div class="loading-box">
+      <span class="spinner spinner--lg"></span>
+      <div class="loading-box__title" id="loading-title">Мастер строит мир…</div>
+      <div class="loading-box__text" id="loading-text">Это займёт несколько секунд</div>
+    </div>
+  </div>
+
+  <!-- ============ МОДАЛЬНЫЕ ОКНА ============ -->
+  <div class="overlay" id="modal" hidden>
+    <div class="modal-box" id="modal-box"></div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+  <input type="file" id="file-input" accept=".json,application/json" multiple hidden>
+
+  <script src="src/engine.js"></script>
+  <script src="src/backdrop.js"></script>
+  <script src="src/critters.js"></script>
+  <script src="src/api.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

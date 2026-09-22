@@ -1,0 +1,20 @@
+# Blueprint для Render: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: dice-tales
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Необязательные ключи: без них работает анонимный канал и локальный мастер.
+      # Добавьте в панели Render → Environment, чтобы ИИ-мастер отвечал стабильно.
+      # - key: GROQ_API_KEY
+      #   sync: false
+      # - key: GEMINI_API_KEY
+      #   sync: false
+      # - key: OPENROUTER_API_KEY
+      #   sync: false
