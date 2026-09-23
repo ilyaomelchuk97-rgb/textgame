@@ -1,6 +1,6 @@
 /**
  * tools/layout.js — проверка раскладки на разных телефонах.
- * Условие: шапка ≈8% высоты, картинка ≈22%, интерфейс без прокрутки body.
+ * Условие: шапка ≈14% высоты, картинка ≈22%, интерфейс без прокрутки body.
  */
 const { chromium, devices } = require('playwright');
 
@@ -80,7 +80,7 @@ const TARGETS = [
       };
     });
     const problems = [];
-    if (Math.abs(m.topPct - 8) > 1.7) problems.push('шапка ' + m.topPct + '%');
+    if (Math.abs(m.topPct - 14) > 1.7) problems.push('шапка ' + m.topPct + '%');
     if (Math.abs(m.mediaPct - 22) > 1.7) problems.push('картинка ' + m.mediaPct + '%');
     if (m.menuButtonsMinH < 44) problems.push('кнопка <44px');
     if (!m.actionsInside) problems.push('кнопки выходят за экран');

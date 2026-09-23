@@ -430,17 +430,34 @@ button { font-family: inherit; }
 
 .game-topbar {
   position: relative;
-  flex: 0 0 8%;
-  min-height: 48px;
+  flex: 0 0 14%;
+  min-height: 78px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: calc(var(--safe-top) + 4px) 12px 8px 14px;
+  padding: calc(var(--safe-top) + 6px) 12px 8px 14px;
   background: linear-gradient(180deg, rgba(12, 19, 22, 0.98), rgba(9, 15, 18, 0.9));
   border-bottom: 1px solid var(--line);
   overflow: hidden;
 }
 .game-topbar__text { flex: 1 1 auto; min-width: 0; }
+
+/* «Мастер думает» живёт в шапке, а не в пустом низу экрана */
+.game-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.game-status[hidden] { display: none; }
+.game-status__text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.game-status .spinner--sm { width: 12px; height: 12px; border-width: 2px; }
 .game-title {
   display: block;
   max-width: 100%;
@@ -607,6 +624,35 @@ button { font-family: inherit; }
   padding: 10px 12px calc(10px + var(--safe-bottom));
   background: linear-gradient(180deg, rgba(8, 13, 16, 0.85), rgba(6, 10, 12, 0.98));
   border-top: 1px solid var(--line);
+}
+/* Пока мастер думает, внизу стоят «заготовки» будущих кнопок */
+.action-btn--ghost {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-height: 52px;
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.015);
+}
+.ghost-line {
+  display: block;
+  height: 9px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+  background-size: 220% 100%;
+  animation: ghostSweep 1.9s linear infinite;
+}
+.ghost-line--wide { width: 62%; }
+.ghost-line--narrow { width: 34%; animation-delay: 0.25s; }
+@keyframes ghostSweep {
+  from { background-position: 140% 0; }
+  to { background-position: -40% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ghost-line { animation: none; }
 }
 .actions__loading {
   display: flex;
@@ -899,7 +945,7 @@ body[data-screen="game"] .toasts { display: none; }
 /* Мелкие экраны (iPhone SE) и очень узкие                    */
 /* ---------------------------------------------------------- */
 @media (max-height: 700px) {
-  .game-topbar { min-height: 44px; }
+  .game-topbar { min-height: 70px; }
   .logo { font-size: 30px; }
   .menu-head { margin-top: 4vh; }
   .scenario-card__cover { height: 88px; }
@@ -1276,4 +1322,95 @@ body[data-screen="game"] .toasts { display: none; }
   .critter { height: 70px; }
   .critter--knight { width: 64px; }
   .critter--dragon { height: 61px; width: 70px; }
+}
+
+/* ---------------------------------------------------------- */
+/* Вступление: мир, предыстория, план отыгрыша                 */
+/* ---------------------------------------------------------- */
+.prologue[hidden] { display: none; }
+.prologue {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(6, 10, 12, 0.72);
+  backdrop-filter: blur(6px);
+}
+.prologue__inner {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  max-height: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-2, #101a1c);
+  overflow: hidden;
+}
+.prologue__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.prologue__title {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.prologue__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.prologue__go {
+  flex: 0 0 auto;
+  margin: 10px 12px 12px;
+}
+
+.intro-card {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  text-align: left;
+}
+.intro-card__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 5px;
+}
+.intro-card__text { font-size: 13.5px; line-height: 1.5; color: #dbe6e3; }
+.intro-card--world { border-left: 3px solid rgba(111, 227, 184, 0.5); }
+.intro-card--back { border-left: 3px solid rgba(255, 212, 121, 0.5); }
+.intro-card--plan { border-left: 3px solid rgba(140, 190, 255, 0.5); }
+.intro-plan {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #d6e3e6;
+}
+.intro-plan li { margin-bottom: 4px; }
+.intro-plan li::marker { color: var(--accent-2); font-weight: 700; }
+
+.hint--profile {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(111, 227, 184, 0.4);
+  background: rgba(111, 227, 184, 0.06);
+  color: #cfe9e1;
+  font-size: 12.5px;
+  line-height: 1.45;
 }

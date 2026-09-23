@@ -356,7 +356,7 @@
       goal: '',
       systemHint: 'Играй строго в духе описанной игроком игры: её мир, её лексика, её правила и атмосфера.',
       imagePrompts: [
-        'video game cinematic environment, hero silhouette, moody light',
+        'video game cinematic environment, moody light, dramatic depth',
         'detailed game location art, atmospheric fog, cinematic',
         'epic game scene, dramatic light, concept art'
       ]
@@ -443,13 +443,32 @@
       '{',
       '  "title": "название мира/кампании, 2-6 слов",',
       '  "goal": "главная задача героя, одна фраза",',
+      '  "world": "2-4 предложения о мире: где мы, как здесь всё устроено, что за порядок вещей, чем живут люди",',
+      '  "backstory": "3-5 предложений предыстории героя: откуда он, что потерял, почему оказался здесь, что его ведёт",',
+      '  "plan": ["шаг сценария 1", "шаг 2", "шаг 3"],',
+      '  "hero": {',
+      '    "classLabel": "как в этом мире называется класс героя (например «Школа» или хотя бы «Класс»)",',
+      '    "raceLabel": "как называется выбор вида, или пустая строка, если в игре такого выбора нет",',
+      '    "classes": [ {"id": "str|warrior|rogue|scholar|mage|diplomat|wanderer", "title": "название в духе игры", "hint": "одна короткая фраза"} ],',
+      '    "races": [ {"id": "human|elder|stone|beast|construct|changed|outsider|halfblood", "title": "...", "hint": "..."} ],',
+      '    "origins": [ {"id": "streets|soldier|scholar|priest|sailor|exile|smuggler|lost", "title": "...", "hint": "..."} ],',
+      '    "note": "одно предложение: что мастер учёл при подборе вариантов"',
+      '  },',
       '  "opening": "вступительная сцена, 3-5 предложений, второе лицо, живая деталь, ощутимая угроза",',
       '  "chapter": "название первой главы, 2-4 слова",',
       '  "npc": "имя и одна деталь персонажа, появившегося рядом, иначе пустая строка",',
-      '  "imagePrompt": "English image prompt for the very first scene, 8-14 words, location + light + mood, no text",',
+      '  "imagePrompt": "English image prompt for the very first scene, 10-18 words: location + light + mood + who is in frame (the hero, and any enemies or creatures present)",',
       '  "options": [ {"text": "...", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"} x3 ]',
       '}',
-      'Ровно 3 варианта действий. Только JSON, без пояснений.'
+      'Ровно 3 варианта действий. Только JSON, без пояснений.',
+      '',
+      'ВАЖНО ПРО БЛОК "hero" — он подгоняет создание персонажа под эту игру:',
+      '- id бери только из списка выше; title можешь переписать под мир игры (например класс «Одарённый» → «Ведьмак»).',
+      '- classes: от 1 до 6 вариантов (класс нужен герою всегда).',
+      '- races: если в этой игре выбор вида/расы не имеет смысла — верни пустой массив [],',
+      '  тогда шаг выбора расы будет скрыт от игрока.',
+      '- origins: если выбор происхождения не подходит игре — тоже пустой массив [].',
+      '- не выдумывай варианты, которых нет в списках: они будут отброшены.'
     );
     return lines.join('\n');
   }
@@ -515,7 +534,7 @@
         ability: makeAbility(cls.id),
         buff: 0
       },
-      goal: scenario.goal || '',
+      goal: scenario.goal || (cfg && cfg.goal) || '',
       questDone: false,
       over: false,
       scene: null,
@@ -545,8 +564,297 @@
   }
 
   /* ---------------------------------------------------------- */
+  /* Подгонка создания героя под конкретную игру                */
+  /* «Своя игра» / свой мир: часть параметров может не подходить  */
+  /* миру, тогда ИИ их скрывает (пустой список) или переименовывает */
+  /* ---------------------------------------------------------- */
+
+  /** Описания для картинок: класс и раса по-английски (промпты на английском). */
+  const CLASS_ART = {
+    warrior: 'an armored knight with a longsword and round shield',
+    rogue: 'a hooded rogue with a dagger',
+    scholar: 'a scholar in a coat with a lantern and a book',
+    mage: 'a spellcaster with glowing hands',
+    diplomat: 'a well-dressed envoy with an ornate cloak',
+    wanderer: 'a ranger in a travel cloak with a bow'
+  };
+  const RACE_ART = {
+    human: 'a human hero',
+    elder: 'an elven hero with long hair',
+    stone: 'a stocky dwarf-like hero',
+    beast: 'a beastfolk hero covered in fur',
+    construct: 'an android hero with metal plating',
+    changed: 'a hero marked by a glowing brand',
+    outsider: 'a hero with an otherworldly aura',
+    halfblood: 'a mixed-blood hero'
+  };
+  const heroArtTag = game => {
+    const h = (game && game.hero) || {};
+    const cls = CLASS_ART[h.classId] || 'a lone hero';
+    const race = RACE_ART[h.raceId];
+    return race ? race + ', ' + cls : cls;
+  };
+
+  /** Совпадение списка из ответа ИИ с нашими вариантами. */
+  function matchOptions(list, raw) {
+    if (!Array.isArray(raw)) return null;              // данных нет — список не трогаем
+    if (!raw.length) return [];                        // явное «не подходит» — скрываем шаг
+    const seen = {};
+    const out = [];
+    raw.forEach((item, i) => {
+      if (i > 7) return;
+      const src = (item && typeof item === 'object') ? item : { id: item };
+      const id = String(src.id || src.name || '').trim().toLowerCase();
+      const base = list.find(x => x.id === id);
+      if (!base || seen[base.id]) return;
+      seen[base.id] = 1;
+      const title = (typeof src.title === 'string' && src.title.trim()) ? src.title.trim().slice(0, 40) : base.title;
+      const hint = (typeof src.hint === 'string' && src.hint.trim()) ? src.hint.trim().slice(0, 140) : '';
+      out.push(Object.assign({}, base, { title, hint, renamed: title !== base.title }));
+    });
+    return out.length ? out : null;                    // сплошь незнакомые id — показываем всё
+  }
+
+  const DEFAULT_LABELS = { classLabel: 'Класс', raceLabel: 'Раса / вид', originLabel: 'Происхождение' };
+
+  function defaultHeroProfile(note) {
+    return {
+      custom: false, fromAI: false,
+      classLabel: DEFAULT_LABELS.classLabel,
+      raceLabel: DEFAULT_LABELS.raceLabel,
+      originLabel: DEFAULT_LABELS.originLabel,
+      showClass: true, showRace: true, showOrigin: true,
+      classes: CLASSES.slice(), races: RACES.slice(), origins: ORIGINS.slice(),
+      note: note || ''
+    };
+  }
+
+  /**
+   * Профиль создания героя по ответу ИИ для конкретной игры.
+   * classes — минимум один вариант (класс нужен всегда ради статов и умения);
+   * races/origins пустым массивом ИИ говорит «в этой игре такого выбора нет» — шаг скрываем.
+   */
+  function heroProfileFromWorld(profile) {
+    const p = (profile && typeof profile === 'object') ? profile : {};
+    if (p.normalized) return p;                        // профиль уже разобран — второй раз не портим
+    let classes = matchOptions(CLASSES, p.classes);
+    if (classes && !classes.length) classes = null;    // без класса герой не собирается
+    const races = matchOptions(RACES, p.races);
+    const origins = matchOptions(ORIGINS, p.origins);
+    const label = (v, fb) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 24) : fb);
+    return {
+      custom: true,
+      normalized: true,
+      fromAI: !!(p.classes || p.races || p.origins || p.note),
+      classLabel: label(p.classLabel, DEFAULT_LABELS.classLabel),
+      raceLabel: label(p.raceLabel, DEFAULT_LABELS.raceLabel),
+      originLabel: label(p.originLabel, DEFAULT_LABELS.originLabel),
+      showClass: true,
+      showRace: !(races && !races.length),
+      showOrigin: !(origins && !origins.length),
+      classes: classes || CLASSES.slice(),
+      races: (races && races.length) ? races : RACES.slice(),
+      origins: (origins && origins.length) ? origins : ORIGINS.slice(),
+      note: typeof p.note === 'string' ? p.note.trim().slice(0, 200) : ''
+    };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Что происходит в сцене: кто рядом и какие предметы          */
+  /* ---------------------------------------------------------- */
+  const ACTOR_RULES = [
+    ['dragon', /дракон|виверн|змей|dragon|wyvern/],
+    ['beast', /волк|волч|пёс|пс[аыу]|собак|звер|медвед|крыс|паук|жук|лошад|лис|мотыл|твар/],
+    ['undead', /скелет|мертвец|зомби|призрак|нежит|восставш|упыр|гуль|мёртв|мертв/],
+    ['construct', /робот|дрон|андроид|машин|автомат|синт|голем|механизм|сервопривод/],
+    ['monster', /монстр|демон|чудищ|мутант|тролл|гоблин|орк|великан|гигант/],
+    ['soldier', /солдат|стражник|патрул|легион|гвард|рыцар|наёмник|наемник|бандит|разбойник|пират|страж|караул|охрана/],
+    ['human', /человек|люди|людей|людьми|торговец|крестьян|старик|старух|женщин|мужчин|толп|горожан|дет[ией]|ведьм|колдун|жрец|бармен|инженер|пилот|ночлежк|прохожий/]
+  ];
+  const PROP_RULES = [
+    ['fire', /костёр|костер|огон|пожар|пламя|спичк|головн|жарк/],
+    ['torch', /факел|фонар|лампад|свеч|маяк/],
+    ['banner', /знамя|флаг|штандарт|герб|вымпел/],
+    ['cart', /телег|повозк|карет|фургон|вагон|грузовик|мотоцикл/],
+    ['tent', /шатёр|шатер|палатк|лагерь|бивак/],
+    ['ship', /корабл|лодк|шлюпк|барж|катер|яхт/],
+    ['tower', /башн|крепост|цитадел|стен[аыу]|форт|замок|частокол/],
+    ['statue', /стату|идол|памятник|изваяни/],
+    ['bridge', /мост|переправ|акведук/],
+    ['door', /двер|ворота|калитк|шлюз/]
+  ];
+
+  /** Кто есть в сцене: враги (до трёх силуэтов) и предметы окружения. */
+  function sceneActors(text) {
+    const s = String(text || '').toLowerCase();
+    const enemies = [];
+    ACTOR_RULES.forEach(pair => {
+      if (enemies.length < 3 && pair[1].test(s)) enemies.push(pair[0]);
+    });
+    const props = [];
+    PROP_RULES.forEach(pair => {
+      if (props.length < 4 && pair[1].test(s)) props.push(pair[0]);
+    });
+    return { hero: { shape: 'human' }, enemies, props };
+  }
+
+  const ENEMY_ART = {
+    dragon: 'a dragon looming in the background',
+    beast: 'a snarling beast closing in',
+    undead: 'undead figures rising',
+    construct: 'a machine sentinel',
+    monster: 'a hulking monster',
+    soldier: 'armed figures approaching',
+    human: 'a stranger watching from the shadows'
+  };
+  const PEOPLE_RE = /knight|warrior|figure|figures|people|person|character|hero|creature|monster|dragon|beast|bandit|guard|thief|soldier|silhouette|crowd|man |woman|robot|undead|group/i;
+  const ENEMY_WORD_RE = /bandit|guard|thief|soldier|wolf|beast|monster|dragon|undead|creature|figure|figures|sentinel|warrior|knight|crowd|group/i;
+
+  /**
+   * Промпт картинки для текущей сцены. Гарантирует, что на фоне
+   * будут и герой, и то, что происходит по сюжету (враги, окружение).
+   */
+  function composeSceneImagePrompt(game, opts) {
+    const o = opts || {};
+    const s = scenarioById(game && game.scenarioId);
+    const sceneText = [o.sceneText, o.action && o.action.text, o.npc].filter(Boolean).join(' ');
+    const actors = sceneActors(sceneText);
+    let base = String(o.aiPrompt || '').replace(/\s+/g, ' ').trim();
+    const hadPrompt = !!base;
+    if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
+    const parts = [base];
+    if (!hadPrompt || !PEOPLE_RE.test(base)) {
+      parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
+    }
+    // врагов добавляем, если их видно в сцене и они ещё не упомянуты в промпте
+    if (actors.enemies.length && !ENEMY_WORD_RE.test(base)) {
+      parts.push(ENEMY_ART[actors.enemies[0]]);
+    }
+    return parts.join(', ').replace(/\s+/g, ' ').trim().slice(0, 380);
+  }
+
+  /* ---------------------------------------------------------- */
   /* Промпты                                                    */
   /* ---------------------------------------------------------- */
+  /* ---------------------------------------------------------- */
+  /* Знакомые игры: профиль героя без ИИ                          */
+  /* Если мастер недоступен, но игрок написал «Ведьмак 3» или     */
+  /* «Cyberpunk 2077», шаги создания героя всё равно подгоняются   */
+  /* под игру — по встроенной таблице.                            */
+  /* ---------------------------------------------------------- */
+  const KNOWN_GAME_PROFILES = [
+    {
+      match: /ведьмак|witcher|ведьмач|цири|нильфгаард/i,
+      profile: {
+        classLabel: 'Школа',
+        classes: [
+          { id: 'mage', title: 'Ведьмак', hint: 'мутации, два меча, медальон' },
+          { id: 'warrior', title: 'Наёмник', hint: 'меч на службе у короны' },
+          { id: 'rogue', title: 'Разведчик', hint: 'следы, яды, чужая переписка' },
+          { id: 'scholar', title: 'Чародейка', hint: 'магия хаоса и придворные интриги' }
+        ],
+        races: [],                                   // в этом мире раса не выбирается
+        origins: [
+          { id: 'soldier', title: 'Школа Волка', hint: 'наставник погиб, остались только контракты' },
+          { id: 'lost', title: 'Дитя Предназначения', hint: 'за тобой идут те, кого ты не звал' },
+          { id: 'smuggler', title: 'Контрабандист', hint: 'знаешь все броды и всех перевозчиков' }
+        ],
+        note: 'в этой истории все — люди, поэтому выбирается только школа и происхождение'
+      }
+    },
+    {
+      match: /киберпанк|cyberpunk|2077|найт-сити|night city|нейросет|имплант/i,
+      profile: {
+        classLabel: 'Роль',
+        classes: [
+          { id: 'rogue', title: 'Соло', hint: 'лучший ствол в районе и цена за него' },
+          { id: 'scholar', title: 'Нетраннер', hint: 'взламываешь людей быстрее, чем замки' },
+          { id: 'wanderer', title: 'Кочевник', hint: 'свой транспорт и связи на трассах' },
+          { id: 'diplomat', title: 'Фиксер', hint: 'свои люди везде, долги тоже' }
+        ],
+        races: [],
+        origins: [
+          { id: 'streets', title: 'Дитя улиц', hint: 'вырос в Найт-Сити и не умер — уже успех' },
+          { id: 'exile', title: 'Бывший корпорат', hint: 'знаешь их схемы изнутри' },
+          { id: 'sailor', title: 'Дальнобойщик', hint: 'полстраны за спиной' }
+        ],
+        note: 'в этом мире раса не выбирается — выбирают роль и прошлое'
+      }
+    },
+    {
+      match: /wow|варкрафт|warcraft|азерот|azeroth|гильд|рейд/i,
+      profile: {
+        classLabel: 'Класс',
+        classes: [
+          { id: 'warrior', title: 'Воин', hint: 'щит, ярость, приказ держаться' },
+          { id: 'mage', title: 'Маг', hint: 'огонь, лёд и очень точный расчёт' },
+          { id: 'scholar', title: 'Жрец', hint: 'свет лечит, а тьма — убеждает' },
+          { id: 'rogue', title: 'Разбойник', hint: 'удар в спину честнее открытого боя' }
+        ],
+        races: [
+          { id: 'elder', title: 'Ночной эльф', hint: 'тень леса и бессмертная память' },
+          { id: 'stone', title: 'Дворф', hint: 'камень держит и тебя, и топор' },
+          { id: 'beast', title: 'Таурен', hint: 'сила земли и уважение к духам' },
+          { id: 'changed', title: 'Отрекшийся', hint: 'смерть не помешала планам' }
+        ],
+        origins: [
+          { id: 'soldier', title: 'Ветеран фракции', hint: 'война кончилась, привычка осталась' },
+          { id: 'lost', title: 'Изгнанник гильдии', hint: 'твоё имя вычеркнули из списка' }
+        ],
+        note: 'мир гильдий: класс и раса важны, происхождение — это твоя репутация'
+      }
+    },
+    {
+      match: /league of legends|лига легенд|рунтерра|runeterra|чемпион/i,
+      profile: {
+        classLabel: 'Путь',
+        classes: [
+          { id: 'warrior', title: 'Воин Рунтерры', hint: 'честь и дисциплина на поле' },
+          { id: 'mage', title: 'Одарённый маг', hint: 'дар опаснее любого клинка' },
+          { id: 'rogue', title: 'Плут из трущоб', hint: 'ни одна дверь не заперта' },
+          { id: 'diplomat', title: 'Дипломат Нации', hint: 'договор крепче пушки' }
+        ],
+        races: [],
+        origins: [
+          { id: 'lost', title: 'Выживший в войне', hint: 'у тебя свои счёты с обеими сторонами' },
+          { id: 'streets', title: 'Дитя улиц', hint: 'знаешь, кому что нужно' },
+          { id: 'soldier', title: 'Служил страже', hint: 'приказы ты больше не любишь' }
+        ],
+        note: 'в Рунтерре раса не выбирается — важны путь и прошлое'
+      }
+    },
+    {
+      match: /gta|гта|мафия|гангстер|город грехов|mob/i,
+      profile: {
+        classLabel: 'Роль',
+        classes: [
+          { id: 'rogue', title: 'Вор', hint: 'быстрые руки и никакого шума' },
+          { id: 'warrior', title: 'Боец', hint: 'решаешь вопросы кулаками и стволом' },
+          { id: 'diplomat', title: 'Связной', hint: 'тебя знают все, но никто не признаёт' },
+          { id: 'wanderer', title: 'Водила', hint: 'двигатель и никаких вопросов' }
+        ],
+        races: [],
+        origins: [
+          { id: 'streets', title: 'С улиц', hint: 'поднялся из самых низов' },
+          { id: 'soldier', title: 'Бывший полицейский', hint: 'знаешь систему изнутри' },
+          { id: 'exile', title: 'Не вернулся домой', hint: 'за тобой старые долги' }
+        ],
+        note: 'в этой истории раса не выбирается — важны роль и связи'
+      }
+    }
+  ];
+
+  /** Профиль героя по названию игры, если ИИ недоступен. null — если игра незнакомая. */
+  function offlineHeroProfile(cfg) {
+    if (!cfg) return null;
+    const hay = [cfg.gameName, cfg.title, cfg.genre, cfg.extra].filter(Boolean).join(' ');
+    if (!hay) return null;
+    for (const row of KNOWN_GAME_PROFILES) {
+      if (row.match.test(hay)) return heroProfileFromWorld(Object.assign({ fromAI: false }, row.profile));
+    }
+    return null;
+  }
+
   const SYSTEM_PROMPT = [
     'Ты — ведущий (гейм-мастер) текстовой ролевой игры на русском языке.',
     'Ты описываешь мир от второго лица, живо, конкретно, без воды и без пафоса.',
@@ -562,7 +870,10 @@
     '  "scene": "2–4 предложения описания сцены и последствий действия игрока",',
     '  "chapter": "название главы, 2–4 слова, если сменилась локация, иначе пустая строка",',
     '  "npc": "имя и одна деталь о персонаже, если появился, иначе пусто",',
-    '  "imagePrompt": "English prompt for an image generator: 8-14 words, location + light + mood, no text",',
+    '  "imagePrompt": "English prompt for an image generator, 10-18 words: место, свет, настроение, кто в кадре",',
+    '  "world": "только для первой сцены: 2–4 предложения о мире — где мы, как здесь всё устроено, чем живут люди",',
+    '  "backstory": "только для первой сцены: 3–5 предложений предыстории героя — откуда он, что потерял, почему он здесь",',
+    '  "plan": ["шаг плана 1", "шаг 2", "шаг 3"],',
     '  "options": [',
     '    {"text": "что делает игрок (1 предложение, от третьего лица)", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"}',
     '  ],',
@@ -571,7 +882,17 @@
     'Поле "stat" — проверяемая характеристика: str сила, agi ловкость, con телосложение, int разум, per восприятие, wit воля, cha харизма.',
     '"difficulty": easy — простое (dc 8), medium (dc 11), hard (dc 14), deadly (dc 17).',
     '"effects.hp" — целое число от -6 до +4, обычно 0. "effects.item" — короткое название предмета или пусто.',
-    'Пиши на русском, но "imagePrompt" — всегда на английском.'
+    'Пиши на русском, но "imagePrompt" — всегда на английском.',
+    '',
+    'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть те, кто участвует в сцене.',
+    'Всегда указывай героя (например: armored knight with a sword) и, если в сцене есть противники,',
+    'существа или заметные предметы — их тоже (two bandits, a wolf, a burning cart). Формат:',
+    '"место и погода, герой в кадре, кто ещё в сцене, свет и настроение". Без текста на картинке.',
+    '',
+    'ПРАВИЛА ДЛЯ ПЕРВОЙ СЦЕНЫ: не начинай с «ты в переулке, убей вора».',
+    'Сначала расскажи о мире (поле "world"), затем предысторию героя ("backstory"),',
+    'потом введи в текущую сцену ("scene") и наметь план отыгрыша ("plan", 3 шага).',
+    'Первые варианты действий должны вытекать из плана, а не быть случайной стычкой.'
   ].join('\n');
 
   function heroDescription(game) {
@@ -762,11 +1083,24 @@
       scene: String(sceneSrc).replace(/\s+/g, ' ').trim().slice(0, 900),
       chapter: typeof data.chapter === 'string' ? data.chapter.trim().slice(0, 60) : '',
       npc: typeof data.npc === 'string' ? data.npc.trim().slice(0, 120) : '',
+      world: typeof data.world === 'string' ? data.world.trim().slice(0, 900) : '',
+      backstory: typeof data.backstory === 'string' ? data.backstory.trim().slice(0, 900) : '',
+      plan: parsePlan(data.plan),
       imagePrompt: typeof imgPrompt === 'string' ? imgPrompt.trim().slice(0, 260) : '',
       options,
       effects,
       raw: data
     };
+  }
+
+  /** План отыгрыша: список шагов (из массива или из строки). */
+  function parsePlan(raw) {
+    const norm = v => String(v || '').replace(/^[-•\d.\s]+/, '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (Array.isArray(raw)) return raw.map(norm).filter(Boolean).slice(0, 4);
+    if (typeof raw === 'string' && raw.trim()) {
+      return raw.split(/\n|;|•/).map(norm).filter(Boolean).slice(0, 4);
+    }
+    return [];
   }
 
   /** Разбор ответа при создании мира (кастомный режим). */
@@ -781,6 +1115,10 @@
       ok: true,
       title,
       goal: typeof data.goal === 'string' ? data.goal.trim().slice(0, 200) : '',
+      world: typeof data.world === 'string' ? data.world.trim().slice(0, 900) : '',
+      backstory: typeof data.backstory === 'string' ? data.backstory.trim().slice(0, 900) : '',
+      plan: parsePlan(data.plan || data.arc || data.story),
+      hero: (data.hero && typeof data.hero === 'object') ? data.hero : null,
       opening,
       chapter: typeof data.chapter === 'string' ? data.chapter.trim().slice(0, 60) : 'Пролог',
       npc: typeof data.npc === 'string' ? data.npc.trim().slice(0, 120) : '',
@@ -1171,24 +1509,93 @@
     });
   }
 
-  function offlineOpening(game) {
+  /** Мир словами: чем он живёт, что здесь за порядок вещей. */
+  function offlineWorldIntro(game) {
     const s = scenarioById(game.scenarioId);
-    const episode = (game.worldConfig && (game.worldConfig.extra || game.worldConfig.genre)) || '';
+    const c = game.worldConfig || {};
+    const atm = ATMOSPHERE[game.scenarioId] || GENERIC_ATMOSPHERE;
+    const parts = [];
+    parts.push(`Мир: ${game.title || s.title}. ${c.genre || s.genre}.`);
+    if (c.tone) parts.push(`Тон — ${String(c.tone).toLowerCase()}: тут не объясняют дважды.`);
+    if (c.place) parts.push(`Начинается всё в «${c.place}» — и это место живёт по своим правилам.`);
+    if (c.ingredients && c.ingredients.length) {
+      parts.push(`Здесь есть ${c.ingredients.join(', ').toLowerCase()} — и всё это уже вписано в чью-то игру.`);
+    }
+    if (c.gameName) parts.push(`Правила и дух — как в игре «${c.gameName}»: узнаваемые места, лица и порядки.`);
+    else if (s.systemHint) parts.push(s.systemHint);
+    parts.push(rnd.pick(atm));
+    return parts.join(' ');
+  }
+
+  /** Предыстория героя: откуда он, что потерял, что несёт с собой. */
+  function offlineBackstory(game) {
+    const h = game.hero;
+    const o = originById(h.originId), r = raceById(h.raceId), c = classById(h.classId);
+    const parts = [];
+    parts.push(`${h.name} — ${String(h.raceName).toLowerCase()}, ${String(c.title).toLowerCase()}. ${c.blurb}`);
+    parts.push(o.hook);
+    parts.push(r.trait);
+    if (h.inventory.length) parts.push(`С собой — ${h.inventory.join(', ')}: немного, но это всё, что осталось.`);
+    parts.push(`Цель, которая привела сюда: ${game.goal || s0Goal(game)}`);
+    return parts.join(' ');
+  }
+  function s0Goal(game) {
+    const s = scenarioById(game.scenarioId);
+    return s.goal || 'разобраться, что здесь происходит';
+  }
+
+  /** План отыгрыша: три шага, а не «убей вора в переулке». */
+  function offlinePlan(game) {
+    const s = scenarioById(game.scenarioId);
+    const c = game.worldConfig || {};
+    const place = c.place || s.title;
+    const goal = game.goal || s.goal || 'понять, что здесь происходит';
+    return [
+      `Осмотреться в «${place}»: кто здесь главный, кто на тебя смотрит и что тут считается нормой.`,
+      `Взяться за первое звено: ${goal.charAt(0).toLowerCase() + goal.slice(1)}.`,
+      `Найти союзника или рычаг: в одиночку эта история не развяжется.`
+    ];
+  }
+
+  /** Первая сцена: для готовых миров — авторское вступление, для своих — сборка по настройкам. */
+  function offlineScene(game, beat) {
+    const s = scenarioById(game.scenarioId);
+    if (s.opening) return s.opening;
+    const c = game.worldConfig || {};
+    const bits = [];
+    if (c.place) {
+      bits.push(`«${c.place}» встречает тебя без предупреждения.`);
+    } else if (c.genre) {
+      bits.push(`${c.genre} — и ты уже внутри этой истории.`);
+    } else {
+      bits.push('Мир открывается без предупреждения: ни карты, ни имени, ни запасного выхода.');
+    }
+    if (c.ingredients && c.ingredients.length) {
+      bits.push(`Первое, что бросается в глаза: ${c.ingredients.slice(0, 3).join(', ').toLowerCase()}.`);
+    }
+    if (c.extra) bits.push(c.extra);
+    if (game.goal) bits.push(`Цель, которую ты держишь в голове: ${game.goal}.`);
+    return bits.join(' ') + ' ' + beat.text;
+  }
+
+  function offlineOpening(game) {
     const beat = storyBeat(game.scenarioId, 0);
     game.offlineBeat = 0;
-    const intro = s.opening || `Мир открывается без предупреждения: ${game.goal || 'цель пока неясна'}. ${episode}`;
+    const scene = offlineScene(game, beat);
     return {
       ok: true, offline: true,
-      scene: intro + ' ' + beat.text,
+      world: offlineWorldIntro(game),
+      backstory: offlineBackstory(game),
+      plan: offlinePlan(game),
+      scene: scene + ' ' + beat.text,
       chapter: 'Пролог',
       npc: '',
-      imagePrompt: (game.worldConfig && game.worldConfig.gameName)
-        ? (s.title + ', ' + game.worldConfig.gameName).slice(0, 120)
-        : s.imagePrompts[0],
+      imagePrompt: composeSceneImagePrompt(game, { sceneText: scene }),
       options: storyOptions(beat, game.worldConfig && game.worldConfig.danger),
       effects: { hp: 0, item: '', goal: false }
     };
   }
+
 
   function offlineTurn(game, action, check) {
     const s = scenarioById(game.scenarioId);
@@ -1232,12 +1639,16 @@
       options = storyOptions(nextBeat, danger);
     }
     game.offlineBeat = nextIndex;
+    const scene = lines.filter(Boolean).join(' ');
     return {
       ok: true, offline: true,
-      scene: lines.filter(Boolean).join(' '),
+      scene,
       chapter: index === 0 ? 'Глава I' : (index === 2 ? 'Глава II' : (beat.final ? 'Финал' : '')),
       npc: '',
-      imagePrompt: s.imagePrompts[index % s.imagePrompts.length],
+      imagePrompt: composeSceneImagePrompt(game, {
+        aiPrompt: s.imagePrompts[index % s.imagePrompts.length],
+        sceneText: scene
+      }),
       options,
       effects
     };
@@ -1451,6 +1862,8 @@
     SCENARIOS, GAME_WORLDS, CUSTOM_SCENARIO, STORY, GENERIC_STORY,
     SAVE_PREFIX, INDEX_KEY, SETTINGS_KEY, WORLDS_KEY,
     rnd, statById, classById, abilityById, raceById, originById, raceFlavor,
+    CLASS_ART, RACE_ART, heroArtTag, defaultHeroProfile, heroProfileFromWorld, matchOptions,
+    KNOWN_GAME_PROFILES, offlineHeroProfile,
     makeStats, maxHpFor, makeAbility,
     difficultyById, difficultyForDc, shiftDc, rollDie, rollD20, successChance, resolveCheck,
     scenarioById, randomScenarioSet, emptyWorldConfig, buildWorldPrompt, sceneKindFromText,
@@ -1458,7 +1871,8 @@
     SYSTEM_PROMPT, buildTurnPrompt, worldDescription, heroDescription, summarizeLog,
     buildImageUrl, fallbackImagePrompt,
     extractJsonObject, parseGmResponse, parseWorldResponse, sanitizeOption,
-    offlineTurn, offlineOpening, storyOptions, useAbility, tickCooldowns,
+    offlineTurn, offlineOpening, offlineScene, offlineWorldIntro, offlineBackstory, offlinePlan,
+    sceneActors, composeSceneImagePrompt, parsePlan, storyOptions, useAbility, tickCooldowns,
     applyEffects, pushLog, createStorage, migrate, probabilityLabel, OUTCOME_LABEL,
     storyFor, storyBeat, ATMOSPHERE, GENERIC_ATMOSPHERE
   };

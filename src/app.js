@@ -172,6 +172,9 @@
     game: null,
     scenarioSet: [],
     pickedScenario: null,
+    heroProfile: null,         // какие шаги создания героя показывать (для «своей игры» — от ИИ)
+    pendingWorld: null,        // мир, собранный ИИ до выбора героя
+    prologueOpen: false,
     worldMode: 'random',
     draftWorld: null,
     draft: { name: '', classId: 'warrior', raceId: 'human', originId: 'streets' },
@@ -296,19 +299,61 @@
     E.GAME_WORLDS.filter(w => !w.customGame).forEach((w, i) => list.appendChild(scenarioCard(w, i, pickScenario)));
   }
 
+  /**
+   * «Своя игра» / свой мир: до выбора героя просим мастера собрать мир.
+   * Из ответа берём не только название и цель, но и то, какие шаги
+   * создания героя вообще уместны в этой игре (раса, происхождение, классы).
+   */
+  async function prepareCustomWorld() {
+    const base = State.pickedScenario || E.CUSTOM_SCENARIO;
+    const draft = E.createGame({
+      scenarioId: base.id,
+      heroName: 'Герой',
+      classId: E.CLASSES[0].id,
+      raceId: E.RACES[0].id,
+      originId: E.ORIGINS[0].id,
+      worldConfig: State.draftWorld || E.emptyWorldConfig()
+    });
+    State.pendingWorld = null;
+    showLoading('Мастер изучает мир…', (State.draftWorld && State.draftWorld.gameName) || 'Подбираем героя под эту игру');
+    const turn = await API.generateWorld(draft, { onStatus: statusHook() });
+    hideLoading();
+    State.pendingWorld = turn;
+    State.heroProfile = turn.hero
+      ? E.heroProfileFromWorld(turn.hero)
+      : E.defaultHeroProfile(turn.offline
+        ? 'Мастер сейчас недоступен: шаги героя открыты полностью.'
+        : 'В этом мире мастер оставил все шаги: выбирай свободно.');
+    if (State.heroProfile.classes.length) State.draft.classId = State.heroProfile.classes[0].id;
+    if (State.heroProfile.showRace) State.draft.raceId = State.heroProfile.races[0].id;
+    if (State.heroProfile.showOrigin) State.draft.originId = State.heroProfile.origins[0].id;
+    openHero();
+  }
+
   function pickScenario(s) {
     State.pickedScenario = s;
+    State.pendingWorld = null;
+    State.heroProfile = E.defaultHeroProfile();
     // для «своей игры» берём текст из поля
     if (s.customGame) {
       const name = $('#own-game-input').value.trim();
+      if (!name) { notify('Впишите название игры', { kind: 'warn' }); return; }
       State.draftWorld = Object.assign(E.emptyWorldConfig(), {
-        gameName: name || 'Своя игра',
+        gameName: name,
+        genre: 'По игре «' + name + '»',
         danger: 'normal',
-        extra: name ? '' : 'Придумай мир сам, но сделай его узнаваемым и цельным.'
+        extra: 'Держи узнаваемые черты этой игры: её мир, лексику, персонажей-архетипы и правила. ' +
+               'Создание героя подгони под эту игру: лишние шаги убери пустым массивом.'
       });
-      if (!name) {
-        notify('Название игры пустое — ИИ придумает мир сам', { kind: 'warn' });
-      }
+      Sound.tap();
+      State.busy = true;
+      prepareCustomWorld().catch(() => {
+        hideLoading();
+        State.busy = false;
+        State.heroProfile = E.defaultHeroProfile();
+        openHero();
+      });
+      return;
     }
     Sound.tap();
     openHero();
@@ -438,7 +483,13 @@
     State.pickedScenario = E.CUSTOM_SCENARIO;
     if (cfg.title) State.pickedScenario = Object.assign({}, E.CUSTOM_SCENARIO, { title: 'Свой мир: ' + cfg.title });
     Sound.tap();
-    openHero();
+    State.busy = true;
+    prepareCustomWorld().catch(() => {
+      hideLoading();
+      State.busy = false;
+      State.heroProfile = E.defaultHeroProfile();
+      openHero();
+    });
   }
 
   function startOwnGame() {
@@ -450,10 +501,17 @@
       gameName: name,
       genre: 'По игре «' + name + '»',
       danger: 'normal',
-      extra: 'Держи узнаваемые черты этой игры: её мир, лексику, персонажей-архетипы и правила.'
+      extra: 'Держи узнаваемые черты этой игры: её мир, лексику, персонажей-архетипы и правила. ' +
+             'Создание героя подгони под эту игру: лишние шаги убери пустым массивом.'
     });
     Sound.tap();
-    openHero();
+    State.busy = true;
+    prepareCustomWorld().catch(() => {
+      hideLoading();
+      State.busy = false;
+      State.heroProfile = E.defaultHeroProfile();
+      openHero();
+    });
   }
 
   /* ---------------------------------------------------------- */
@@ -462,8 +520,11 @@
   function heroBannerScenario() {
     const s = State.pickedScenario || E.SCENARIOS[0];
     const cfg = State.draftWorld;
-    const title = (cfg && cfg.gameName) ? cfg.gameName : ((cfg && cfg.title) ? cfg.title : s.title);
-    const goal = (cfg && cfg.goal) ? cfg.goal : (s.goal || 'цель определит ИИ-мастер');
+    // мир мог быть собран ещё до выбора героя: тогда название и цель уже известны
+    const pending = (State.pendingWorld && typeof State.pendingWorld === 'object') ? State.pendingWorld : {};
+    const title = (cfg && cfg.gameName) ? cfg.gameName
+      : ((cfg && cfg.title) ? cfg.title : (pending.title || s.title));
+    const goal = (cfg && cfg.goal) || pending.goal || s.goal || 'цель определит ИИ-мастер';
     return { cover: s.cover, title, goal, icon: s.icon };
   }
 
@@ -477,6 +538,7 @@
     ]));
     if (!State.draft.name) State.draft.name = randomName();
     $('#hero-name').value = State.draft.name;
+    applyProfileToForm();
     renderClassList();
     renderRaceList();
     renderOriginList();
@@ -484,9 +546,34 @@
     show('hero');
   }
 
+  /** Текущий профиль создания героя (обычный мир — все шаги). */
+  function heroProfile() {
+    if (!State.heroProfile) State.heroProfile = E.defaultHeroProfile();
+    return State.heroProfile;
+  }
+
+  function applyProfileToForm() {
+    const p = heroProfile();
+    $('#label-class').textContent = p.classLabel;
+    $('#label-race').textContent = p.raceLabel;
+    $('#label-origin').textContent = p.originLabel;
+    $('#section-class').hidden = !p.showClass;
+    $('#section-race').hidden = !p.showRace;
+    $('#section-origin').hidden = !p.showOrigin;
+    const note = $('#hero-profile-note');
+    note.textContent = p.note ? '🧠 Мастер: ' + p.note : '';
+    note.hidden = !p.note;
+    // если вариант один — выбираем его сами
+    if (p.classes.length === 1) State.draft.classId = p.classes[0].id;
+    if (p.showRace && p.races.length === 1) State.draft.raceId = p.races[0].id;
+    if (p.showOrigin && p.origins.length === 1) State.draft.originId = p.origins[0].id;
+    if (!p.showRace && State.draft.raceId === null) State.draft.raceId = p.races[0].id;
+    if (!p.showOrigin && State.draft.originId === null) State.draft.originId = p.origins[0].id;
+  }
+
   function renderClassList() {
     const wrap = clear($('#class-list'));
-    E.CLASSES.forEach(c => {
+    heroProfile().classes.forEach(c => {
       const active = c.id === State.draft.classId;
       const bonus = E.STAT_IDS.filter(id => c.bonus[id]).map(id => E.statById(id).name + ' ' + (c.bonus[id] > 0 ? '+' : '') + c.bonus[id]);
       const ability = E.abilityById(c.ability);
@@ -497,7 +584,7 @@
         h('span', { class: 'arch-card__icon', text: c.icon }),
         h('span', { class: 'arch-card__main' }, [
           h('span', { class: 'arch-card__title', text: c.title }),
-          h('span', { class: 'arch-card__blurb', text: c.blurb }),
+          h('span', { class: 'arch-card__blurb', text: c.hint || c.blurb }),
           h('span', { class: 'arch-card__ability', text: ability.icon + ' ' + ability.name + ' — ' + ability.desc })
         ]),
         h('span', { class: 'arch-card__bonus', text: bonus.join(' · ') })
@@ -508,14 +595,14 @@
   function renderRaceList() {
     const wrap = clear($('#race-list'));
     const setting = (State.pickedScenario || E.SCENARIOS[0]).setting;
-    E.RACES.forEach(r => {
+    heroProfile().races.forEach(r => {
       const active = r.id === State.draft.raceId;
       wrap.appendChild(h('button', {
         class: 'chip chip--tall' + (active ? ' is-on' : ''), type: 'button',
         onclick: () => { State.draft.raceId = r.id; Sound.tap(); renderRaceList(); renderStatPreview(); }
       }, [
         h('span', { class: 'chip__title', text: r.icon + ' ' + r.title }),
-        h('span', { class: 'chip__sub', text: E.raceFlavor(r, setting) })
+        h('span', { class: 'chip__sub', text: r.hint || E.raceFlavor(r, setting) })
       ]));
     });
     const race = E.raceById(State.draft.raceId);
@@ -524,7 +611,7 @@
 
   function renderOriginList() {
     const wrap = clear($('#origin-list'));
-    E.ORIGINS.forEach(o => {
+    heroProfile().origins.forEach(o => {
       const active = o.id === State.draft.originId;
       const bonus = E.STAT_IDS.filter(id => o.bonus[id]).map(id => E.statById(id).short + ' +' + o.bonus[id]);
       wrap.appendChild(h('button', {
@@ -534,7 +621,7 @@
         h('span', { class: 'arch-card__icon', text: o.icon }),
         h('span', { class: 'arch-card__main' }, [
           h('span', { class: 'arch-card__title', text: o.title }),
-          h('span', { class: 'arch-card__blurb', text: o.hook })
+          h('span', { class: 'arch-card__blurb', text: o.hint || o.hook })
         ]),
         h('span', { class: 'arch-card__bonus', text: bonus.join(' · ') + ' · ' + o.item })
       ]));
@@ -587,7 +674,30 @@
     State.game = game;
     State.storage.save(game);
     Sound.tap();
+    if (isWorldBuilding && State.pendingWorld) {
+      // мир уже собран, пока игрок выбирал героя — не гоняем ИИ второй раз
+      const ready = State.pendingWorld;
+      State.pendingWorld = null;
+      show('game');
+      State.busy = false;
+      renderGameTop();
+      renderActions(null, true);
+      paintBackdrop(null, '');
+      applyPendingWorld(ready);
+      return;
+    }
     openGame(game, true, isWorldBuilding);
+  }
+
+  /** Применяем заранее собранный мир (вступление + первая сцена). */
+  function applyPendingWorld(turn) {
+    const g = State.game;
+    if (turn.title) { g.title = turn.title; g.scenarioTitle = turn.title; }
+    if (turn.goal) g.goal = turn.goal;
+    if (turn.world || turn.backstory || (turn.plan && turn.plan.length)) {
+      g.intro = { world: turn.world || '', backstory: turn.backstory || '', plan: turn.plan || [] };
+    }
+    applyTurn(turn, null, true, false);
   }
 
   /* ---------------------------------------------------------- */
@@ -598,6 +708,7 @@
     State.busy = false;
     show('game');
     renderGameTop();
+    renderIntro(game.intro);
     renderSceneText(game.scene ? game.scene.text : '');
     const savedOptions = game.scene && game.scene.options;
     renderActions(savedOptions, !(savedOptions && savedOptions.length));
@@ -633,6 +744,57 @@
 
   /* --- текст сцены --- */
   let typingTimer = null;
+  /** Вступление: о мире, предыстория героя, план отыгрыша и вход в сцену. */
+  function renderIntro(intro) {
+    const btn = $('#prologue-btn');
+    const data = intro || (State.game && State.game.intro) || null;
+    const has = !!(data && (data.world || data.backstory || (data.plan && data.plan.length)));
+    if (btn) btn.hidden = !has;
+    if (!has) return;
+    const world = $('#intro-world'), back = $('#intro-back'), plan = $('#intro-plan');
+    world.hidden = !data.world;
+    if (data.world) $('#intro-world-text').textContent = data.world;
+    back.hidden = !data.backstory;
+    if (data.backstory) $('#intro-back-text').textContent = data.backstory;
+    const steps = data.plan || [];
+    plan.hidden = !steps.length;
+    const list = clear($('#intro-plan-list'));
+    steps.forEach(step => list.appendChild(h('li', { text: step })));
+    const sceneCard = $('#intro-scene');
+    const firstScene = data.scene || (State.game && State.game.scene && State.game.scene.text) || '';
+    if (sceneCard) {
+      sceneCard.hidden = !firstScene;
+      if (firstScene) $('#intro-scene-text').textContent = firstScene;
+    }
+  }
+
+  /** Пролог: показываем один раз на старте, дальше он доступен кнопкой. */
+  function openPrologue() {
+    const box = $('#prologue');
+    const data = (State.game && State.game.intro) || null;
+    if (!box || !data || !box.hidden) return;
+    renderIntro(data);
+    box.hidden = false;
+    State.prologueOpen = true;
+  }
+
+  function closePrologue() {
+    const box = $('#prologue');
+    if (!box || box.hidden) return;
+    box.hidden = true;
+    State.prologueOpen = false;
+    if (State.game) {
+      State.game.introSeen = true;
+      State.storage.save(State.game);
+    }
+    const panel = $('#panel');
+    if (panel) panel.scrollTop = 0;
+  }
+
+  /**
+   * Печать текста мастера: не рывками, а волной — примерно 22 мс на знак.
+   * Тап по тексту показывает его целиком, если ждать не хочется.
+   */
   function renderSceneText(text, opts) {
     const o = Object.assign({ typewriter: false }, opts || {});
     const box = $('#scene-text');
@@ -641,17 +803,28 @@
     const p = h('div', { class: 'scene-text__body', html: formatText(text || '') });
     box.appendChild(p);
     $('#panel').scrollTop = 0;
-    if (o.typewriter && text) {
+    // пока открыт пролог, панель не прокручиваем — игрок читает вступление
+    const keepTop = !!State.prologueOpen;
+    const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (o.typewriter && text && !reduce) {
       const full = formatText(text);
+      const total = Math.min(9000, Math.max(2600, full.length * 24));   // спокойная скорость
+      const tick = 40;
+      const step = Math.max(1, Math.ceil(full.length / (total / tick)));
       let i = 0;
       p.innerHTML = '';
-      const step = Math.max(1, Math.round(full.length / 90));
+      const finish = () => {
+        if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
+        p.innerHTML = full;
+      };
+      p.title = 'Нажмите, чтобы показать текст целиком';
+      p.onclick = finish;
       typingTimer = setInterval(() => {
         i += step;
         p.innerHTML = full.slice(0, i);
-        if (i >= full.length) { clearInterval(typingTimer); typingTimer = null; p.innerHTML = full; }
-        $('#panel').scrollTop = $('#panel').scrollHeight;
-      }, 16);
+        if (i >= full.length) { finish(); return; }
+        if (!keepTop) $('#panel').scrollTop = $('#panel').scrollHeight;
+      }, tick);
     } else {
       $('#panel').scrollTop = 0;
     }
@@ -701,10 +874,14 @@
       ]));
     }
     if (loading || !options || !options.length) {
-      wrap.appendChild(h('div', { class: 'actions__loading' }, [
-        h('span', { class: 'spinner' }),
-        h('span', { text: 'Мастер придумывает варианты…' })
-      ]));
+      // заготовки кнопок: видно, где появятся варианты, и низ не пустует
+      const placeholders = Math.max(3, (options && options.length) || 3);
+      for (let i = 0; i < placeholders; i++) {
+        wrap.appendChild(h('div', { class: 'action-btn action-btn--ghost', 'aria-hidden': 'true' }, [
+          h('span', { class: 'ghost-line ghost-line--wide' }),
+          h('span', { class: 'ghost-line ghost-line--narrow' })
+        ]));
+      }
       return;
     }
     options.forEach(opt => {
@@ -732,16 +909,33 @@
   }
 
   /* --- мгновенный фон + догрузка ИИ-картинки --- */
+  /**
+   * Мгновенный фон: тип местности + кто в кадре.
+   * Силуэты героя, противников и предметов берём прямо из текста сцены,
+   * чтобы картинка совпадала с тем, что рассказывает мастер.
+   */
   function paintBackdrop(prompt, sceneText) {
     const g = State.game;
     if (!g || !Backdrop) return;
     const s = E.scenarioById(g.scenarioId);
-    const kind = E.sceneKindFromText((prompt || '') + ' ' + (sceneText || '') + ' ' + (g.goal || ''));
+    const narration = [sceneText, prompt, g.scene && g.scene.npc, g.goal].filter(Boolean).join(' ');
+    const kind = E.sceneKindFromText(narration);
+    const actors = Object.assign(E.sceneActors(narration), {
+      hero: { shape: 'human', weapon: heroBackdropWeapon(g), shield: g.hero.classId === 'warrior' }
+    });
     State.backdropSeed = E.rnd.seed();
     try {
-      Backdrop.draw($('#scene-canvas'), { kind, palette: s.palette, seed: State.backdropSeed });
-      $('#scene-canvas').dataset.kind = kind;
+      Backdrop.draw($('#scene-canvas'), { kind, palette: s.palette, seed: State.backdropSeed, actors });
+      const canvas = $('#scene-canvas');
+      canvas.dataset.kind = kind;
+      canvas.dataset.enemies = actors.enemies.join(',');
     } catch (e) { /* canvas может быть недоступен — не критично */ }
+  }
+
+  /** Оружие героя для силуэта: у каждого класса своё. */
+  function heroBackdropWeapon(g) {
+    const byClass = { warrior: 'sword', rogue: 'shield', scholar: 'staff', mage: 'staff', wanderer: 'bow', diplomat: 'sword' };
+    return byClass[g.hero.classId] || 'sword';
   }
 
   function setSceneStatus(text, done) {
@@ -771,7 +965,12 @@
     const g = State.game;
     if (!g) return;
     const s = E.scenarioById(g.scenarioId);
-    const used = prompt || E.fallbackImagePrompt(g, action && action.text);
+    const used = E.composeSceneImagePrompt(g, {
+      aiPrompt: prompt,
+      sceneText: (g.scene && g.scene.text) || '',
+      npc: g.scene && g.scene.npc,
+      action
+    });
     if (!silent) setSceneStatus('рисуем сцену…');
     $('#scene-badge').textContent = 'фон рисуется';
     $('#scene-badge').hidden = false;
@@ -917,17 +1116,26 @@
     direct: 'Мастер описывает последствия…'
   }[kind] || 'Мастер описывает последствия…');
 
-  function setActionsLoading(text) {
-    const wrap = clear($('#actions'));
-    wrap.appendChild(h('div', { class: 'actions__loading' }, [
-      h('span', { class: 'spinner' }), h('span', { text })
-    ]));
+  /** «Мастер думает» показываем в шапке рядом с названием игры. */
+  function setTurnStatus(text) {
+    const box = $('#game-status');
+    if (!box) return;
+    const label = $('#game-status-text');
+    if (text) {
+      label.textContent = text;
+      box.hidden = false;
+    } else {
+      box.hidden = true;
+    }
   }
 
-  const statusHook = () => kind => {
-    const el = $('#actions .actions__loading span:last-child');
-    if (el) el.textContent = statusText(kind);
-  };
+  /** Пока ждём ответ, внизу стоят «заготовки» будущих кнопок. */
+  function setActionsLoading(text) {
+    setTurnStatus(text || 'Мастер думает…');
+    renderActions(null, true);
+  }
+
+  const statusHook = () => kind => setTurnStatus(statusText(kind));
 
   /** Сборка своего мира / своей игры: ИИ придумывает название, цель и первую сцену. */
   async function buildWorldThenStart() {
@@ -1006,11 +1214,16 @@
       notes: notes,
       offline: !!turn.offline
     });
+    if (turn.world || turn.backstory || (turn.plan && turn.plan.length)) {
+      g.intro = { world: turn.world || '', backstory: turn.backstory || '', plan: turn.plan || [] };
+    }
     g.scene = {
       text: turn.scene,
       options: turn.options,
       npc: turn.npc || '',
-      imagePrompt: turn.imagePrompt || E.fallbackImagePrompt(g, action && action.text),
+      imagePrompt: turn.imagePrompt || E.composeSceneImagePrompt(g, {
+        sceneText: turn.scene, npc: turn.npc, action
+      }),
       image: g.scene && g.scene.image ? g.scene.image : '',
       imageSource: g.scene && g.scene.imageSource ? g.scene.imageSource : ''
     };
@@ -1018,8 +1231,12 @@
     if (!isWorldBuild) E.tickCooldowns(g);
     State.storage.save(g);
     State.busy = false;
+    setTurnStatus('');
     renderGameTop();
     renderLog();
+    renderIntro(g.intro);
+    // первая сцена открывается прологом: сначала мир, потом предыстория, потом сцена и план
+    if (g.intro && !g.introSeen && !State.prologueOpen) openPrologue();
     renderSceneText(turn.scene, { typewriter: true });
     const npcEl = $('#scene-npc');
     if (turn.npc) { npcEl.textContent = '👤 ' + turn.npc; npcEl.hidden = false; }
@@ -1133,6 +1350,8 @@
           State.storage.save(g);
           closeModal();
           State.game = null;
+          State.busy = false;
+          setTurnStatus('');
           show('menu');
           toast('Игра сохранена в «Мои игры»', { kind: 'good' });
         }
@@ -1372,6 +1591,8 @@
         case 'start-own-game': startOwnGame(); break;
         case 'start-adventure': startAdventure(); break;
         case 'close-game': confirmCloseGame(); break;
+        case 'open-prologue': Sound.tap(); openPrologue(); break;
+        case 'close-prologue': Sound.tap(); closePrologue(); break;
         case 'reload-image': Sound.tap(); loadSceneImage(State.game && State.game.scene && State.game.scene.imagePrompt, null, false); break;
         case 'open-hero': openHeroSheet(); break;
         case 'random-name':
@@ -1407,7 +1628,12 @@
     // клавиши: 1/2/3 — вариант, U — умение, Esc — закрыть диалог
     document.addEventListener('keydown', ev => {
       if (document.body.dataset.screen !== 'game') return;
-      if (ev.key === 'Escape') { if (!$('#modal').hidden) closeModal(); return; }
+      if (ev.key === 'Escape') {
+        if (!$('#modal').hidden) { closeModal(); return; }
+        if (State.prologueOpen) { closePrologue(); return; }
+        return;
+      }
+      if (State.prologueOpen) return;
       if (ev.key.toLowerCase() === 'u' || ev.key.toLowerCase() === 'г') { onUseAbility(); return; }
       const index = ['1', '2', '3', '4'].indexOf(ev.key);
       if (index === -1 || State.busy) return;

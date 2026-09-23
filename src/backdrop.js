@@ -342,6 +342,14 @@
 
     (PARTICLES[KIND_PARTICLES[kind] || 'none'])(ctx, w, h, rng);
 
+    // кто в кадре: герой, противники и предметы окружения из текущей сцены.
+    // Перед ними приглушаем фон, чтобы фигуры читались с первого взгляда.
+    if (o.actors) {
+      ctx.fillStyle = rgba(col.sky, 0.34);
+      ctx.fillRect(0, 0, w, h);
+      drawActors(ctx, w, h, rng, col, o.actors);
+    }
+
     // винетка и зерно
     const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 1.05);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
@@ -367,5 +375,452 @@
     return c.toDataURL('image/jpeg', 0.8);
   }
 
-  return { draw, toDataUrl, makeRng, mix, shift, rgba, hexToRgb, KIND_PARTICLES, SILHOUETTES };
+  /* ---------------------------------------------------------- */
+  /* Действующие лица: силуэты героя, врагов и предметов сцены   */
+  /* Рисуются в фоне сцены, чтобы картинка совпадала с рассказом  */
+  /* ---------------------------------------------------------- */
+  function limb(ctx, x, y, w, h, dx, dy) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + dx, y + dy);
+    ctx.lineTo(x + dx + w, y + dy);
+    ctx.lineTo(x + w, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** Человекоподобная фигура: x — центр, y — ступни, s — рост в пикселях. */
+  function drawHuman(ctx, x, y, s, opts) {
+    const o = opts || {};
+    const w = s * 0.30;
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    // голова
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.87, s * 0.10, 0, Math.PI * 2);
+    ctx.fill();
+    // корпус
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -s * 0.74);
+    ctx.lineTo(w * 0.5, -s * 0.74);
+    ctx.lineTo(w * 0.62, -s * 0.40);
+    ctx.lineTo(-w * 0.62, -s * 0.40);
+    ctx.closePath();
+    ctx.fill();
+    // ноги в шаге
+    limb(ctx, -w * 0.42, -s * 0.42, w * 0.26, s * 0.42, -s * 0.05, 0);
+    limb(ctx, w * 0.16, -s * 0.42, w * 0.26, s * 0.42, s * 0.06, 0);
+    // руки: поднятая (с оружием) и опущенная
+    limb(ctx, -w * 0.5, -s * 0.72, w * 0.20, s * 0.30, -s * 0.10, s * 0.04);
+    limb(ctx, w * 0.34, -s * 0.72, w * 0.20, s * 0.28, s * 0.05, 0);
+    if (o.weapon === 'sword') {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1.5, s * 0.045);
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.78, -s * 0.72);
+      ctx.lineTo(-w * 0.9, -s * 1.02);
+      ctx.stroke();
+      ctx.restore();
+    } else if (o.weapon === 'staff') {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1.5, s * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.72, -s * 0.66);
+      ctx.lineTo(-w * 0.72, -s * 1.05);
+      ctx.stroke();
+      ctx.restore();
+    } else if (o.weapon === 'bow') {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1.2, s * 0.03);
+      ctx.beginPath();
+      ctx.arc(-w * 0.7, -s * 0.62, s * 0.16, -Math.PI * 0.7, Math.PI * 0.7);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (o.shield) {
+      ctx.beginPath();
+      ctx.ellipse(w * 0.5, -s * 0.5, s * 0.07, s * 0.11, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (o.cloak) {
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.4, -s * 0.72);
+      ctx.lineTo(-w * 1.0, -s * 0.28);
+      ctx.lineTo(-w * 0.34, -s * 0.32);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Зверь на четырёх лапах. */
+  function drawBeast(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const bw = s * 0.5;
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.46, bw * 0.5, s * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // лапы
+    limb(ctx, -bw * 0.36, -s * 0.46, s * 0.055, s * 0.46, -s * 0.03, 0);
+    limb(ctx, -bw * 0.1, -s * 0.46, s * 0.055, s * 0.46, -s * 0.02, 0);
+    limb(ctx, bw * 0.18, -s * 0.46, s * 0.055, s * 0.46, 0, 0);
+    limb(ctx, bw * 0.4, -s * 0.46, s * 0.055, s * 0.46, s * 0.02, 0);
+    // шея, голова и морда
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.3, -s * 0.52);
+    ctx.lineTo(bw * 0.56, -s * 0.62);
+    ctx.lineTo(bw * 0.56, -s * 0.5);
+    ctx.lineTo(bw * 0.28, -s * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(bw * 0.58, -s * 0.62, s * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.66, -s * 0.68);
+    ctx.lineTo(bw * 0.78, -s * 0.58);
+    ctx.lineTo(bw * 0.62, -s * 0.53);
+    ctx.closePath();
+    ctx.fill();
+    // уши и хвост
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.5, -s * 0.7);
+    ctx.lineTo(bw * 0.55, -s * 0.84);
+    ctx.lineTo(bw * 0.64, -s * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-bw * 0.5, -s * 0.55);
+    ctx.quadraticCurveTo(-bw * 0.8, -s * 0.5, -bw * 0.76, -s * 0.78);
+    ctx.lineWidth = Math.max(1.5, s * 0.05);
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Громила: широкий, рогатый, с когтями. */
+  function drawMonster(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const w = s * 0.44;
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -s * 0.28);
+    ctx.lineTo(-w * 0.62, -s * 0.78);
+    ctx.lineTo(w * 0.62, -s * 0.78);
+    ctx.lineTo(w * 0.5, -s * 0.28);
+    ctx.closePath();
+    ctx.fill();
+    limb(ctx, -w * 0.46, -s * 0.3, w * 0.32, s * 0.3, -s * 0.03, 0);
+    limb(ctx, w * 0.14, -s * 0.3, w * 0.32, s * 0.3, s * 0.03, 0);
+    limb(ctx, -w * 0.6, -s * 0.74, w * 0.26, s * 0.42, -s * 0.06, s * 0.06);
+    limb(ctx, w * 0.36, -s * 0.74, w * 0.26, s * 0.42, s * 0.06, s * 0.06);
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.86, s * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+    // рога
+    [-1, 1].forEach(side => {
+      ctx.beginPath();
+      ctx.moveTo(side * s * 0.09, -s * 0.92);
+      ctx.lineTo(side * s * 0.2, -s * 1.06);
+      ctx.lineTo(side * s * 0.04, -s * 0.95);
+      ctx.closePath();
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  /** Нежить: скрюченная фигура с поднятыми руками. */
+  function drawUndead(ctx, x, y, s, opts) {
+    const o = Object.assign({}, opts, { armsUp: true });
+    ctx.save();
+    ctx.translate(0, 0);
+    drawHuman(ctx, x, y, s, o);
+    ctx.restore();
+  }
+
+  /** Машина: коробка с антенной и гусеницами. */
+  function drawConstruct(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const w = s * 0.36;
+    ctx.fillRect(-w / 2, -s * 1.14, w, s * 0.38);            // голова
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.6, -s * 0.74);
+    ctx.lineTo(w * 0.6, -s * 0.74);
+    ctx.lineTo(w * 0.5, -s * 0.3);
+    ctx.lineTo(-w * 0.5, -s * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(-w * 0.62, -s * 0.3, w * 1.24, s * 0.18);    // гусеницы
+    ctx.fillRect(w * 0.3, -s * 1.2, w * 0.06, s * 0.12);      // антенна
+    ctx.restore();
+  }
+
+  /** Дракон: длинная шея, крылья, хвост. */
+  function drawDragon(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const bw = s * 0.5;
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.5, bw * 0.5, s * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();                                          // шея
+    ctx.moveTo(bw * 0.34, -s * 0.62);
+    ctx.lineTo(bw * 0.54, -s * 0.62);
+    ctx.lineTo(bw * 0.72, -s * 0.92);
+    ctx.lineTo(bw * 0.52, -s * 0.94);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();                                          // голова
+    ctx.arc(bw * 0.62, -s * 0.98, s * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();                                          // крыло
+    ctx.moveTo(-bw * 0.2, -s * 0.64);
+    ctx.lineTo(-bw * 0.52, -s * 0.98);
+    ctx.lineTo(bw * 0.06, -s * 0.94);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();                                          // рог
+    ctx.moveTo(bw * 0.66, -s * 1.04);
+    ctx.lineTo(bw * 0.78, -s * 1.14);
+    ctx.lineTo(bw * 0.6, -s * 1.0);
+    ctx.closePath();
+    ctx.fill();
+    limb(ctx, -bw * 0.32, -s * 0.5, s * 0.08, s * 0.5, -s * 0.03, 0);
+    limb(ctx, bw * 0.18, -s * 0.5, s * 0.08, s * 0.5, s * 0.03, 0);
+    ctx.beginPath();                                          // хвост
+    ctx.moveTo(-bw * 0.46, -s * 0.56);
+    ctx.quadraticCurveTo(-bw * 0.9, -s * 0.5, -bw * 0.84, -s * 0.82);
+    ctx.lineWidth = Math.max(2, s * 0.07);
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const ACTOR_SHAPES = {
+    human: drawHuman,
+    soldier: (ctx, x, y, s, o) => drawHuman(ctx, x, y, s, Object.assign({ weapon: 'sword', shield: true }, o)),
+    undead: drawUndead,
+    beast: drawBeast,
+    monster: drawMonster,
+    construct: drawConstruct,
+    dragon: drawDragon,
+    crowd: (ctx, x, y, s, o) => {
+      drawHuman(ctx, x - s * 0.38, y, s * 0.74, o);
+      drawHuman(ctx, x + s * 0.3, y, s * 0.82, o);
+      drawHuman(ctx, x, y, s, o);
+    }
+  };
+
+  /** Предметы окружения: костёр, повозка, шатёр, башня, корабль… */
+  const PROPS = {
+    fire(ctx, x, y, s, col) {
+      const glow = ctx.createRadialGradient(x, y - s * 0.3, 2, x, y - s * 0.3, s * 0.9);
+      glow.addColorStop(0, rgba(col.accent, 0.55));
+      glow.addColorStop(0.45, rgba(col.accent, 0.18));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(x - s, y - s * 1.4, s * 2, s * 1.6);
+      ctx.fillStyle = rgba(col.accent, 0.85);
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x - s * 0.16 + i * s * 0.14, y);
+        ctx.quadraticCurveTo(x - s * 0.2 + i * s * 0.14, y - s * 0.42, x - s * 0.06 + i * s * 0.1, y - s * 0.62);
+        ctx.quadraticCurveTo(x + s * 0.02 + i * s * 0.1, y - s * 0.34, x + s * 0.08 + i * s * 0.1, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    },
+    torch(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.03, y - s * 0.9, s * 0.06, s * 0.9);
+      ctx.fillStyle = rgba(col.accent, 0.9);
+      ctx.beginPath();
+      ctx.ellipse(x, y - s * 0.98, s * 0.09, s * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+    },
+    banner(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.03, y - s * 1.1, s * 0.06, s * 1.1);
+      ctx.fillStyle = rgba(col.accent, 0.5);
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 1.08);
+      ctx.lineTo(x + s * 0.42, y - s * 1.0);
+      ctx.lineTo(x + s * 0.34, y - s * 0.72);
+      ctx.lineTo(x, y - s * 0.8);
+      ctx.closePath();
+      ctx.fill();
+    },
+    cart(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.42, y - s * 0.6, s * 0.84, s * 0.36);
+      [-1, 1].forEach(side => {
+        ctx.beginPath();
+        ctx.arc(x + side * s * 0.28, y - s * 0.16, s * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    },
+    tent(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.72);
+      ctx.lineTo(x + s * 0.52, y);
+      ctx.lineTo(x - s * 0.52, y);
+      ctx.closePath();
+      ctx.fill();
+    },
+    ship(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.6, y - s * 0.16);
+      ctx.lineTo(x + s * 0.6, y - s * 0.16);
+      ctx.lineTo(x + s * 0.4, y);
+      ctx.lineTo(x - s * 0.4, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x - s * 0.02, y - s * 1.05, s * 0.05, s * 0.9);
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.03, y - s * 1.0);
+      ctx.lineTo(x + s * 0.42, y - s * 0.6);
+      ctx.lineTo(x + s * 0.03, y - s * 0.35);
+      ctx.closePath();
+      ctx.fill();
+    },
+    tower(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.24, y - s * 1.5, s * 0.48, s * 1.5);
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(x - s * 0.26 + i * s * 0.14, y - s * 1.62, s * 0.09, s * 0.14);
+      }
+    },
+    statue(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.26, y - s * 0.26, s * 0.52, s * 0.26);
+      drawHuman(ctx, x, y - s * 0.24, s * 0.78, {});
+    },
+    bridge(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.8, y);
+      ctx.quadraticCurveTo(x, y - s * 0.7, x + s * 0.8, y);
+      ctx.lineTo(x + s * 0.8, y + s * 0.12);
+      ctx.lineTo(x - s * 0.8, y + s * 0.12);
+      ctx.closePath();
+      ctx.fill();
+    },
+    door(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.3, y);
+      ctx.lineTo(x - s * 0.3, y - s * 0.5);
+      ctx.quadraticCurveTo(x, y - s * 0.92, x + s * 0.3, y - s * 0.5);
+      ctx.lineTo(x + s * 0.3, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = rgba(col.accent, 0.22);
+      ctx.fillRect(x - s * 0.08, y - s * 0.66, s * 0.16, s * 0.28);
+    }
+  };
+
+  /** Врагов в кадр — до трёх, герой всегда слева и лицом к ним. */
+  function drawActors(ctx, w, h, rng, col, actors) {
+    if (!actors) return;
+    const groundY = h * 0.97;
+    const heroS = h * 0.56;
+    // тёмная фигура + светящаяся кромка: читается на любом фоне
+    const silhouette = () => {
+      ctx.fillStyle = col.dark;
+      ctx.strokeStyle = rgba(col.accent, 0.75);
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      if ('shadowBlur' in ctx) {
+        ctx.shadowColor = rgba(col.accent, 0.85);
+        ctx.shadowBlur = Math.max(10, h * 0.06);
+      }
+    };
+    const doneSilhouette = () => {
+      if ('shadowBlur' in ctx) { ctx.shadowBlur = 0; ctx.shadowColor = 'rgba(0,0,0,0)'; }
+    };
+    const shadow = s => {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s * 0.42, s * 0.07, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = col.dark;
+    };
+    const enemies = (actors.enemies || []).slice(0, 3);
+    const props = (actors.props || []).slice(0, 4);
+
+    // мягкий ореол: силуэт отделяется от такого же тёмного фона
+    const glow = (x, y, s, col) => {
+      const g = ctx.createRadialGradient(x, y, s * 0.05, x, y, s * 0.95);
+      g.addColorStop(0, rgba(col.accent, 0.3));
+      g.addColorStop(0.5, rgba(col.accent, 0.12));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - s, y - s * 1.25, s * 2, s * 1.35);
+    };
+
+    // предметы окружения — на заднем плане
+    props.forEach((name, i) => {
+      const draw = PROPS[name];
+      if (!draw) return;
+      const px = w * (0.46 + i * 0.14 + rng() * 0.05);
+      const ps = h * (0.22 + rng() * 0.14);
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.translate(Math.min(px, w * 0.94), groundY);
+      draw(ctx, 0, 0, ps, col, rng);
+      ctx.restore();
+    });
+
+    // враги — справа, лицом к герою
+    enemies.forEach((shape, i) => {
+      const draw = ACTOR_SHAPES[shape] || ACTOR_SHAPES.human;
+      const s = h * (0.44 - i * 0.05 + rng() * 0.03);
+      const px = Math.min(w * (0.6 + i * 0.145), w * 0.9);
+      glow(px, groundY - s * 0.5, s, col);
+      ctx.save();
+      ctx.translate(px, groundY);
+      silhouette();
+      ctx.save();
+      doneSilhouette();
+      shadow(s);
+      silhouette();
+      ctx.beginPath();
+      draw(ctx, 0, 0, s, { flip: true, weapon: shape === 'soldier' ? 'sword' : undefined });
+      doneSilhouette();
+      ctx.restore();
+      ctx.restore();
+    });
+
+    // герой — слева, лицом вправо
+    const heroShape = ACTOR_SHAPES[(actors.hero && actors.hero.shape) || 'human'] || ACTOR_SHAPES.human;
+    glow(w * 0.22, groundY - heroS * 0.5, heroS, col);
+    ctx.save();
+    ctx.translate(w * 0.22, groundY);
+    doneSilhouette();
+    shadow(heroS);
+    silhouette();
+    ctx.beginPath();
+    heroShape(ctx, 0, 0, heroS, { weapon: actors.hero && actors.hero.weapon, shield: actors.hero && actors.hero.shield, cloak: true });
+    doneSilhouette();
+    ctx.restore();
+  }
+
+  return { draw, toDataUrl, makeRng, mix, shift, rgba, hexToRgb, KIND_PARTICLES, SILHOUETTES, ACTOR_SHAPES, PROPS, drawActors };
+
 });

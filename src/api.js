@@ -31,8 +31,43 @@
     backend: null,
     backendChecked: false,
     imageWidth: 448,
-    imageHeight: 252
+    imageHeight: 252,
+    serverBase: ''            // напр. https://dice-tales.onrender.com — для GitHub Pages
   };
+
+  /* ---------------------------------------------------------- */
+  /* Адрес своего сервера                                        */
+  /* GitHub Pages не умеет /api/*, поэтому на нём можно указать   */
+  /* бэкенд ссылкой:  index.html?server=https://…                */
+  /* ---------------------------------------------------------- */
+  function normalizeBase(b) { return String(b || '').trim().replace(/\/+$/, ''); }
+  function initServerBase() {
+    let fromQuery = '';
+    try {
+      if (typeof location !== 'undefined') {
+        fromQuery = normalizeBase(new URLSearchParams(location.search).get('server'));
+      }
+    } catch (e) { /* старый браузер — не страшно */ }
+    let stored = '';
+    try { stored = normalizeBase(localStorage.getItem('dt2:server')); } catch (e) { /* приватный режим */ }
+    CONFIG.serverBase = fromQuery || stored;
+    if (fromQuery) {
+      try { localStorage.setItem('dt2:server', fromQuery); } catch (e) { /* приватный режим */ }
+    }
+    if (CONFIG.serverBase) log('свой сервер:', CONFIG.serverBase);
+    return CONFIG.serverBase;
+  }
+  initServerBase();
+  function setServerBase(b) {
+    CONFIG.serverBase = normalizeBase(b);
+    try { localStorage.setItem('dt2:server', CONFIG.serverBase); } catch (e) { /* noop */ }
+    CONFIG.backendChecked = false;
+    CONFIG.backend = null;
+  }
+  /** Путь к своему серверу: относительный на самом сервере, абсолютный с GitHub Pages. */
+  function serverUrl(path) {
+    return CONFIG.serverBase && path.indexOf('api/') === 0 ? CONFIG.serverBase + '/' + path : path;
+  }
 
   function setApiKey(key) { CONFIG.apiKey = (key || '').trim() || BUILTIN_API_KEY; }
   function getApiKey() { return CONFIG.apiKey; }
@@ -72,7 +107,7 @@
     CONFIG.backend = null;
     try {
       const t = withTimeout(6000);
-      const res = await fetch('api/health', { signal: t.signal });
+      const res = await fetch(serverUrl('api/health'), { signal: t.signal });
       t.done();
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
@@ -99,7 +134,7 @@
     if (!CONFIG.backend) return null;
     const t = withTimeout(timeoutMs || 30000);
     try {
-      const res = await fetch('api/gm', {
+      const res = await fetch(serverUrl('api/gm'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ messages }),
@@ -195,7 +230,16 @@
     const res = await askGameMaster(messages, hooks);
     if (res.ok) {
       const parsed = E.parseGmResponse(res.text, { game });
-      if (parsed.ok) return Object.assign(parsed, { source: res.source });
+      if (parsed.ok) {
+        // в кадре должны быть герой и те, кто есть в сцене
+        parsed.imagePrompt = E.composeSceneImagePrompt(game, {
+          aiPrompt: parsed.imagePrompt,
+          sceneText: parsed.scene,
+          npc: parsed.npc,
+          action
+        });
+        return Object.assign(parsed, { source: res.source });
+      }
       log('не смог разобрать ответ модели — беру локального мастера');
     }
     if (hooks.onStatus) hooks.onStatus('offline');
@@ -213,7 +257,13 @@
           E.worldDescription(game),
           `ВСТУПЛЕНИЕ МИРА: ${scenario.opening}`,
           E.heroDescription(game),
-          'Это первая сцена. Введи игрока в обстановку (3-5 предложений), дай почувствовать угрозу, оживи расу и происхождение героя и предложи ровно 3 первых варианта действий.',
+          'Это первая сцена игры. Не начинай со случайной стычки. Нужно:',
+          '1) "world" — 2-4 предложения о мире и здешних порядках;',
+          '2) "backstory" — 3-5 предложений предыстории героя: откуда он, что потерял, почему здесь;',
+          '3) "scene" — ввод в текущую сцену (3-5 предложений), живая деталь и ощутимая угроза;',
+          '4) "plan" — 3 шага плана отыгрыша (что герою предстоит и в каком порядке);',
+          '5) "imagePrompt" — по-английски, с героем в кадре и с теми, кто есть в сцене;',
+          '6) ровно 3 первых варианта действий, вытекающих из плана.',
           'Только JSON.'
         ].join('\n\n')
       }
@@ -222,6 +272,11 @@
     if (res.ok) {
       const parsed = E.parseGmResponse(res.text, { game });
       if (parsed.ok && parsed.options && parsed.options.length) {
+        parsed.imagePrompt = E.composeSceneImagePrompt(game, {
+          aiPrompt: parsed.imagePrompt,
+          sceneText: parsed.scene,
+          npc: parsed.npc
+        });
         return Object.assign(parsed, { source: res.source });
       }
     }
@@ -256,10 +311,18 @@
           source: res.source,
           title: parsed.title || (game.worldConfig && game.worldConfig.title) || 'Безымянный мир',
           goal: parsed.goal || 'Найти своё место в этом мире',
+          world: parsed.world || '',
+          backstory: parsed.backstory || '',
+          plan: parsed.plan || [],
+          hero: parsed.hero || null,
           scene: parsed.opening,
           chapter: parsed.chapter || 'Пролог',
           npc: parsed.npc || '',
-          imagePrompt: parsed.imagePrompt || base.imagePrompts[0],
+          imagePrompt: E.composeSceneImagePrompt(game, {
+            aiPrompt: parsed.imagePrompt || base.imagePrompts[0],
+            sceneText: parsed.opening,
+            npc: parsed.npc
+          }),
           options,
           effects: { hp: 0, item: '', goal: false }
         };
@@ -273,7 +336,9 @@
       [cfg.genre || 'Свой мир', cfg.place ? '· ' + cfg.place : ''].join(' ').trim();
     return Object.assign(local, {
       title: fallbackTitle || 'Свой мир',
-      goal: cfg.goal || local.scene.split('.')[0].slice(0, 80)
+      goal: cfg.goal || local.scene.split('.')[0].slice(0, 80),
+      // ИИ недоступен, но знакомые игры собираются и локально
+      hero: E.offlineHeroProfile(cfg)
     });
   }
 
@@ -314,7 +379,7 @@
 
     const server = await probeBackend();
     const queue = [];
-    if (server && server.imageProxy) queue.push({ name: 'server', url: built.server, delay: 0 });
+    if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
     queue.push({ name: 'a0', url: built.a0, delay: server && server.imageProxy ? 1200 : 0 });
     queue.push({ name: 'pollinations', url: withImageKey(built.pollinations), delay: 2500 });
     queue.push({ name: 'stock', url: built.stock, delay: 9000 });
@@ -358,7 +423,7 @@
   }
 
   return {
-    CONFIG, BUILTIN_API_KEY, setApiKey, getApiKey, isBuiltinKey, probeBackend, mode,
+    CONFIG, BUILTIN_API_KEY, setApiKey, getApiKey, isBuiltinKey, probeBackend, mode, serverUrl, setServerBase,
     askGameMaster, generateTurn, generateOpening, generateWorld,
     generateImage, prefetch, loadImageOnce, looksLikeJunk, sleep
   };

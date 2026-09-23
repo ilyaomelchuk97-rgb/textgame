@@ -490,3 +490,190 @@ test('запасной промпт картинки берётся из заг�
   const cp = E.fallbackImagePrompt(custom, 'взять меч');
   assert.ok(cp && cp.length > 8, 'у своего мира тоже есть промпт');
 });
+
+/* ---------------------------------------------------------- */
+/* v5: создание героя под конкретную игру                      */
+/* ---------------------------------------------------------- */
+test('обычный мир показывает все шаги создания героя', () => {
+  const p = E.defaultHeroProfile();
+  assert.strictEqual(p.showClass, true);
+  assert.strictEqual(p.showRace, true);
+  assert.strictEqual(p.showOrigin, true);
+  assert.strictEqual(p.classLabel, 'Класс');
+  assert.ok(p.classes.length >= 6, 'классы по умолчанию — все');
+  assert.ok(p.races.length >= 8 && p.origins.length >= 8, 'расы и происхождения на месте');
+});
+
+test('своя игра: пустые массивы прячут шаг, который игре не подходит', () => {
+  const p = E.heroProfileFromWorld({
+    classLabel: 'Школа',
+    classes: [{ id: 'mage', title: 'Ведьмак' }],
+    races: [],                       // в этой игре все люди — шаг прячем
+    origins: [{ id: 'soldier', title: 'Школа Волка' }],
+    note: 'в этой игре раса не выбирается'
+  });
+  assert.strictEqual(p.showRace, false, 'пустая раса — шаг скрыт');
+  assert.strictEqual(p.showOrigin, true);
+  assert.strictEqual(p.classLabel, 'Школа');
+  assert.strictEqual(p.classes.length, 1);
+  assert.strictEqual(p.classes[0].title, 'Ведьмак');
+  assert.strictEqual(p.note, 'в этой игре раса не выбирается');
+});
+
+test('профиль героя: мусор от ИИ безвреден, классы никогда не пусты', () => {
+  const junk = E.heroProfileFromWorld({ classes: ['нет-такого'], races: null, origins: ['тоже-нет'] });
+  assert.ok(junk.classes.length >= 6, 'неизвестные классы заменяются полным списком');
+  assert.strictEqual(junk.showRace, true, 'null — это «данных нет», а не «скрыть»');
+  const empty = E.heroProfileFromWorld({ classes: [] });
+  assert.ok(empty.classes.length >= 6, 'пустой список классов тоже безопасен');
+  const noArg = E.heroProfileFromWorld(null);
+  assert.strictEqual(noArg.showClass && noArg.showRace && noArg.showOrigin, true);
+});
+
+test('профиль героя: длинные подписи и подсказки обрезаются', () => {
+  const p = E.heroProfileFromWorld({
+    classLabel: 'О'.repeat(80),
+    classes: [{ id: 'mage', title: 'И'.repeat(80), hint: 'Х'.repeat(400) }]
+  });
+  assert.ok(p.classLabel.length <= 40, 'заголовок шага укорочен: ' + p.classLabel.length);
+  assert.ok(p.classes[0].title.length <= 40);
+  assert.ok(p.classes[0].hint.length <= 140);
+});
+
+/* ---------------------------------------------------------- */
+/* v5: кто в кадре                                             */
+/* ---------------------------------------------------------- */
+test('участники сцены: герой, враги и предметы узнаются из текста', () => {
+  const a = E.sceneActors('Из тени выходят двое бандитов с ножами, за ними волк. Рядом горит костёр у повозки.');
+  assert.ok(a.hero && a.hero.shape, 'герой в кадре всегда');
+  assert.ok(a.enemies.length >= 1 && a.enemies.length <= 3, 'врагов не больше трёх: ' + JSON.stringify(a.enemies));
+  assert.ok(a.props.includes('fire') || a.props.includes('cart'), 'предметы окружения: ' + JSON.stringify(a.props));
+  const calm = E.sceneActors('Ты стоишь на причале, пахнет дымом и рыбой.');
+  assert.strictEqual(calm.enemies.length, 0, 'в спокойной сцене врагов нет');
+  assert.ok(a.enemies.every(x => typeof x === 'string'), 'формы силуэтов — строки');
+});
+
+test('промпт картинки: герой попадает в кадр всегда, враги — когда есть', () => {
+  const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'warrior', raceId: 'beast' });
+  const withEnemy = E.composeSceneImagePrompt(g, { aiPrompt: 'dark alley, rain', sceneText: 'Двое бандитов преграждают путь.' });
+  assert.ok(/hero/i.test(withEnemy), 'герой назван: ' + withEnemy);
+  assert.ok(/approaching|snarling|looming|rising|sentinel|hulking|watching/i.test(withEnemy),
+    'враг назван в кадре: ' + withEnemy);
+  assert.ok(withEnemy.length > 'dark alley, rain'.length, 'к промпту добавлены участники');
+  assert.ok(withEnemy.length <= 380, 'промпт не раздувается: ' + withEnemy.length);
+  const aiDrewPeople = E.composeSceneImagePrompt(g, { aiPrompt: 'armored knight and two bandits in a rain-soaked alley, cinematic' });
+  assert.strictEqual(aiDrewPeople, 'armored knight and two bandits in a rain-soaked alley, cinematic',
+    'если ИИ уже нарисовал героя, промпт не дублируется');
+  const heroOnly = E.composeSceneImagePrompt(g, { aiPrompt: 'misty forest at dawn' });
+  assert.ok(/hero/i.test(heroOnly), 'без подсказки герой всё равно добавляется');
+});
+
+test('план отыгрыша: строки и массивы, не больше четырёх шагов', () => {
+  assert.strictEqual(E.parsePlan(['Шаг раз', 'Шаг два']).length, 2);
+  const fromString = E.parsePlan('1. Осмотреться; 2. Найти союзника\n3. Взяться за дело');
+  assert.strictEqual(fromString.length, 3, JSON.stringify(fromString));
+  assert.strictEqual(E.parsePlan('а; б; в; г; д; е').length, 4, 'лишние шаги отбрасываются');
+  assert.deepStrictEqual(E.parsePlan(''), []);
+  assert.deepStrictEqual(E.parsePlan(null), []);
+  assert.ok(E.parsePlan(['Я'.repeat(300)])[0].length <= 140, 'шаг не растягивается на экран');
+});
+
+/* ---------------------------------------------------------- */
+/* v5: вступление вместо «ты в переулке, убей вора»            */
+/* ---------------------------------------------------------- */
+test('первая сцена: мир, предыстория и план отыгрыша на месте', () => {
+  const g = E.createGame({
+    scenarioId: 'mygame', heroName: 'Рэй', classId: 'mage', raceId: 'human', originId: 'soldier',
+    worldConfig: { gameName: 'Ведьмак 3', genre: 'тёмное фэнтези', place: 'Вызима', goal: 'найти Цири', danger: 'normal' }
+  });
+  const o = E.offlineOpening(g);
+  assert.ok(o.world && o.world.length > 60, 'о мире рассказано: ' + (o.world || '').slice(0, 40));
+  assert.ok(/Вызима|Ведьмак/i.test(o.world), 'мир опирается на настройки игрока');
+  assert.ok(o.backstory && o.backstory.includes('Рэй'), 'предыстория говорит о герое');
+  assert.ok(Array.isArray(o.plan) && o.plan.length === 3, 'план отыгрыша из трёх шагов');
+  assert.ok(/Вызима/.test(o.scene), 'сцена начинается в заданном месте: ' + o.scene.slice(0, 60));
+  assert.ok(o.options.length >= 3, 'кнопки действий готовы');
+  assert.ok(/hero/i.test(o.imagePrompt), 'в кадре есть герой');
+});
+
+test('вступление готового мира тоже не сухое', () => {
+  const g = E.createGame({ scenarioId: 'greyhaven', heroName: 'Кай', classId: 'rogue' });
+  const o = E.offlineOpening(g);
+  assert.ok(o.world.length > 40 && o.backstory.length > 40, 'мир и предыстория заполнены');
+  assert.strictEqual(o.plan.length, 3);
+  const turn = E.offlineTurn(g, { text: 'Осмотреть переулок', stat: 'per' }, { outcome: 'success', roll: 15 });
+  assert.ok(/hero/i.test(turn.imagePrompt), 'дальше герой тоже в кадре: ' + turn.imagePrompt);
+});
+
+test('новые поля ответов ИИ доходят до игры', () => {
+  const world = E.parseWorldResponse(JSON.stringify({
+    title: 'Континент', goal: 'Найти Цири',
+    world: 'Мир контрактов и войны.', backstory: 'Ты вырос в школе на скале.',
+    plan: ['Осмотреться', 'Найти заказчика', 'Выбрать сторону'],
+    hero: { classes: [{ id: 'mage', title: 'Ведьмак' }], races: [] },
+    opening: 'Вызима пахнет дымом.', imagePrompt: 'medieval harbor', options: ['Подойти к заказчику']
+  }), {});
+  assert.strictEqual(world.ok, true);
+  assert.strictEqual(world.world, 'Мир контрактов и войны.');
+  assert.strictEqual(world.plan.length, 3);
+  assert.ok(world.hero && world.hero.classes.length === 1, 'профиль героя прошёл');
+
+  const turn = E.parseGmResponse(JSON.stringify({
+    world: 'Мир контрактов.', backstory: 'Ты вырос на скале.',
+    plan: 'Осмотреться\nНайти заказчика', scene: 'Ты входишь в порт.', options: ['Идти дальше']
+  }), {});
+  assert.strictEqual(turn.ok, true);
+  assert.strictEqual(turn.backstory, 'Ты вырос на скале.');
+  assert.strictEqual(turn.plan.length, 2, 'план-строка разбирается на шаги');
+});
+
+/* ---------------------------------------------------------- */
+/* v5: знакомые игры — профиль героя без ИИ                    */
+/* ---------------------------------------------------------- */
+test('таблица знакомых игр ссылается только на настоящие id', () => {
+  const classIds = E.CLASSES.map(c => c.id);
+  const raceIds = E.RACES.map(r => r.id);
+  const originIds = E.ORIGINS.map(o => o.id);
+  E.KNOWN_GAME_PROFILES.forEach((row, i) => {
+    (row.profile.classes || []).forEach(c => {
+      assert.ok(classIds.includes(c.id), `игра ${i}: класс «${c.title}» ссылается на несуществующий id ${c.id}`);
+    });
+    (row.profile.races || []).forEach(r => {
+      assert.ok(raceIds.includes(r.id), `игра ${i}: раса «${r.title}» ссылается на несуществующий id ${r.id}`);
+    });
+    (row.profile.origins || []).forEach(o => {
+      assert.ok(originIds.includes(o.id), `игра ${i}: происхождение «${o.title}» ссылается на несуществующий id ${o.id}`);
+    });
+  });
+});
+
+test('повторный разбор профиля ничего не ломает', () => {
+  const once = E.heroProfileFromWorld({ classes: [{ id: 'mage', title: 'Ведьмак' }], races: [] });
+  const twice = E.heroProfileFromWorld(once);
+  assert.strictEqual(twice.showRace, false, 'скрытая раса остаётся скрытой');
+  assert.strictEqual(twice.classLabel, once.classLabel);
+  assert.deepStrictEqual(twice.classes.map(c => c.title), once.classes.map(c => c.title));
+  assert.strictEqual(twice.normalized, true);
+});
+
+test('без ИИ знакомые игры всё равно подгоняют создание героя', () => {
+  const witcher = E.offlineHeroProfile({ gameName: 'Ведьмак 3' });
+  assert.ok(witcher, 'Ведьмак распознан');
+  assert.strictEqual(witcher.showRace, false, 'в Ведьмаке раса не выбирается');
+  assert.strictEqual(witcher.showOrigin, true);
+  assert.strictEqual(witcher.classLabel, 'Школа');
+  assert.ok(witcher.classes.length >= 3 && witcher.classes.length <= 5, 'классов: ' + witcher.classes.length);
+  assert.ok(/Ведьмак/i.test(witcher.classes.map(c => c.title).join(' ')), 'школа ведьмака на месте');
+
+  const cyber = E.offlineHeroProfile({ gameName: 'Cyberpunk 2077' });
+  assert.strictEqual(cyber.showRace, false, 'в Киберпанке раса не выбирается');
+  assert.strictEqual(cyber.classLabel, 'Роль');
+
+  const wow = E.offlineHeroProfile({ gameName: 'World of Warcraft' });
+  assert.strictEqual(wow.showRace, true, 'в WoW раса есть');
+  assert.ok(wow.races.length >= 3, 'расы WoW: ' + wow.races.map(r => r.title).join(','));
+
+  assert.strictEqual(E.offlineHeroProfile({ gameName: 'Моя игра про грибы' }), null, 'незнакомая игра — решает ИИ');
+  assert.strictEqual(E.offlineHeroProfile(null), null);
+  assert.strictEqual(E.offlineHeroProfile({}), null);
+});

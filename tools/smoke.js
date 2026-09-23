@@ -129,14 +129,48 @@ async function main() {
   const customWorld = await page.evaluate(() => JSON.parse(localStorage.getItem('dt2:worlds') || '[]'));
   console.log('   сохранённые миры:', JSON.stringify(customWorld).slice(0, 120));
 
-  // «своя игра»: пишем название игры и стартуем — мир строит ИИ
+  // «своя игра»: пишем название игры — мир и профиль героя собирает ИИ, поэтому мокаем мастера
+  await page.route('**/api/gm', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({
+      ok: true, provider: 'mock',
+      text: JSON.stringify({
+        title: 'Континент под пеплом', goal: 'Найти Цири',
+        world: 'Мир Вызимы живёт по контрактам: чудовища есть, но страшнее люди.',
+        backstory: 'Ты вырос в школе на скале и потерял всех, кто тебя учил.',
+        plan: ['Осмотреться в Вызиме', 'Найти заказчика', 'Выбрать сторону в войне'],
+        hero: {
+          classLabel: 'Школа',
+          classes: [{ id: 'mage', title: 'Ведьмак', hint: 'мутант с медальоном' }, { id: 'warrior', title: 'Наёмник' }],
+          races: [],                                        // в этой игре раса не выбирается — шаг должен исчезнуть
+          origins: [{ id: 'soldier', title: 'Школа Волка' }]
+        },
+        opening: 'Вызима пахнет дымом и рыбой.',
+        options: [{ text: 'Подойти к заказчику', stat: 'per', difficulty: 'easy' }]
+      })
+    })
+  }));
   await page.click('#mode-tabs .tab[data-mode="games"]');
   await page.fill('#own-game-input', 'Ведьмак 3');
   await page.click('#pane-games [data-act="start-own-game"]');
-  await page.waitForSelector('#hero-name', { timeout: 5000 });
+  await page.waitForSelector('#hero-name', { timeout: 15000 });
   const ownTitle = await page.evaluate(() => document.getElementById('hero-scenario').textContent);
   console.log('   свой мир на экране героя:', ownTitle.slice(0, 60));
   if (!/Ведьмак/i.test(ownTitle)) problems.push('название своей игры не попало на экран героя');
+  // создание героя подстроено под игру: лишний шаг скрыт, подписи от мастера на месте
+  const ownProfile = await page.evaluate(() => ({
+    raceHidden: document.getElementById('section-race').hidden,
+    originHidden: document.getElementById('section-origin').hidden,
+    classLabel: document.getElementById('label-class').textContent,
+    classes: Array.from(document.querySelectorAll('#class-list .arch-card__title')).map(t => t.textContent)
+  }));
+  console.log('   профиль героя для «своей игры»:', JSON.stringify(ownProfile));
+  // профиль собирает ИИ; если сервера нет — его подставляет встроенная таблица знакомых игр
+  const backendReady = await page.evaluate(() => !!(window.DTapi && window.DTapi.CONFIG && window.DTapi.CONFIG.backend));
+  console.log('   канал мастера:', backendReady ? 'свой сервер' : 'локальный (без сервера)');
+  if (!ownProfile.raceHidden) problems.push('для «своей игры» шаг с расой не скрыт');
+  if (ownProfile.classLabel !== 'Школа') problems.push('подпись шага класса не применилась: ' + ownProfile.classLabel);
+  if (ownProfile.classes.length < 2) problems.push('список классов не применился: ' + ownProfile.classes.join(','));
   await page.click('#screen-hero [data-act="back"]');
   await page.waitForSelector('#screen-scenarios:not([hidden])', { timeout: 4000 });
   await page.click('#mode-tabs .tab[data-mode="custom"]');
@@ -184,12 +218,16 @@ async function main() {
   }
 
   console.log('4. Игра: старт ' + (LIVE ? '(настоящий ИИ через сервер)' : '(мок-ИИ)'));
+  await page.unroute('**/api/gm');   // убираем мок мира, дальше свой ответ мастера
   // Мокаем ИИ-мастера и генератор картинок — проверяем «живой» путь без внешних сбоев
   // Мокаем ИИ-мастера и генератор картинок — проверяем «живой» путь без внешних сбоев
   if (!LIVE) await page.route('**/api/gm', route => {
     const body = JSON.stringify({
       ok: true, provider: 'mock',
       text: JSON.stringify({
+        world: 'Асгельд живёт слухами: дороги держат баронские заставы, а в лесах пропадают люди.',
+        backstory: 'Ты вырос на переправе у разорившегося трактира и ушёл, когда нечем стало платить за соль.',
+        plan: ['Осмотреться и понять, кто ходит по этой тропе', 'Найти след пропавших с обозом', 'Выбрать, за кого держаться в Асгельде'],
         scene: 'Тропа уходит вглубь, и туман смыкается за спиной. Где-то впереди звенит колокольчик — ближе, чем вчера.',
         chapter: 'Глава I. Чёрные стволы',
         npc: 'Старуха с фонарём в глубине леса',
@@ -257,13 +295,51 @@ async function main() {
     };
   });
   console.log('   метрики:', JSON.stringify(metrics, null, 1));
-  if (Math.abs(metrics.topPct - 8) > 1.6) problems.push('шапка занимает ' + metrics.topPct + '% вместо 8%');
+  if (Math.abs(metrics.topPct - 14) > 1.7) problems.push('шапка занимает ' + metrics.topPct + '% вместо 14%');
   if (Math.abs(metrics.mediaPct - 22) > 1.6) problems.push('картинка занимает ' + metrics.mediaPct + '% вместо 22%');
   if (metrics.optionCount !== 3) problems.push('вариантов действий: ' + metrics.optionCount + ' (ожидалось 3)');
   if (!metrics.imgSrc) problems.push('картинка сцены не подставилась');
   if (!canvasPainted) problems.push('мгновенный фон (canvas) не нарисован');
   if (!metrics.statusHidden) problems.push('индикатор «рисуем…» остался поверх готовой картинки');
   await shot(page, 'game-turn1');
+
+  console.log('4б. Пролог: мир, предыстория и план отыгрыша');
+  const prologue = await page.evaluate(() => {
+    const box = document.getElementById('prologue');
+    return {
+      open: !box.hidden,
+      world: (document.getElementById('intro-world-text').textContent || '').slice(0, 70),
+      back: (document.getElementById('intro-back-text').textContent || '').slice(0, 70),
+      plan: document.querySelectorAll('#intro-plan-list li').length,
+      sceneCard: !document.getElementById('intro-scene').hidden
+    };
+  });
+  console.log('   пролог:', JSON.stringify(prologue, null, 1));
+  if (!prologue.open) problems.push('пролог не открылся на старте игры');
+  if (!prologue.world) problems.push('в прологе нет рассказа о мире');
+  if (!prologue.back) problems.push('в прологе нет предыстории героя');
+  if (prologue.plan < 3) problems.push('в прологе ' + prologue.plan + ' шагов плана (ожидалось 3)');
+  if (!prologue.sceneCard) problems.push('в прологе нет входа в сцену');
+  await shot(page, 'prologue');
+  await page.click('#prologue [data-act="close-prologue"]');
+  await page.waitForTimeout(300);
+  const prologueState = await page.evaluate(() => {
+    const closed = document.getElementById('prologue').hidden;
+    document.getElementById('prologue-btn').click();
+    const reopened = !document.getElementById('prologue').hidden;
+    document.querySelector('#prologue [data-act="close-prologue"]').click();
+    return { closed, reopened };
+  });
+  console.log('   пролог закрывается/открывается кнопкой:', JSON.stringify(prologueState));
+  if (!prologueState.closed) problems.push('пролог не закрывается кнопкой «Играть»');
+  if (!prologueState.reopened) problems.push('пролог не открывается кнопкой «Пролог»');
+  // фигуры из сцены должны попадать в фон
+  const actors = await page.evaluate(() => {
+    const c = document.getElementById('scene-canvas');
+    return { enemies: c.dataset.enemies, kind: c.dataset.kind || '' };
+  });
+  console.log('   кто в кадре:', JSON.stringify(actors));
+  if (!actors.kind) problems.push('фон не определил тип сцены');
 
   console.log('5. Бросок кубика и второй ход');
   const abilities = await page.locator('#actions .ability-btn').count();

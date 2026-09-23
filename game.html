@@ -447,17 +447,34 @@ button { font-family: inherit; }
 
 .game-topbar {
   position: relative;
-  flex: 0 0 8%;
-  min-height: 48px;
+  flex: 0 0 14%;
+  min-height: 78px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: calc(var(--safe-top) + 4px) 12px 8px 14px;
+  padding: calc(var(--safe-top) + 6px) 12px 8px 14px;
   background: linear-gradient(180deg, rgba(12, 19, 22, 0.98), rgba(9, 15, 18, 0.9));
   border-bottom: 1px solid var(--line);
   overflow: hidden;
 }
 .game-topbar__text { flex: 1 1 auto; min-width: 0; }
+
+/* «Мастер думает» живёт в шапке, а не в пустом низу экрана */
+.game-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.game-status[hidden] { display: none; }
+.game-status__text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.game-status .spinner--sm { width: 12px; height: 12px; border-width: 2px; }
 .game-title {
   display: block;
   max-width: 100%;
@@ -624,6 +641,35 @@ button { font-family: inherit; }
   padding: 10px 12px calc(10px + var(--safe-bottom));
   background: linear-gradient(180deg, rgba(8, 13, 16, 0.85), rgba(6, 10, 12, 0.98));
   border-top: 1px solid var(--line);
+}
+/* Пока мастер думает, внизу стоят «заготовки» будущих кнопок */
+.action-btn--ghost {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-height: 52px;
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.015);
+}
+.ghost-line {
+  display: block;
+  height: 9px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+  background-size: 220% 100%;
+  animation: ghostSweep 1.9s linear infinite;
+}
+.ghost-line--wide { width: 62%; }
+.ghost-line--narrow { width: 34%; animation-delay: 0.25s; }
+@keyframes ghostSweep {
+  from { background-position: 140% 0; }
+  to { background-position: -40% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ghost-line { animation: none; }
 }
 .actions__loading {
   display: flex;
@@ -916,7 +962,7 @@ body[data-screen="game"] .toasts { display: none; }
 /* Мелкие экраны (iPhone SE) и очень узкие                    */
 /* ---------------------------------------------------------- */
 @media (max-height: 700px) {
-  .game-topbar { min-height: 44px; }
+  .game-topbar { min-height: 70px; }
   .logo { font-size: 30px; }
   .menu-head { margin-top: 4vh; }
   .scenario-card__cover { height: 88px; }
@@ -1295,6 +1341,97 @@ body[data-screen="game"] .toasts { display: none; }
   .critter--dragon { height: 61px; width: 70px; }
 }
 
+/* ---------------------------------------------------------- */
+/* Вступление: мир, предыстория, план отыгрыша                 */
+/* ---------------------------------------------------------- */
+.prologue[hidden] { display: none; }
+.prologue {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(6, 10, 12, 0.72);
+  backdrop-filter: blur(6px);
+}
+.prologue__inner {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  max-height: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-2, #101a1c);
+  overflow: hidden;
+}
+.prologue__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.prologue__title {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.prologue__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.prologue__go {
+  flex: 0 0 auto;
+  margin: 10px 12px 12px;
+}
+
+.intro-card {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  text-align: left;
+}
+.intro-card__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 5px;
+}
+.intro-card__text { font-size: 13.5px; line-height: 1.5; color: #dbe6e3; }
+.intro-card--world { border-left: 3px solid rgba(111, 227, 184, 0.5); }
+.intro-card--back { border-left: 3px solid rgba(255, 212, 121, 0.5); }
+.intro-card--plan { border-left: 3px solid rgba(140, 190, 255, 0.5); }
+.intro-plan {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #d6e3e6;
+}
+.intro-plan li { margin-bottom: 4px; }
+.intro-plan li::marker { color: var(--accent-2); font-weight: 700; }
+
+.hint--profile {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(111, 227, 184, 0.4);
+  background: rgba(111, 227, 184, 0.06);
+  color: #cfe9e1;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 </style>
 </head>
 <body data-screen="menu">
@@ -1437,15 +1574,23 @@ body[data-screen="game"] .toasts { display: none; }
           </div>
         </label>
 
-        <div class="section-title">Класс</div>
-        <div class="arch-list" id="class-list"></div>
+        <div class="hint hint--profile" id="hero-profile-note" hidden></div>
 
-        <div class="section-title">Раса / вид</div>
-        <div class="chips chips--race" id="race-list"></div>
-        <p class="hint" id="race-hint"></p>
+        <div id="section-class">
+          <div class="section-title" id="label-class">Класс</div>
+          <div class="arch-list" id="class-list"></div>
+        </div>
 
-        <div class="section-title">Происхождение</div>
-        <div class="arch-list arch-list--compact" id="origin-list"></div>
+        <div id="section-race">
+          <div class="section-title" id="label-race">Раса / вид</div>
+          <div class="chips chips--race" id="race-list"></div>
+          <p class="hint" id="race-hint"></p>
+        </div>
+
+        <div id="section-origin">
+          <div class="section-title" id="label-origin">Происхождение</div>
+          <div class="arch-list arch-list--compact" id="origin-list"></div>
+        </div>
 
         <div class="section-title">Итоговые характеристики</div>
         <div class="stat-grid" id="stat-preview"></div>
@@ -1463,6 +1608,10 @@ body[data-screen="game"] .toasts { display: none; }
         <div class="game-topbar__text">
           <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
           <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
+          <div class="game-status" id="game-status" hidden>
+            <span class="spinner spinner--sm"></span>
+            <span class="game-status__text" id="game-status-text"></span>
+          </div>
         </div>
         <button class="icon-btn icon-btn--close" type="button" data-act="close-game" aria-label="Закрыть игру">✕</button>
         <div class="hp-track"><div class="hp-fill" id="game-hp"></div></div>
@@ -1486,9 +1635,39 @@ body[data-screen="game"] .toasts { display: none; }
         <div class="scene-npc" id="scene-npc" hidden></div>
         <div class="log-bar">
           <button class="log-toggle" type="button" id="log-toggle">История</button>
+          <button class="log-toggle" type="button" id="prologue-btn" data-act="open-prologue" hidden>Пролог</button>
         </div>
         <div class="log-wrap" id="log-wrap" hidden>
           <div id="log-list"></div>
+        </div>
+      </div>
+
+      <!-- Пролог: мир, предыстория героя и план отыгрыша (полный экран, читается спокойно) -->
+      <div class="prologue" id="prologue" hidden>
+        <div class="prologue__inner">
+          <div class="prologue__head">
+            <span class="prologue__title" id="prologue-title">Пролог</span>
+            <button class="icon-btn" type="button" data-act="close-prologue" aria-label="Свернуть пролог">✕</button>
+          </div>
+          <div class="prologue__body" id="prologue-body">
+            <div class="intro-card intro-card--world" id="intro-world" hidden>
+              <div class="intro-card__label">🌍 Этот мир</div>
+              <div class="intro-card__text" id="intro-world-text"></div>
+            </div>
+            <div class="intro-card intro-card--back" id="intro-back" hidden>
+              <div class="intro-card__label">📜 Твоя предыстория</div>
+              <div class="intro-card__text" id="intro-back-text"></div>
+            </div>
+            <div class="intro-card intro-card--plan" id="intro-plan" hidden>
+              <div class="intro-card__label">🗺 План отыгрыша</div>
+              <ol class="intro-plan" id="intro-plan-list"></ol>
+            </div>
+            <div class="intro-card" id="intro-scene" hidden>
+              <div class="intro-card__label">🎬 Ты входишь в сцену</div>
+              <div class="intro-card__text" id="intro-scene-text"></div>
+            </div>
+          </div>
+          <button class="btn btn--primary prologue__go" type="button" data-act="close-prologue">Играть</button>
         </div>
       </div>
 
@@ -1907,7 +2086,7 @@ body[data-screen="game"] .toasts { display: none; }
       goal: '',
       systemHint: 'Играй строго в духе описанной игроком игры: её мир, её лексика, её правила и атмосфера.',
       imagePrompts: [
-        'video game cinematic environment, hero silhouette, moody light',
+        'video game cinematic environment, moody light, dramatic depth',
         'detailed game location art, atmospheric fog, cinematic',
         'epic game scene, dramatic light, concept art'
       ]
@@ -1994,13 +2173,32 @@ body[data-screen="game"] .toasts { display: none; }
       '{',
       '  "title": "название мира/кампании, 2-6 слов",',
       '  "goal": "главная задача героя, одна фраза",',
+      '  "world": "2-4 предложения о мире: где мы, как здесь всё устроено, что за порядок вещей, чем живут люди",',
+      '  "backstory": "3-5 предложений предыстории героя: откуда он, что потерял, почему оказался здесь, что его ведёт",',
+      '  "plan": ["шаг сценария 1", "шаг 2", "шаг 3"],',
+      '  "hero": {',
+      '    "classLabel": "как в этом мире называется класс героя (например «Школа» или хотя бы «Класс»)",',
+      '    "raceLabel": "как называется выбор вида, или пустая строка, если в игре такого выбора нет",',
+      '    "classes": [ {"id": "str|warrior|rogue|scholar|mage|diplomat|wanderer", "title": "название в духе игры", "hint": "одна короткая фраза"} ],',
+      '    "races": [ {"id": "human|elder|stone|beast|construct|changed|outsider|halfblood", "title": "...", "hint": "..."} ],',
+      '    "origins": [ {"id": "streets|soldier|scholar|priest|sailor|exile|smuggler|lost", "title": "...", "hint": "..."} ],',
+      '    "note": "одно предложение: что мастер учёл при подборе вариантов"',
+      '  },',
       '  "opening": "вступительная сцена, 3-5 предложений, второе лицо, живая деталь, ощутимая угроза",',
       '  "chapter": "название первой главы, 2-4 слова",',
       '  "npc": "имя и одна деталь персонажа, появившегося рядом, иначе пустая строка",',
-      '  "imagePrompt": "English image prompt for the very first scene, 8-14 words, location + light + mood, no text",',
+      '  "imagePrompt": "English image prompt for the very first scene, 10-18 words: location + light + mood + who is in frame (the hero, and any enemies or creatures present)",',
       '  "options": [ {"text": "...", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"} x3 ]',
       '}',
-      'Ровно 3 варианта действий. Только JSON, без пояснений.'
+      'Ровно 3 варианта действий. Только JSON, без пояснений.',
+      '',
+      'ВАЖНО ПРО БЛОК "hero" — он подгоняет создание персонажа под эту игру:',
+      '- id бери только из списка выше; title можешь переписать под мир игры (например класс «Одарённый» → «Ведьмак»).',
+      '- classes: от 1 до 6 вариантов (класс нужен герою всегда).',
+      '- races: если в этой игре выбор вида/расы не имеет смысла — верни пустой массив [],',
+      '  тогда шаг выбора расы будет скрыт от игрока.',
+      '- origins: если выбор происхождения не подходит игре — тоже пустой массив [].',
+      '- не выдумывай варианты, которых нет в списках: они будут отброшены.'
     );
     return lines.join('\n');
   }
@@ -2066,7 +2264,7 @@ body[data-screen="game"] .toasts { display: none; }
         ability: makeAbility(cls.id),
         buff: 0
       },
-      goal: scenario.goal || '',
+      goal: scenario.goal || (cfg && cfg.goal) || '',
       questDone: false,
       over: false,
       scene: null,
@@ -2096,8 +2294,297 @@ body[data-screen="game"] .toasts { display: none; }
   }
 
   /* ---------------------------------------------------------- */
+  /* Подгонка создания героя под конкретную игру                */
+  /* «Своя игра» / свой мир: часть параметров может не подходить  */
+  /* миру, тогда ИИ их скрывает (пустой список) или переименовывает */
+  /* ---------------------------------------------------------- */
+
+  /** Описания для картинок: класс и раса по-английски (промпты на английском). */
+  const CLASS_ART = {
+    warrior: 'an armored knight with a longsword and round shield',
+    rogue: 'a hooded rogue with a dagger',
+    scholar: 'a scholar in a coat with a lantern and a book',
+    mage: 'a spellcaster with glowing hands',
+    diplomat: 'a well-dressed envoy with an ornate cloak',
+    wanderer: 'a ranger in a travel cloak with a bow'
+  };
+  const RACE_ART = {
+    human: 'a human hero',
+    elder: 'an elven hero with long hair',
+    stone: 'a stocky dwarf-like hero',
+    beast: 'a beastfolk hero covered in fur',
+    construct: 'an android hero with metal plating',
+    changed: 'a hero marked by a glowing brand',
+    outsider: 'a hero with an otherworldly aura',
+    halfblood: 'a mixed-blood hero'
+  };
+  const heroArtTag = game => {
+    const h = (game && game.hero) || {};
+    const cls = CLASS_ART[h.classId] || 'a lone hero';
+    const race = RACE_ART[h.raceId];
+    return race ? race + ', ' + cls : cls;
+  };
+
+  /** Совпадение списка из ответа ИИ с нашими вариантами. */
+  function matchOptions(list, raw) {
+    if (!Array.isArray(raw)) return null;              // данных нет — список не трогаем
+    if (!raw.length) return [];                        // явное «не подходит» — скрываем шаг
+    const seen = {};
+    const out = [];
+    raw.forEach((item, i) => {
+      if (i > 7) return;
+      const src = (item && typeof item === 'object') ? item : { id: item };
+      const id = String(src.id || src.name || '').trim().toLowerCase();
+      const base = list.find(x => x.id === id);
+      if (!base || seen[base.id]) return;
+      seen[base.id] = 1;
+      const title = (typeof src.title === 'string' && src.title.trim()) ? src.title.trim().slice(0, 40) : base.title;
+      const hint = (typeof src.hint === 'string' && src.hint.trim()) ? src.hint.trim().slice(0, 140) : '';
+      out.push(Object.assign({}, base, { title, hint, renamed: title !== base.title }));
+    });
+    return out.length ? out : null;                    // сплошь незнакомые id — показываем всё
+  }
+
+  const DEFAULT_LABELS = { classLabel: 'Класс', raceLabel: 'Раса / вид', originLabel: 'Происхождение' };
+
+  function defaultHeroProfile(note) {
+    return {
+      custom: false, fromAI: false,
+      classLabel: DEFAULT_LABELS.classLabel,
+      raceLabel: DEFAULT_LABELS.raceLabel,
+      originLabel: DEFAULT_LABELS.originLabel,
+      showClass: true, showRace: true, showOrigin: true,
+      classes: CLASSES.slice(), races: RACES.slice(), origins: ORIGINS.slice(),
+      note: note || ''
+    };
+  }
+
+  /**
+   * Профиль создания героя по ответу ИИ для конкретной игры.
+   * classes — минимум один вариант (класс нужен всегда ради статов и умения);
+   * races/origins пустым массивом ИИ говорит «в этой игре такого выбора нет» — шаг скрываем.
+   */
+  function heroProfileFromWorld(profile) {
+    const p = (profile && typeof profile === 'object') ? profile : {};
+    if (p.normalized) return p;                        // профиль уже разобран — второй раз не портим
+    let classes = matchOptions(CLASSES, p.classes);
+    if (classes && !classes.length) classes = null;    // без класса герой не собирается
+    const races = matchOptions(RACES, p.races);
+    const origins = matchOptions(ORIGINS, p.origins);
+    const label = (v, fb) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 24) : fb);
+    return {
+      custom: true,
+      normalized: true,
+      fromAI: !!(p.classes || p.races || p.origins || p.note),
+      classLabel: label(p.classLabel, DEFAULT_LABELS.classLabel),
+      raceLabel: label(p.raceLabel, DEFAULT_LABELS.raceLabel),
+      originLabel: label(p.originLabel, DEFAULT_LABELS.originLabel),
+      showClass: true,
+      showRace: !(races && !races.length),
+      showOrigin: !(origins && !origins.length),
+      classes: classes || CLASSES.slice(),
+      races: (races && races.length) ? races : RACES.slice(),
+      origins: (origins && origins.length) ? origins : ORIGINS.slice(),
+      note: typeof p.note === 'string' ? p.note.trim().slice(0, 200) : ''
+    };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Что происходит в сцене: кто рядом и какие предметы          */
+  /* ---------------------------------------------------------- */
+  const ACTOR_RULES = [
+    ['dragon', /дракон|виверн|змей|dragon|wyvern/],
+    ['beast', /волк|волч|пёс|пс[аыу]|собак|звер|медвед|крыс|паук|жук|лошад|лис|мотыл|твар/],
+    ['undead', /скелет|мертвец|зомби|призрак|нежит|восставш|упыр|гуль|мёртв|мертв/],
+    ['construct', /робот|дрон|андроид|машин|автомат|синт|голем|механизм|сервопривод/],
+    ['monster', /монстр|демон|чудищ|мутант|тролл|гоблин|орк|великан|гигант/],
+    ['soldier', /солдат|стражник|патрул|легион|гвард|рыцар|наёмник|наемник|бандит|разбойник|пират|страж|караул|охрана/],
+    ['human', /человек|люди|людей|людьми|торговец|крестьян|старик|старух|женщин|мужчин|толп|горожан|дет[ией]|ведьм|колдун|жрец|бармен|инженер|пилот|ночлежк|прохожий/]
+  ];
+  const PROP_RULES = [
+    ['fire', /костёр|костер|огон|пожар|пламя|спичк|головн|жарк/],
+    ['torch', /факел|фонар|лампад|свеч|маяк/],
+    ['banner', /знамя|флаг|штандарт|герб|вымпел/],
+    ['cart', /телег|повозк|карет|фургон|вагон|грузовик|мотоцикл/],
+    ['tent', /шатёр|шатер|палатк|лагерь|бивак/],
+    ['ship', /корабл|лодк|шлюпк|барж|катер|яхт/],
+    ['tower', /башн|крепост|цитадел|стен[аыу]|форт|замок|частокол/],
+    ['statue', /стату|идол|памятник|изваяни/],
+    ['bridge', /мост|переправ|акведук/],
+    ['door', /двер|ворота|калитк|шлюз/]
+  ];
+
+  /** Кто есть в сцене: враги (до трёх силуэтов) и предметы окружения. */
+  function sceneActors(text) {
+    const s = String(text || '').toLowerCase();
+    const enemies = [];
+    ACTOR_RULES.forEach(pair => {
+      if (enemies.length < 3 && pair[1].test(s)) enemies.push(pair[0]);
+    });
+    const props = [];
+    PROP_RULES.forEach(pair => {
+      if (props.length < 4 && pair[1].test(s)) props.push(pair[0]);
+    });
+    return { hero: { shape: 'human' }, enemies, props };
+  }
+
+  const ENEMY_ART = {
+    dragon: 'a dragon looming in the background',
+    beast: 'a snarling beast closing in',
+    undead: 'undead figures rising',
+    construct: 'a machine sentinel',
+    monster: 'a hulking monster',
+    soldier: 'armed figures approaching',
+    human: 'a stranger watching from the shadows'
+  };
+  const PEOPLE_RE = /knight|warrior|figure|figures|people|person|character|hero|creature|monster|dragon|beast|bandit|guard|thief|soldier|silhouette|crowd|man |woman|robot|undead|group/i;
+  const ENEMY_WORD_RE = /bandit|guard|thief|soldier|wolf|beast|monster|dragon|undead|creature|figure|figures|sentinel|warrior|knight|crowd|group/i;
+
+  /**
+   * Промпт картинки для текущей сцены. Гарантирует, что на фоне
+   * будут и герой, и то, что происходит по сюжету (враги, окружение).
+   */
+  function composeSceneImagePrompt(game, opts) {
+    const o = opts || {};
+    const s = scenarioById(game && game.scenarioId);
+    const sceneText = [o.sceneText, o.action && o.action.text, o.npc].filter(Boolean).join(' ');
+    const actors = sceneActors(sceneText);
+    let base = String(o.aiPrompt || '').replace(/\s+/g, ' ').trim();
+    const hadPrompt = !!base;
+    if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
+    const parts = [base];
+    if (!hadPrompt || !PEOPLE_RE.test(base)) {
+      parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
+    }
+    // врагов добавляем, если их видно в сцене и они ещё не упомянуты в промпте
+    if (actors.enemies.length && !ENEMY_WORD_RE.test(base)) {
+      parts.push(ENEMY_ART[actors.enemies[0]]);
+    }
+    return parts.join(', ').replace(/\s+/g, ' ').trim().slice(0, 380);
+  }
+
+  /* ---------------------------------------------------------- */
   /* Промпты                                                    */
   /* ---------------------------------------------------------- */
+  /* ---------------------------------------------------------- */
+  /* Знакомые игры: профиль героя без ИИ                          */
+  /* Если мастер недоступен, но игрок написал «Ведьмак 3» или     */
+  /* «Cyberpunk 2077», шаги создания героя всё равно подгоняются   */
+  /* под игру — по встроенной таблице.                            */
+  /* ---------------------------------------------------------- */
+  const KNOWN_GAME_PROFILES = [
+    {
+      match: /ведьмак|witcher|ведьмач|цири|нильфгаард/i,
+      profile: {
+        classLabel: 'Школа',
+        classes: [
+          { id: 'mage', title: 'Ведьмак', hint: 'мутации, два меча, медальон' },
+          { id: 'warrior', title: 'Наёмник', hint: 'меч на службе у короны' },
+          { id: 'rogue', title: 'Разведчик', hint: 'следы, яды, чужая переписка' },
+          { id: 'scholar', title: 'Чародейка', hint: 'магия хаоса и придворные интриги' }
+        ],
+        races: [],                                   // в этом мире раса не выбирается
+        origins: [
+          { id: 'soldier', title: 'Школа Волка', hint: 'наставник погиб, остались только контракты' },
+          { id: 'lost', title: 'Дитя Предназначения', hint: 'за тобой идут те, кого ты не звал' },
+          { id: 'smuggler', title: 'Контрабандист', hint: 'знаешь все броды и всех перевозчиков' }
+        ],
+        note: 'в этой истории все — люди, поэтому выбирается только школа и происхождение'
+      }
+    },
+    {
+      match: /киберпанк|cyberpunk|2077|найт-сити|night city|нейросет|имплант/i,
+      profile: {
+        classLabel: 'Роль',
+        classes: [
+          { id: 'rogue', title: 'Соло', hint: 'лучший ствол в районе и цена за него' },
+          { id: 'scholar', title: 'Нетраннер', hint: 'взламываешь людей быстрее, чем замки' },
+          { id: 'wanderer', title: 'Кочевник', hint: 'свой транспорт и связи на трассах' },
+          { id: 'diplomat', title: 'Фиксер', hint: 'свои люди везде, долги тоже' }
+        ],
+        races: [],
+        origins: [
+          { id: 'streets', title: 'Дитя улиц', hint: 'вырос в Найт-Сити и не умер — уже успех' },
+          { id: 'exile', title: 'Бывший корпорат', hint: 'знаешь их схемы изнутри' },
+          { id: 'sailor', title: 'Дальнобойщик', hint: 'полстраны за спиной' }
+        ],
+        note: 'в этом мире раса не выбирается — выбирают роль и прошлое'
+      }
+    },
+    {
+      match: /wow|варкрафт|warcraft|азерот|azeroth|гильд|рейд/i,
+      profile: {
+        classLabel: 'Класс',
+        classes: [
+          { id: 'warrior', title: 'Воин', hint: 'щит, ярость, приказ держаться' },
+          { id: 'mage', title: 'Маг', hint: 'огонь, лёд и очень точный расчёт' },
+          { id: 'scholar', title: 'Жрец', hint: 'свет лечит, а тьма — убеждает' },
+          { id: 'rogue', title: 'Разбойник', hint: 'удар в спину честнее открытого боя' }
+        ],
+        races: [
+          { id: 'elder', title: 'Ночной эльф', hint: 'тень леса и бессмертная память' },
+          { id: 'stone', title: 'Дворф', hint: 'камень держит и тебя, и топор' },
+          { id: 'beast', title: 'Таурен', hint: 'сила земли и уважение к духам' },
+          { id: 'changed', title: 'Отрекшийся', hint: 'смерть не помешала планам' }
+        ],
+        origins: [
+          { id: 'soldier', title: 'Ветеран фракции', hint: 'война кончилась, привычка осталась' },
+          { id: 'lost', title: 'Изгнанник гильдии', hint: 'твоё имя вычеркнули из списка' }
+        ],
+        note: 'мир гильдий: класс и раса важны, происхождение — это твоя репутация'
+      }
+    },
+    {
+      match: /league of legends|лига легенд|рунтерра|runeterra|чемпион/i,
+      profile: {
+        classLabel: 'Путь',
+        classes: [
+          { id: 'warrior', title: 'Воин Рунтерры', hint: 'честь и дисциплина на поле' },
+          { id: 'mage', title: 'Одарённый маг', hint: 'дар опаснее любого клинка' },
+          { id: 'rogue', title: 'Плут из трущоб', hint: 'ни одна дверь не заперта' },
+          { id: 'diplomat', title: 'Дипломат Нации', hint: 'договор крепче пушки' }
+        ],
+        races: [],
+        origins: [
+          { id: 'lost', title: 'Выживший в войне', hint: 'у тебя свои счёты с обеими сторонами' },
+          { id: 'streets', title: 'Дитя улиц', hint: 'знаешь, кому что нужно' },
+          { id: 'soldier', title: 'Служил страже', hint: 'приказы ты больше не любишь' }
+        ],
+        note: 'в Рунтерре раса не выбирается — важны путь и прошлое'
+      }
+    },
+    {
+      match: /gta|гта|мафия|гангстер|город грехов|mob/i,
+      profile: {
+        classLabel: 'Роль',
+        classes: [
+          { id: 'rogue', title: 'Вор', hint: 'быстрые руки и никакого шума' },
+          { id: 'warrior', title: 'Боец', hint: 'решаешь вопросы кулаками и стволом' },
+          { id: 'diplomat', title: 'Связной', hint: 'тебя знают все, но никто не признаёт' },
+          { id: 'wanderer', title: 'Водила', hint: 'двигатель и никаких вопросов' }
+        ],
+        races: [],
+        origins: [
+          { id: 'streets', title: 'С улиц', hint: 'поднялся из самых низов' },
+          { id: 'soldier', title: 'Бывший полицейский', hint: 'знаешь систему изнутри' },
+          { id: 'exile', title: 'Не вернулся домой', hint: 'за тобой старые долги' }
+        ],
+        note: 'в этой истории раса не выбирается — важны роль и связи'
+      }
+    }
+  ];
+
+  /** Профиль героя по названию игры, если ИИ недоступен. null — если игра незнакомая. */
+  function offlineHeroProfile(cfg) {
+    if (!cfg) return null;
+    const hay = [cfg.gameName, cfg.title, cfg.genre, cfg.extra].filter(Boolean).join(' ');
+    if (!hay) return null;
+    for (const row of KNOWN_GAME_PROFILES) {
+      if (row.match.test(hay)) return heroProfileFromWorld(Object.assign({ fromAI: false }, row.profile));
+    }
+    return null;
+  }
+
   const SYSTEM_PROMPT = [
     'Ты — ведущий (гейм-мастер) текстовой ролевой игры на русском языке.',
     'Ты описываешь мир от второго лица, живо, конкретно, без воды и без пафоса.',
@@ -2113,7 +2600,10 @@ body[data-screen="game"] .toasts { display: none; }
     '  "scene": "2–4 предложения описания сцены и последствий действия игрока",',
     '  "chapter": "название главы, 2–4 слова, если сменилась локация, иначе пустая строка",',
     '  "npc": "имя и одна деталь о персонаже, если появился, иначе пусто",',
-    '  "imagePrompt": "English prompt for an image generator: 8-14 words, location + light + mood, no text",',
+    '  "imagePrompt": "English prompt for an image generator, 10-18 words: место, свет, настроение, кто в кадре",',
+    '  "world": "только для первой сцены: 2–4 предложения о мире — где мы, как здесь всё устроено, чем живут люди",',
+    '  "backstory": "только для первой сцены: 3–5 предложений предыстории героя — откуда он, что потерял, почему он здесь",',
+    '  "plan": ["шаг плана 1", "шаг 2", "шаг 3"],',
     '  "options": [',
     '    {"text": "что делает игрок (1 предложение, от третьего лица)", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"}',
     '  ],',
@@ -2122,7 +2612,17 @@ body[data-screen="game"] .toasts { display: none; }
     'Поле "stat" — проверяемая характеристика: str сила, agi ловкость, con телосложение, int разум, per восприятие, wit воля, cha харизма.',
     '"difficulty": easy — простое (dc 8), medium (dc 11), hard (dc 14), deadly (dc 17).',
     '"effects.hp" — целое число от -6 до +4, обычно 0. "effects.item" — короткое название предмета или пусто.',
-    'Пиши на русском, но "imagePrompt" — всегда на английском.'
+    'Пиши на русском, но "imagePrompt" — всегда на английском.',
+    '',
+    'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть те, кто участвует в сцене.',
+    'Всегда указывай героя (например: armored knight with a sword) и, если в сцене есть противники,',
+    'существа или заметные предметы — их тоже (two bandits, a wolf, a burning cart). Формат:',
+    '"место и погода, герой в кадре, кто ещё в сцене, свет и настроение". Без текста на картинке.',
+    '',
+    'ПРАВИЛА ДЛЯ ПЕРВОЙ СЦЕНЫ: не начинай с «ты в переулке, убей вора».',
+    'Сначала расскажи о мире (поле "world"), затем предысторию героя ("backstory"),',
+    'потом введи в текущую сцену ("scene") и наметь план отыгрыша ("plan", 3 шага).',
+    'Первые варианты действий должны вытекать из плана, а не быть случайной стычкой.'
   ].join('\n');
 
   function heroDescription(game) {
@@ -2313,11 +2813,24 @@ body[data-screen="game"] .toasts { display: none; }
       scene: String(sceneSrc).replace(/\s+/g, ' ').trim().slice(0, 900),
       chapter: typeof data.chapter === 'string' ? data.chapter.trim().slice(0, 60) : '',
       npc: typeof data.npc === 'string' ? data.npc.trim().slice(0, 120) : '',
+      world: typeof data.world === 'string' ? data.world.trim().slice(0, 900) : '',
+      backstory: typeof data.backstory === 'string' ? data.backstory.trim().slice(0, 900) : '',
+      plan: parsePlan(data.plan),
       imagePrompt: typeof imgPrompt === 'string' ? imgPrompt.trim().slice(0, 260) : '',
       options,
       effects,
       raw: data
     };
+  }
+
+  /** План отыгрыша: список шагов (из массива или из строки). */
+  function parsePlan(raw) {
+    const norm = v => String(v || '').replace(/^[-•\d.\s]+/, '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (Array.isArray(raw)) return raw.map(norm).filter(Boolean).slice(0, 4);
+    if (typeof raw === 'string' && raw.trim()) {
+      return raw.split(/\n|;|•/).map(norm).filter(Boolean).slice(0, 4);
+    }
+    return [];
   }
 
   /** Разбор ответа при создании мира (кастомный режим). */
@@ -2332,6 +2845,10 @@ body[data-screen="game"] .toasts { display: none; }
       ok: true,
       title,
       goal: typeof data.goal === 'string' ? data.goal.trim().slice(0, 200) : '',
+      world: typeof data.world === 'string' ? data.world.trim().slice(0, 900) : '',
+      backstory: typeof data.backstory === 'string' ? data.backstory.trim().slice(0, 900) : '',
+      plan: parsePlan(data.plan || data.arc || data.story),
+      hero: (data.hero && typeof data.hero === 'object') ? data.hero : null,
       opening,
       chapter: typeof data.chapter === 'string' ? data.chapter.trim().slice(0, 60) : 'Пролог',
       npc: typeof data.npc === 'string' ? data.npc.trim().slice(0, 120) : '',
@@ -2722,24 +3239,93 @@ body[data-screen="game"] .toasts { display: none; }
     });
   }
 
-  function offlineOpening(game) {
+  /** Мир словами: чем он живёт, что здесь за порядок вещей. */
+  function offlineWorldIntro(game) {
     const s = scenarioById(game.scenarioId);
-    const episode = (game.worldConfig && (game.worldConfig.extra || game.worldConfig.genre)) || '';
+    const c = game.worldConfig || {};
+    const atm = ATMOSPHERE[game.scenarioId] || GENERIC_ATMOSPHERE;
+    const parts = [];
+    parts.push(`Мир: ${game.title || s.title}. ${c.genre || s.genre}.`);
+    if (c.tone) parts.push(`Тон — ${String(c.tone).toLowerCase()}: тут не объясняют дважды.`);
+    if (c.place) parts.push(`Начинается всё в «${c.place}» — и это место живёт по своим правилам.`);
+    if (c.ingredients && c.ingredients.length) {
+      parts.push(`Здесь есть ${c.ingredients.join(', ').toLowerCase()} — и всё это уже вписано в чью-то игру.`);
+    }
+    if (c.gameName) parts.push(`Правила и дух — как в игре «${c.gameName}»: узнаваемые места, лица и порядки.`);
+    else if (s.systemHint) parts.push(s.systemHint);
+    parts.push(rnd.pick(atm));
+    return parts.join(' ');
+  }
+
+  /** Предыстория героя: откуда он, что потерял, что несёт с собой. */
+  function offlineBackstory(game) {
+    const h = game.hero;
+    const o = originById(h.originId), r = raceById(h.raceId), c = classById(h.classId);
+    const parts = [];
+    parts.push(`${h.name} — ${String(h.raceName).toLowerCase()}, ${String(c.title).toLowerCase()}. ${c.blurb}`);
+    parts.push(o.hook);
+    parts.push(r.trait);
+    if (h.inventory.length) parts.push(`С собой — ${h.inventory.join(', ')}: немного, но это всё, что осталось.`);
+    parts.push(`Цель, которая привела сюда: ${game.goal || s0Goal(game)}`);
+    return parts.join(' ');
+  }
+  function s0Goal(game) {
+    const s = scenarioById(game.scenarioId);
+    return s.goal || 'разобраться, что здесь происходит';
+  }
+
+  /** План отыгрыша: три шага, а не «убей вора в переулке». */
+  function offlinePlan(game) {
+    const s = scenarioById(game.scenarioId);
+    const c = game.worldConfig || {};
+    const place = c.place || s.title;
+    const goal = game.goal || s.goal || 'понять, что здесь происходит';
+    return [
+      `Осмотреться в «${place}»: кто здесь главный, кто на тебя смотрит и что тут считается нормой.`,
+      `Взяться за первое звено: ${goal.charAt(0).toLowerCase() + goal.slice(1)}.`,
+      `Найти союзника или рычаг: в одиночку эта история не развяжется.`
+    ];
+  }
+
+  /** Первая сцена: для готовых миров — авторское вступление, для своих — сборка по настройкам. */
+  function offlineScene(game, beat) {
+    const s = scenarioById(game.scenarioId);
+    if (s.opening) return s.opening;
+    const c = game.worldConfig || {};
+    const bits = [];
+    if (c.place) {
+      bits.push(`«${c.place}» встречает тебя без предупреждения.`);
+    } else if (c.genre) {
+      bits.push(`${c.genre} — и ты уже внутри этой истории.`);
+    } else {
+      bits.push('Мир открывается без предупреждения: ни карты, ни имени, ни запасного выхода.');
+    }
+    if (c.ingredients && c.ingredients.length) {
+      bits.push(`Первое, что бросается в глаза: ${c.ingredients.slice(0, 3).join(', ').toLowerCase()}.`);
+    }
+    if (c.extra) bits.push(c.extra);
+    if (game.goal) bits.push(`Цель, которую ты держишь в голове: ${game.goal}.`);
+    return bits.join(' ') + ' ' + beat.text;
+  }
+
+  function offlineOpening(game) {
     const beat = storyBeat(game.scenarioId, 0);
     game.offlineBeat = 0;
-    const intro = s.opening || `Мир открывается без предупреждения: ${game.goal || 'цель пока неясна'}. ${episode}`;
+    const scene = offlineScene(game, beat);
     return {
       ok: true, offline: true,
-      scene: intro + ' ' + beat.text,
+      world: offlineWorldIntro(game),
+      backstory: offlineBackstory(game),
+      plan: offlinePlan(game),
+      scene: scene + ' ' + beat.text,
       chapter: 'Пролог',
       npc: '',
-      imagePrompt: (game.worldConfig && game.worldConfig.gameName)
-        ? (s.title + ', ' + game.worldConfig.gameName).slice(0, 120)
-        : s.imagePrompts[0],
+      imagePrompt: composeSceneImagePrompt(game, { sceneText: scene }),
       options: storyOptions(beat, game.worldConfig && game.worldConfig.danger),
       effects: { hp: 0, item: '', goal: false }
     };
   }
+
 
   function offlineTurn(game, action, check) {
     const s = scenarioById(game.scenarioId);
@@ -2783,12 +3369,16 @@ body[data-screen="game"] .toasts { display: none; }
       options = storyOptions(nextBeat, danger);
     }
     game.offlineBeat = nextIndex;
+    const scene = lines.filter(Boolean).join(' ');
     return {
       ok: true, offline: true,
-      scene: lines.filter(Boolean).join(' '),
+      scene,
       chapter: index === 0 ? 'Глава I' : (index === 2 ? 'Глава II' : (beat.final ? 'Финал' : '')),
       npc: '',
-      imagePrompt: s.imagePrompts[index % s.imagePrompts.length],
+      imagePrompt: composeSceneImagePrompt(game, {
+        aiPrompt: s.imagePrompts[index % s.imagePrompts.length],
+        sceneText: scene
+      }),
       options,
       effects
     };
@@ -3002,6 +3592,8 @@ body[data-screen="game"] .toasts { display: none; }
     SCENARIOS, GAME_WORLDS, CUSTOM_SCENARIO, STORY, GENERIC_STORY,
     SAVE_PREFIX, INDEX_KEY, SETTINGS_KEY, WORLDS_KEY,
     rnd, statById, classById, abilityById, raceById, originById, raceFlavor,
+    CLASS_ART, RACE_ART, heroArtTag, defaultHeroProfile, heroProfileFromWorld, matchOptions,
+    KNOWN_GAME_PROFILES, offlineHeroProfile,
     makeStats, maxHpFor, makeAbility,
     difficultyById, difficultyForDc, shiftDc, rollDie, rollD20, successChance, resolveCheck,
     scenarioById, randomScenarioSet, emptyWorldConfig, buildWorldPrompt, sceneKindFromText,
@@ -3009,7 +3601,8 @@ body[data-screen="game"] .toasts { display: none; }
     SYSTEM_PROMPT, buildTurnPrompt, worldDescription, heroDescription, summarizeLog,
     buildImageUrl, fallbackImagePrompt,
     extractJsonObject, parseGmResponse, parseWorldResponse, sanitizeOption,
-    offlineTurn, offlineOpening, storyOptions, useAbility, tickCooldowns,
+    offlineTurn, offlineOpening, offlineScene, offlineWorldIntro, offlineBackstory, offlinePlan,
+    sceneActors, composeSceneImagePrompt, parsePlan, storyOptions, useAbility, tickCooldowns,
     applyEffects, pushLog, createStorage, migrate, probabilityLabel, OUTCOME_LABEL,
     storyFor, storyBeat, ATMOSPHERE, GENERIC_ATMOSPHERE
   };
@@ -3361,6 +3954,14 @@ body[data-screen="game"] .toasts { display: none; }
 
     (PARTICLES[KIND_PARTICLES[kind] || 'none'])(ctx, w, h, rng);
 
+    // кто в кадре: герой, противники и предметы окружения из текущей сцены.
+    // Перед ними приглушаем фон, чтобы фигуры читались с первого взгляда.
+    if (o.actors) {
+      ctx.fillStyle = rgba(col.sky, 0.34);
+      ctx.fillRect(0, 0, w, h);
+      drawActors(ctx, w, h, rng, col, o.actors);
+    }
+
     // винетка и зерно
     const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 1.05);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
@@ -3386,7 +3987,454 @@ body[data-screen="game"] .toasts { display: none; }
     return c.toDataURL('image/jpeg', 0.8);
   }
 
-  return { draw, toDataUrl, makeRng, mix, shift, rgba, hexToRgb, KIND_PARTICLES, SILHOUETTES };
+  /* ---------------------------------------------------------- */
+  /* Действующие лица: силуэты героя, врагов и предметов сцены   */
+  /* Рисуются в фоне сцены, чтобы картинка совпадала с рассказом  */
+  /* ---------------------------------------------------------- */
+  function limb(ctx, x, y, w, h, dx, dy) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + dx, y + dy);
+    ctx.lineTo(x + dx + w, y + dy);
+    ctx.lineTo(x + w, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** Человекоподобная фигура: x — центр, y — ступни, s — рост в пикселях. */
+  function drawHuman(ctx, x, y, s, opts) {
+    const o = opts || {};
+    const w = s * 0.30;
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    // голова
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.87, s * 0.10, 0, Math.PI * 2);
+    ctx.fill();
+    // корпус
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -s * 0.74);
+    ctx.lineTo(w * 0.5, -s * 0.74);
+    ctx.lineTo(w * 0.62, -s * 0.40);
+    ctx.lineTo(-w * 0.62, -s * 0.40);
+    ctx.closePath();
+    ctx.fill();
+    // ноги в шаге
+    limb(ctx, -w * 0.42, -s * 0.42, w * 0.26, s * 0.42, -s * 0.05, 0);
+    limb(ctx, w * 0.16, -s * 0.42, w * 0.26, s * 0.42, s * 0.06, 0);
+    // руки: поднятая (с оружием) и опущенная
+    limb(ctx, -w * 0.5, -s * 0.72, w * 0.20, s * 0.30, -s * 0.10, s * 0.04);
+    limb(ctx, w * 0.34, -s * 0.72, w * 0.20, s * 0.28, s * 0.05, 0);
+    if (o.weapon === 'sword') {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1.5, s * 0.045);
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.78, -s * 0.72);
+      ctx.lineTo(-w * 0.9, -s * 1.02);
+      ctx.stroke();
+      ctx.restore();
+    } else if (o.weapon === 'staff') {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1.5, s * 0.035);
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.72, -s * 0.66);
+      ctx.lineTo(-w * 0.72, -s * 1.05);
+      ctx.stroke();
+      ctx.restore();
+    } else if (o.weapon === 'bow') {
+      ctx.save();
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = Math.max(1.2, s * 0.03);
+      ctx.beginPath();
+      ctx.arc(-w * 0.7, -s * 0.62, s * 0.16, -Math.PI * 0.7, Math.PI * 0.7);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (o.shield) {
+      ctx.beginPath();
+      ctx.ellipse(w * 0.5, -s * 0.5, s * 0.07, s * 0.11, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (o.cloak) {
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.4, -s * 0.72);
+      ctx.lineTo(-w * 1.0, -s * 0.28);
+      ctx.lineTo(-w * 0.34, -s * 0.32);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Зверь на четырёх лапах. */
+  function drawBeast(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const bw = s * 0.5;
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.46, bw * 0.5, s * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // лапы
+    limb(ctx, -bw * 0.36, -s * 0.46, s * 0.055, s * 0.46, -s * 0.03, 0);
+    limb(ctx, -bw * 0.1, -s * 0.46, s * 0.055, s * 0.46, -s * 0.02, 0);
+    limb(ctx, bw * 0.18, -s * 0.46, s * 0.055, s * 0.46, 0, 0);
+    limb(ctx, bw * 0.4, -s * 0.46, s * 0.055, s * 0.46, s * 0.02, 0);
+    // шея, голова и морда
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.3, -s * 0.52);
+    ctx.lineTo(bw * 0.56, -s * 0.62);
+    ctx.lineTo(bw * 0.56, -s * 0.5);
+    ctx.lineTo(bw * 0.28, -s * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(bw * 0.58, -s * 0.62, s * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.66, -s * 0.68);
+    ctx.lineTo(bw * 0.78, -s * 0.58);
+    ctx.lineTo(bw * 0.62, -s * 0.53);
+    ctx.closePath();
+    ctx.fill();
+    // уши и хвост
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.5, -s * 0.7);
+    ctx.lineTo(bw * 0.55, -s * 0.84);
+    ctx.lineTo(bw * 0.64, -s * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-bw * 0.5, -s * 0.55);
+    ctx.quadraticCurveTo(-bw * 0.8, -s * 0.5, -bw * 0.76, -s * 0.78);
+    ctx.lineWidth = Math.max(1.5, s * 0.05);
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Громила: широкий, рогатый, с когтями. */
+  function drawMonster(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const w = s * 0.44;
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -s * 0.28);
+    ctx.lineTo(-w * 0.62, -s * 0.78);
+    ctx.lineTo(w * 0.62, -s * 0.78);
+    ctx.lineTo(w * 0.5, -s * 0.28);
+    ctx.closePath();
+    ctx.fill();
+    limb(ctx, -w * 0.46, -s * 0.3, w * 0.32, s * 0.3, -s * 0.03, 0);
+    limb(ctx, w * 0.14, -s * 0.3, w * 0.32, s * 0.3, s * 0.03, 0);
+    limb(ctx, -w * 0.6, -s * 0.74, w * 0.26, s * 0.42, -s * 0.06, s * 0.06);
+    limb(ctx, w * 0.36, -s * 0.74, w * 0.26, s * 0.42, s * 0.06, s * 0.06);
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.86, s * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+    // рога
+    [-1, 1].forEach(side => {
+      ctx.beginPath();
+      ctx.moveTo(side * s * 0.09, -s * 0.92);
+      ctx.lineTo(side * s * 0.2, -s * 1.06);
+      ctx.lineTo(side * s * 0.04, -s * 0.95);
+      ctx.closePath();
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  /** Нежить: скрюченная фигура с поднятыми руками. */
+  function drawUndead(ctx, x, y, s, opts) {
+    const o = Object.assign({}, opts, { armsUp: true });
+    ctx.save();
+    ctx.translate(0, 0);
+    drawHuman(ctx, x, y, s, o);
+    ctx.restore();
+  }
+
+  /** Машина: коробка с антенной и гусеницами. */
+  function drawConstruct(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const w = s * 0.36;
+    ctx.fillRect(-w / 2, -s * 1.14, w, s * 0.38);            // голова
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.6, -s * 0.74);
+    ctx.lineTo(w * 0.6, -s * 0.74);
+    ctx.lineTo(w * 0.5, -s * 0.3);
+    ctx.lineTo(-w * 0.5, -s * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(-w * 0.62, -s * 0.3, w * 1.24, s * 0.18);    // гусеницы
+    ctx.fillRect(w * 0.3, -s * 1.2, w * 0.06, s * 0.12);      // антенна
+    ctx.restore();
+  }
+
+  /** Дракон: длинная шея, крылья, хвост. */
+  function drawDragon(ctx, x, y, s, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.flip) ctx.scale(-1, 1);
+    const bw = s * 0.5;
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.5, bw * 0.5, s * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();                                          // шея
+    ctx.moveTo(bw * 0.34, -s * 0.62);
+    ctx.lineTo(bw * 0.54, -s * 0.62);
+    ctx.lineTo(bw * 0.72, -s * 0.92);
+    ctx.lineTo(bw * 0.52, -s * 0.94);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();                                          // голова
+    ctx.arc(bw * 0.62, -s * 0.98, s * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();                                          // крыло
+    ctx.moveTo(-bw * 0.2, -s * 0.64);
+    ctx.lineTo(-bw * 0.52, -s * 0.98);
+    ctx.lineTo(bw * 0.06, -s * 0.94);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();                                          // рог
+    ctx.moveTo(bw * 0.66, -s * 1.04);
+    ctx.lineTo(bw * 0.78, -s * 1.14);
+    ctx.lineTo(bw * 0.6, -s * 1.0);
+    ctx.closePath();
+    ctx.fill();
+    limb(ctx, -bw * 0.32, -s * 0.5, s * 0.08, s * 0.5, -s * 0.03, 0);
+    limb(ctx, bw * 0.18, -s * 0.5, s * 0.08, s * 0.5, s * 0.03, 0);
+    ctx.beginPath();                                          // хвост
+    ctx.moveTo(-bw * 0.46, -s * 0.56);
+    ctx.quadraticCurveTo(-bw * 0.9, -s * 0.5, -bw * 0.84, -s * 0.82);
+    ctx.lineWidth = Math.max(2, s * 0.07);
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const ACTOR_SHAPES = {
+    human: drawHuman,
+    soldier: (ctx, x, y, s, o) => drawHuman(ctx, x, y, s, Object.assign({ weapon: 'sword', shield: true }, o)),
+    undead: drawUndead,
+    beast: drawBeast,
+    monster: drawMonster,
+    construct: drawConstruct,
+    dragon: drawDragon,
+    crowd: (ctx, x, y, s, o) => {
+      drawHuman(ctx, x - s * 0.38, y, s * 0.74, o);
+      drawHuman(ctx, x + s * 0.3, y, s * 0.82, o);
+      drawHuman(ctx, x, y, s, o);
+    }
+  };
+
+  /** Предметы окружения: костёр, повозка, шатёр, башня, корабль… */
+  const PROPS = {
+    fire(ctx, x, y, s, col) {
+      const glow = ctx.createRadialGradient(x, y - s * 0.3, 2, x, y - s * 0.3, s * 0.9);
+      glow.addColorStop(0, rgba(col.accent, 0.55));
+      glow.addColorStop(0.45, rgba(col.accent, 0.18));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(x - s, y - s * 1.4, s * 2, s * 1.6);
+      ctx.fillStyle = rgba(col.accent, 0.85);
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x - s * 0.16 + i * s * 0.14, y);
+        ctx.quadraticCurveTo(x - s * 0.2 + i * s * 0.14, y - s * 0.42, x - s * 0.06 + i * s * 0.1, y - s * 0.62);
+        ctx.quadraticCurveTo(x + s * 0.02 + i * s * 0.1, y - s * 0.34, x + s * 0.08 + i * s * 0.1, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    },
+    torch(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.03, y - s * 0.9, s * 0.06, s * 0.9);
+      ctx.fillStyle = rgba(col.accent, 0.9);
+      ctx.beginPath();
+      ctx.ellipse(x, y - s * 0.98, s * 0.09, s * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+    },
+    banner(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.03, y - s * 1.1, s * 0.06, s * 1.1);
+      ctx.fillStyle = rgba(col.accent, 0.5);
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 1.08);
+      ctx.lineTo(x + s * 0.42, y - s * 1.0);
+      ctx.lineTo(x + s * 0.34, y - s * 0.72);
+      ctx.lineTo(x, y - s * 0.8);
+      ctx.closePath();
+      ctx.fill();
+    },
+    cart(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.42, y - s * 0.6, s * 0.84, s * 0.36);
+      [-1, 1].forEach(side => {
+        ctx.beginPath();
+        ctx.arc(x + side * s * 0.28, y - s * 0.16, s * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    },
+    tent(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.72);
+      ctx.lineTo(x + s * 0.52, y);
+      ctx.lineTo(x - s * 0.52, y);
+      ctx.closePath();
+      ctx.fill();
+    },
+    ship(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.6, y - s * 0.16);
+      ctx.lineTo(x + s * 0.6, y - s * 0.16);
+      ctx.lineTo(x + s * 0.4, y);
+      ctx.lineTo(x - s * 0.4, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x - s * 0.02, y - s * 1.05, s * 0.05, s * 0.9);
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.03, y - s * 1.0);
+      ctx.lineTo(x + s * 0.42, y - s * 0.6);
+      ctx.lineTo(x + s * 0.03, y - s * 0.35);
+      ctx.closePath();
+      ctx.fill();
+    },
+    tower(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.24, y - s * 1.5, s * 0.48, s * 1.5);
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(x - s * 0.26 + i * s * 0.14, y - s * 1.62, s * 0.09, s * 0.14);
+      }
+    },
+    statue(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.fillRect(x - s * 0.26, y - s * 0.26, s * 0.52, s * 0.26);
+      drawHuman(ctx, x, y - s * 0.24, s * 0.78, {});
+    },
+    bridge(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.8, y);
+      ctx.quadraticCurveTo(x, y - s * 0.7, x + s * 0.8, y);
+      ctx.lineTo(x + s * 0.8, y + s * 0.12);
+      ctx.lineTo(x - s * 0.8, y + s * 0.12);
+      ctx.closePath();
+      ctx.fill();
+    },
+    door(ctx, x, y, s, col) {
+      ctx.fillStyle = col.dark;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.3, y);
+      ctx.lineTo(x - s * 0.3, y - s * 0.5);
+      ctx.quadraticCurveTo(x, y - s * 0.92, x + s * 0.3, y - s * 0.5);
+      ctx.lineTo(x + s * 0.3, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = rgba(col.accent, 0.22);
+      ctx.fillRect(x - s * 0.08, y - s * 0.66, s * 0.16, s * 0.28);
+    }
+  };
+
+  /** Врагов в кадр — до трёх, герой всегда слева и лицом к ним. */
+  function drawActors(ctx, w, h, rng, col, actors) {
+    if (!actors) return;
+    const groundY = h * 0.97;
+    const heroS = h * 0.56;
+    // тёмная фигура + светящаяся кромка: читается на любом фоне
+    const silhouette = () => {
+      ctx.fillStyle = col.dark;
+      ctx.strokeStyle = rgba(col.accent, 0.75);
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      if ('shadowBlur' in ctx) {
+        ctx.shadowColor = rgba(col.accent, 0.85);
+        ctx.shadowBlur = Math.max(10, h * 0.06);
+      }
+    };
+    const doneSilhouette = () => {
+      if ('shadowBlur' in ctx) { ctx.shadowBlur = 0; ctx.shadowColor = 'rgba(0,0,0,0)'; }
+    };
+    const shadow = s => {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s * 0.42, s * 0.07, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = col.dark;
+    };
+    const enemies = (actors.enemies || []).slice(0, 3);
+    const props = (actors.props || []).slice(0, 4);
+
+    // мягкий ореол: силуэт отделяется от такого же тёмного фона
+    const glow = (x, y, s, col) => {
+      const g = ctx.createRadialGradient(x, y, s * 0.05, x, y, s * 0.95);
+      g.addColorStop(0, rgba(col.accent, 0.3));
+      g.addColorStop(0.5, rgba(col.accent, 0.12));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - s, y - s * 1.25, s * 2, s * 1.35);
+    };
+
+    // предметы окружения — на заднем плане
+    props.forEach((name, i) => {
+      const draw = PROPS[name];
+      if (!draw) return;
+      const px = w * (0.46 + i * 0.14 + rng() * 0.05);
+      const ps = h * (0.22 + rng() * 0.14);
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.translate(Math.min(px, w * 0.94), groundY);
+      draw(ctx, 0, 0, ps, col, rng);
+      ctx.restore();
+    });
+
+    // враги — справа, лицом к герою
+    enemies.forEach((shape, i) => {
+      const draw = ACTOR_SHAPES[shape] || ACTOR_SHAPES.human;
+      const s = h * (0.44 - i * 0.05 + rng() * 0.03);
+      const px = Math.min(w * (0.6 + i * 0.145), w * 0.9);
+      glow(px, groundY - s * 0.5, s, col);
+      ctx.save();
+      ctx.translate(px, groundY);
+      silhouette();
+      ctx.save();
+      doneSilhouette();
+      shadow(s);
+      silhouette();
+      ctx.beginPath();
+      draw(ctx, 0, 0, s, { flip: true, weapon: shape === 'soldier' ? 'sword' : undefined });
+      doneSilhouette();
+      ctx.restore();
+      ctx.restore();
+    });
+
+    // герой — слева, лицом вправо
+    const heroShape = ACTOR_SHAPES[(actors.hero && actors.hero.shape) || 'human'] || ACTOR_SHAPES.human;
+    glow(w * 0.22, groundY - heroS * 0.5, heroS, col);
+    ctx.save();
+    ctx.translate(w * 0.22, groundY);
+    doneSilhouette();
+    shadow(heroS);
+    silhouette();
+    ctx.beginPath();
+    heroShape(ctx, 0, 0, heroS, { weapon: actors.hero && actors.hero.weapon, shield: actors.hero && actors.hero.shield, cloak: true });
+    doneSilhouette();
+    ctx.restore();
+  }
+
+  return { draw, toDataUrl, makeRng, mix, shift, rgba, hexToRgb, KIND_PARTICLES, SILHOUETTES, ACTOR_SHAPES, PROPS, drawActors };
+
 });
 
 </script>
@@ -3690,8 +4738,43 @@ body[data-screen="game"] .toasts { display: none; }
     backend: null,
     backendChecked: false,
     imageWidth: 448,
-    imageHeight: 252
+    imageHeight: 252,
+    serverBase: ''            // напр. https://dice-tales.onrender.com — для GitHub Pages
   };
+
+  /* ---------------------------------------------------------- */
+  /* Адрес своего сервера                                        */
+  /* GitHub Pages не умеет /api/*, поэтому на нём можно указать   */
+  /* бэкенд ссылкой:  index.html?server=https://…                */
+  /* ---------------------------------------------------------- */
+  function normalizeBase(b) { return String(b || '').trim().replace(/\/+$/, ''); }
+  function initServerBase() {
+    let fromQuery = '';
+    try {
+      if (typeof location !== 'undefined') {
+        fromQuery = normalizeBase(new URLSearchParams(location.search).get('server'));
+      }
+    } catch (e) { /* старый браузер — не страшно */ }
+    let stored = '';
+    try { stored = normalizeBase(localStorage.getItem('dt2:server')); } catch (e) { /* приватный режим */ }
+    CONFIG.serverBase = fromQuery || stored;
+    if (fromQuery) {
+      try { localStorage.setItem('dt2:server', fromQuery); } catch (e) { /* приватный режим */ }
+    }
+    if (CONFIG.serverBase) log('свой сервер:', CONFIG.serverBase);
+    return CONFIG.serverBase;
+  }
+  initServerBase();
+  function setServerBase(b) {
+    CONFIG.serverBase = normalizeBase(b);
+    try { localStorage.setItem('dt2:server', CONFIG.serverBase); } catch (e) { /* noop */ }
+    CONFIG.backendChecked = false;
+    CONFIG.backend = null;
+  }
+  /** Путь к своему серверу: относительный на самом сервере, абсолютный с GitHub Pages. */
+  function serverUrl(path) {
+    return CONFIG.serverBase && path.indexOf('api/') === 0 ? CONFIG.serverBase + '/' + path : path;
+  }
 
   function setApiKey(key) { CONFIG.apiKey = (key || '').trim() || BUILTIN_API_KEY; }
   function getApiKey() { return CONFIG.apiKey; }
@@ -3731,7 +4814,7 @@ body[data-screen="game"] .toasts { display: none; }
     CONFIG.backend = null;
     try {
       const t = withTimeout(6000);
-      const res = await fetch('api/health', { signal: t.signal });
+      const res = await fetch(serverUrl('api/health'), { signal: t.signal });
       t.done();
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
@@ -3758,7 +4841,7 @@ body[data-screen="game"] .toasts { display: none; }
     if (!CONFIG.backend) return null;
     const t = withTimeout(timeoutMs || 30000);
     try {
-      const res = await fetch('api/gm', {
+      const res = await fetch(serverUrl('api/gm'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ messages }),
@@ -3854,7 +4937,16 @@ body[data-screen="game"] .toasts { display: none; }
     const res = await askGameMaster(messages, hooks);
     if (res.ok) {
       const parsed = E.parseGmResponse(res.text, { game });
-      if (parsed.ok) return Object.assign(parsed, { source: res.source });
+      if (parsed.ok) {
+        // в кадре должны быть герой и те, кто есть в сцене
+        parsed.imagePrompt = E.composeSceneImagePrompt(game, {
+          aiPrompt: parsed.imagePrompt,
+          sceneText: parsed.scene,
+          npc: parsed.npc,
+          action
+        });
+        return Object.assign(parsed, { source: res.source });
+      }
       log('не смог разобрать ответ модели — беру локального мастера');
     }
     if (hooks.onStatus) hooks.onStatus('offline');
@@ -3872,7 +4964,13 @@ body[data-screen="game"] .toasts { display: none; }
           E.worldDescription(game),
           `ВСТУПЛЕНИЕ МИРА: ${scenario.opening}`,
           E.heroDescription(game),
-          'Это первая сцена. Введи игрока в обстановку (3-5 предложений), дай почувствовать угрозу, оживи расу и происхождение героя и предложи ровно 3 первых варианта действий.',
+          'Это первая сцена игры. Не начинай со случайной стычки. Нужно:',
+          '1) "world" — 2-4 предложения о мире и здешних порядках;',
+          '2) "backstory" — 3-5 предложений предыстории героя: откуда он, что потерял, почему здесь;',
+          '3) "scene" — ввод в текущую сцену (3-5 предложений), живая деталь и ощутимая угроза;',
+          '4) "plan" — 3 шага плана отыгрыша (что герою предстоит и в каком порядке);',
+          '5) "imagePrompt" — по-английски, с героем в кадре и с теми, кто есть в сцене;',
+          '6) ровно 3 первых варианта действий, вытекающих из плана.',
           'Только JSON.'
         ].join('\n\n')
       }
@@ -3881,6 +4979,11 @@ body[data-screen="game"] .toasts { display: none; }
     if (res.ok) {
       const parsed = E.parseGmResponse(res.text, { game });
       if (parsed.ok && parsed.options && parsed.options.length) {
+        parsed.imagePrompt = E.composeSceneImagePrompt(game, {
+          aiPrompt: parsed.imagePrompt,
+          sceneText: parsed.scene,
+          npc: parsed.npc
+        });
         return Object.assign(parsed, { source: res.source });
       }
     }
@@ -3915,10 +5018,18 @@ body[data-screen="game"] .toasts { display: none; }
           source: res.source,
           title: parsed.title || (game.worldConfig && game.worldConfig.title) || 'Безымянный мир',
           goal: parsed.goal || 'Найти своё место в этом мире',
+          world: parsed.world || '',
+          backstory: parsed.backstory || '',
+          plan: parsed.plan || [],
+          hero: parsed.hero || null,
           scene: parsed.opening,
           chapter: parsed.chapter || 'Пролог',
           npc: parsed.npc || '',
-          imagePrompt: parsed.imagePrompt || base.imagePrompts[0],
+          imagePrompt: E.composeSceneImagePrompt(game, {
+            aiPrompt: parsed.imagePrompt || base.imagePrompts[0],
+            sceneText: parsed.opening,
+            npc: parsed.npc
+          }),
           options,
           effects: { hp: 0, item: '', goal: false }
         };
@@ -3932,7 +5043,9 @@ body[data-screen="game"] .toasts { display: none; }
       [cfg.genre || 'Свой мир', cfg.place ? '· ' + cfg.place : ''].join(' ').trim();
     return Object.assign(local, {
       title: fallbackTitle || 'Свой мир',
-      goal: cfg.goal || local.scene.split('.')[0].slice(0, 80)
+      goal: cfg.goal || local.scene.split('.')[0].slice(0, 80),
+      // ИИ недоступен, но знакомые игры собираются и локально
+      hero: E.offlineHeroProfile(cfg)
     });
   }
 
@@ -3973,7 +5086,7 @@ body[data-screen="game"] .toasts { display: none; }
 
     const server = await probeBackend();
     const queue = [];
-    if (server && server.imageProxy) queue.push({ name: 'server', url: built.server, delay: 0 });
+    if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
     queue.push({ name: 'a0', url: built.a0, delay: server && server.imageProxy ? 1200 : 0 });
     queue.push({ name: 'pollinations', url: withImageKey(built.pollinations), delay: 2500 });
     queue.push({ name: 'stock', url: built.stock, delay: 9000 });
@@ -4017,7 +5130,7 @@ body[data-screen="game"] .toasts { display: none; }
   }
 
   return {
-    CONFIG, BUILTIN_API_KEY, setApiKey, getApiKey, isBuiltinKey, probeBackend, mode,
+    CONFIG, BUILTIN_API_KEY, setApiKey, getApiKey, isBuiltinKey, probeBackend, mode, serverUrl, setServerBase,
     askGameMaster, generateTurn, generateOpening, generateWorld,
     generateImage, prefetch, loadImageOnce, looksLikeJunk, sleep
   };
@@ -4199,6 +5312,9 @@ body[data-screen="game"] .toasts { display: none; }
     game: null,
     scenarioSet: [],
     pickedScenario: null,
+    heroProfile: null,         // какие шаги создания героя показывать (для «своей игры» — от ИИ)
+    pendingWorld: null,        // мир, собранный ИИ до выбора героя
+    prologueOpen: false,
     worldMode: 'random',
     draftWorld: null,
     draft: { name: '', classId: 'warrior', raceId: 'human', originId: 'streets' },
@@ -4323,19 +5439,61 @@ body[data-screen="game"] .toasts { display: none; }
     E.GAME_WORLDS.filter(w => !w.customGame).forEach((w, i) => list.appendChild(scenarioCard(w, i, pickScenario)));
   }
 
+  /**
+   * «Своя игра» / свой мир: до выбора героя просим мастера собрать мир.
+   * Из ответа берём не только название и цель, но и то, какие шаги
+   * создания героя вообще уместны в этой игре (раса, происхождение, классы).
+   */
+  async function prepareCustomWorld() {
+    const base = State.pickedScenario || E.CUSTOM_SCENARIO;
+    const draft = E.createGame({
+      scenarioId: base.id,
+      heroName: 'Герой',
+      classId: E.CLASSES[0].id,
+      raceId: E.RACES[0].id,
+      originId: E.ORIGINS[0].id,
+      worldConfig: State.draftWorld || E.emptyWorldConfig()
+    });
+    State.pendingWorld = null;
+    showLoading('Мастер изучает мир…', (State.draftWorld && State.draftWorld.gameName) || 'Подбираем героя под эту игру');
+    const turn = await API.generateWorld(draft, { onStatus: statusHook() });
+    hideLoading();
+    State.pendingWorld = turn;
+    State.heroProfile = turn.hero
+      ? E.heroProfileFromWorld(turn.hero)
+      : E.defaultHeroProfile(turn.offline
+        ? 'Мастер сейчас недоступен: шаги героя открыты полностью.'
+        : 'В этом мире мастер оставил все шаги: выбирай свободно.');
+    if (State.heroProfile.classes.length) State.draft.classId = State.heroProfile.classes[0].id;
+    if (State.heroProfile.showRace) State.draft.raceId = State.heroProfile.races[0].id;
+    if (State.heroProfile.showOrigin) State.draft.originId = State.heroProfile.origins[0].id;
+    openHero();
+  }
+
   function pickScenario(s) {
     State.pickedScenario = s;
+    State.pendingWorld = null;
+    State.heroProfile = E.defaultHeroProfile();
     // для «своей игры» берём текст из поля
     if (s.customGame) {
       const name = $('#own-game-input').value.trim();
+      if (!name) { notify('Впишите название игры', { kind: 'warn' }); return; }
       State.draftWorld = Object.assign(E.emptyWorldConfig(), {
-        gameName: name || 'Своя игра',
+        gameName: name,
+        genre: 'По игре «' + name + '»',
         danger: 'normal',
-        extra: name ? '' : 'Придумай мир сам, но сделай его узнаваемым и цельным.'
+        extra: 'Держи узнаваемые черты этой игры: её мир, лексику, персонажей-архетипы и правила. ' +
+               'Создание героя подгони под эту игру: лишние шаги убери пустым массивом.'
       });
-      if (!name) {
-        notify('Название игры пустое — ИИ придумает мир сам', { kind: 'warn' });
-      }
+      Sound.tap();
+      State.busy = true;
+      prepareCustomWorld().catch(() => {
+        hideLoading();
+        State.busy = false;
+        State.heroProfile = E.defaultHeroProfile();
+        openHero();
+      });
+      return;
     }
     Sound.tap();
     openHero();
@@ -4465,7 +5623,13 @@ body[data-screen="game"] .toasts { display: none; }
     State.pickedScenario = E.CUSTOM_SCENARIO;
     if (cfg.title) State.pickedScenario = Object.assign({}, E.CUSTOM_SCENARIO, { title: 'Свой мир: ' + cfg.title });
     Sound.tap();
-    openHero();
+    State.busy = true;
+    prepareCustomWorld().catch(() => {
+      hideLoading();
+      State.busy = false;
+      State.heroProfile = E.defaultHeroProfile();
+      openHero();
+    });
   }
 
   function startOwnGame() {
@@ -4477,10 +5641,17 @@ body[data-screen="game"] .toasts { display: none; }
       gameName: name,
       genre: 'По игре «' + name + '»',
       danger: 'normal',
-      extra: 'Держи узнаваемые черты этой игры: её мир, лексику, персонажей-архетипы и правила.'
+      extra: 'Держи узнаваемые черты этой игры: её мир, лексику, персонажей-архетипы и правила. ' +
+             'Создание героя подгони под эту игру: лишние шаги убери пустым массивом.'
     });
     Sound.tap();
-    openHero();
+    State.busy = true;
+    prepareCustomWorld().catch(() => {
+      hideLoading();
+      State.busy = false;
+      State.heroProfile = E.defaultHeroProfile();
+      openHero();
+    });
   }
 
   /* ---------------------------------------------------------- */
@@ -4489,8 +5660,11 @@ body[data-screen="game"] .toasts { display: none; }
   function heroBannerScenario() {
     const s = State.pickedScenario || E.SCENARIOS[0];
     const cfg = State.draftWorld;
-    const title = (cfg && cfg.gameName) ? cfg.gameName : ((cfg && cfg.title) ? cfg.title : s.title);
-    const goal = (cfg && cfg.goal) ? cfg.goal : (s.goal || 'цель определит ИИ-мастер');
+    // мир мог быть собран ещё до выбора героя: тогда название и цель уже известны
+    const pending = (State.pendingWorld && typeof State.pendingWorld === 'object') ? State.pendingWorld : {};
+    const title = (cfg && cfg.gameName) ? cfg.gameName
+      : ((cfg && cfg.title) ? cfg.title : (pending.title || s.title));
+    const goal = (cfg && cfg.goal) || pending.goal || s.goal || 'цель определит ИИ-мастер';
     return { cover: s.cover, title, goal, icon: s.icon };
   }
 
@@ -4504,6 +5678,7 @@ body[data-screen="game"] .toasts { display: none; }
     ]));
     if (!State.draft.name) State.draft.name = randomName();
     $('#hero-name').value = State.draft.name;
+    applyProfileToForm();
     renderClassList();
     renderRaceList();
     renderOriginList();
@@ -4511,9 +5686,34 @@ body[data-screen="game"] .toasts { display: none; }
     show('hero');
   }
 
+  /** Текущий профиль создания героя (обычный мир — все шаги). */
+  function heroProfile() {
+    if (!State.heroProfile) State.heroProfile = E.defaultHeroProfile();
+    return State.heroProfile;
+  }
+
+  function applyProfileToForm() {
+    const p = heroProfile();
+    $('#label-class').textContent = p.classLabel;
+    $('#label-race').textContent = p.raceLabel;
+    $('#label-origin').textContent = p.originLabel;
+    $('#section-class').hidden = !p.showClass;
+    $('#section-race').hidden = !p.showRace;
+    $('#section-origin').hidden = !p.showOrigin;
+    const note = $('#hero-profile-note');
+    note.textContent = p.note ? '🧠 Мастер: ' + p.note : '';
+    note.hidden = !p.note;
+    // если вариант один — выбираем его сами
+    if (p.classes.length === 1) State.draft.classId = p.classes[0].id;
+    if (p.showRace && p.races.length === 1) State.draft.raceId = p.races[0].id;
+    if (p.showOrigin && p.origins.length === 1) State.draft.originId = p.origins[0].id;
+    if (!p.showRace && State.draft.raceId === null) State.draft.raceId = p.races[0].id;
+    if (!p.showOrigin && State.draft.originId === null) State.draft.originId = p.origins[0].id;
+  }
+
   function renderClassList() {
     const wrap = clear($('#class-list'));
-    E.CLASSES.forEach(c => {
+    heroProfile().classes.forEach(c => {
       const active = c.id === State.draft.classId;
       const bonus = E.STAT_IDS.filter(id => c.bonus[id]).map(id => E.statById(id).name + ' ' + (c.bonus[id] > 0 ? '+' : '') + c.bonus[id]);
       const ability = E.abilityById(c.ability);
@@ -4524,7 +5724,7 @@ body[data-screen="game"] .toasts { display: none; }
         h('span', { class: 'arch-card__icon', text: c.icon }),
         h('span', { class: 'arch-card__main' }, [
           h('span', { class: 'arch-card__title', text: c.title }),
-          h('span', { class: 'arch-card__blurb', text: c.blurb }),
+          h('span', { class: 'arch-card__blurb', text: c.hint || c.blurb }),
           h('span', { class: 'arch-card__ability', text: ability.icon + ' ' + ability.name + ' — ' + ability.desc })
         ]),
         h('span', { class: 'arch-card__bonus', text: bonus.join(' · ') })
@@ -4535,14 +5735,14 @@ body[data-screen="game"] .toasts { display: none; }
   function renderRaceList() {
     const wrap = clear($('#race-list'));
     const setting = (State.pickedScenario || E.SCENARIOS[0]).setting;
-    E.RACES.forEach(r => {
+    heroProfile().races.forEach(r => {
       const active = r.id === State.draft.raceId;
       wrap.appendChild(h('button', {
         class: 'chip chip--tall' + (active ? ' is-on' : ''), type: 'button',
         onclick: () => { State.draft.raceId = r.id; Sound.tap(); renderRaceList(); renderStatPreview(); }
       }, [
         h('span', { class: 'chip__title', text: r.icon + ' ' + r.title }),
-        h('span', { class: 'chip__sub', text: E.raceFlavor(r, setting) })
+        h('span', { class: 'chip__sub', text: r.hint || E.raceFlavor(r, setting) })
       ]));
     });
     const race = E.raceById(State.draft.raceId);
@@ -4551,7 +5751,7 @@ body[data-screen="game"] .toasts { display: none; }
 
   function renderOriginList() {
     const wrap = clear($('#origin-list'));
-    E.ORIGINS.forEach(o => {
+    heroProfile().origins.forEach(o => {
       const active = o.id === State.draft.originId;
       const bonus = E.STAT_IDS.filter(id => o.bonus[id]).map(id => E.statById(id).short + ' +' + o.bonus[id]);
       wrap.appendChild(h('button', {
@@ -4561,7 +5761,7 @@ body[data-screen="game"] .toasts { display: none; }
         h('span', { class: 'arch-card__icon', text: o.icon }),
         h('span', { class: 'arch-card__main' }, [
           h('span', { class: 'arch-card__title', text: o.title }),
-          h('span', { class: 'arch-card__blurb', text: o.hook })
+          h('span', { class: 'arch-card__blurb', text: o.hint || o.hook })
         ]),
         h('span', { class: 'arch-card__bonus', text: bonus.join(' · ') + ' · ' + o.item })
       ]));
@@ -4614,7 +5814,30 @@ body[data-screen="game"] .toasts { display: none; }
     State.game = game;
     State.storage.save(game);
     Sound.tap();
+    if (isWorldBuilding && State.pendingWorld) {
+      // мир уже собран, пока игрок выбирал героя — не гоняем ИИ второй раз
+      const ready = State.pendingWorld;
+      State.pendingWorld = null;
+      show('game');
+      State.busy = false;
+      renderGameTop();
+      renderActions(null, true);
+      paintBackdrop(null, '');
+      applyPendingWorld(ready);
+      return;
+    }
     openGame(game, true, isWorldBuilding);
+  }
+
+  /** Применяем заранее собранный мир (вступление + первая сцена). */
+  function applyPendingWorld(turn) {
+    const g = State.game;
+    if (turn.title) { g.title = turn.title; g.scenarioTitle = turn.title; }
+    if (turn.goal) g.goal = turn.goal;
+    if (turn.world || turn.backstory || (turn.plan && turn.plan.length)) {
+      g.intro = { world: turn.world || '', backstory: turn.backstory || '', plan: turn.plan || [] };
+    }
+    applyTurn(turn, null, true, false);
   }
 
   /* ---------------------------------------------------------- */
@@ -4625,6 +5848,7 @@ body[data-screen="game"] .toasts { display: none; }
     State.busy = false;
     show('game');
     renderGameTop();
+    renderIntro(game.intro);
     renderSceneText(game.scene ? game.scene.text : '');
     const savedOptions = game.scene && game.scene.options;
     renderActions(savedOptions, !(savedOptions && savedOptions.length));
@@ -4660,6 +5884,57 @@ body[data-screen="game"] .toasts { display: none; }
 
   /* --- текст сцены --- */
   let typingTimer = null;
+  /** Вступление: о мире, предыстория героя, план отыгрыша и вход в сцену. */
+  function renderIntro(intro) {
+    const btn = $('#prologue-btn');
+    const data = intro || (State.game && State.game.intro) || null;
+    const has = !!(data && (data.world || data.backstory || (data.plan && data.plan.length)));
+    if (btn) btn.hidden = !has;
+    if (!has) return;
+    const world = $('#intro-world'), back = $('#intro-back'), plan = $('#intro-plan');
+    world.hidden = !data.world;
+    if (data.world) $('#intro-world-text').textContent = data.world;
+    back.hidden = !data.backstory;
+    if (data.backstory) $('#intro-back-text').textContent = data.backstory;
+    const steps = data.plan || [];
+    plan.hidden = !steps.length;
+    const list = clear($('#intro-plan-list'));
+    steps.forEach(step => list.appendChild(h('li', { text: step })));
+    const sceneCard = $('#intro-scene');
+    const firstScene = data.scene || (State.game && State.game.scene && State.game.scene.text) || '';
+    if (sceneCard) {
+      sceneCard.hidden = !firstScene;
+      if (firstScene) $('#intro-scene-text').textContent = firstScene;
+    }
+  }
+
+  /** Пролог: показываем один раз на старте, дальше он доступен кнопкой. */
+  function openPrologue() {
+    const box = $('#prologue');
+    const data = (State.game && State.game.intro) || null;
+    if (!box || !data || !box.hidden) return;
+    renderIntro(data);
+    box.hidden = false;
+    State.prologueOpen = true;
+  }
+
+  function closePrologue() {
+    const box = $('#prologue');
+    if (!box || box.hidden) return;
+    box.hidden = true;
+    State.prologueOpen = false;
+    if (State.game) {
+      State.game.introSeen = true;
+      State.storage.save(State.game);
+    }
+    const panel = $('#panel');
+    if (panel) panel.scrollTop = 0;
+  }
+
+  /**
+   * Печать текста мастера: не рывками, а волной — примерно 22 мс на знак.
+   * Тап по тексту показывает его целиком, если ждать не хочется.
+   */
   function renderSceneText(text, opts) {
     const o = Object.assign({ typewriter: false }, opts || {});
     const box = $('#scene-text');
@@ -4668,17 +5943,28 @@ body[data-screen="game"] .toasts { display: none; }
     const p = h('div', { class: 'scene-text__body', html: formatText(text || '') });
     box.appendChild(p);
     $('#panel').scrollTop = 0;
-    if (o.typewriter && text) {
+    // пока открыт пролог, панель не прокручиваем — игрок читает вступление
+    const keepTop = !!State.prologueOpen;
+    const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (o.typewriter && text && !reduce) {
       const full = formatText(text);
+      const total = Math.min(9000, Math.max(2600, full.length * 24));   // спокойная скорость
+      const tick = 40;
+      const step = Math.max(1, Math.ceil(full.length / (total / tick)));
       let i = 0;
       p.innerHTML = '';
-      const step = Math.max(1, Math.round(full.length / 90));
+      const finish = () => {
+        if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
+        p.innerHTML = full;
+      };
+      p.title = 'Нажмите, чтобы показать текст целиком';
+      p.onclick = finish;
       typingTimer = setInterval(() => {
         i += step;
         p.innerHTML = full.slice(0, i);
-        if (i >= full.length) { clearInterval(typingTimer); typingTimer = null; p.innerHTML = full; }
-        $('#panel').scrollTop = $('#panel').scrollHeight;
-      }, 16);
+        if (i >= full.length) { finish(); return; }
+        if (!keepTop) $('#panel').scrollTop = $('#panel').scrollHeight;
+      }, tick);
     } else {
       $('#panel').scrollTop = 0;
     }
@@ -4728,10 +6014,14 @@ body[data-screen="game"] .toasts { display: none; }
       ]));
     }
     if (loading || !options || !options.length) {
-      wrap.appendChild(h('div', { class: 'actions__loading' }, [
-        h('span', { class: 'spinner' }),
-        h('span', { text: 'Мастер придумывает варианты…' })
-      ]));
+      // заготовки кнопок: видно, где появятся варианты, и низ не пустует
+      const placeholders = Math.max(3, (options && options.length) || 3);
+      for (let i = 0; i < placeholders; i++) {
+        wrap.appendChild(h('div', { class: 'action-btn action-btn--ghost', 'aria-hidden': 'true' }, [
+          h('span', { class: 'ghost-line ghost-line--wide' }),
+          h('span', { class: 'ghost-line ghost-line--narrow' })
+        ]));
+      }
       return;
     }
     options.forEach(opt => {
@@ -4759,16 +6049,33 @@ body[data-screen="game"] .toasts { display: none; }
   }
 
   /* --- мгновенный фон + догрузка ИИ-картинки --- */
+  /**
+   * Мгновенный фон: тип местности + кто в кадре.
+   * Силуэты героя, противников и предметов берём прямо из текста сцены,
+   * чтобы картинка совпадала с тем, что рассказывает мастер.
+   */
   function paintBackdrop(prompt, sceneText) {
     const g = State.game;
     if (!g || !Backdrop) return;
     const s = E.scenarioById(g.scenarioId);
-    const kind = E.sceneKindFromText((prompt || '') + ' ' + (sceneText || '') + ' ' + (g.goal || ''));
+    const narration = [sceneText, prompt, g.scene && g.scene.npc, g.goal].filter(Boolean).join(' ');
+    const kind = E.sceneKindFromText(narration);
+    const actors = Object.assign(E.sceneActors(narration), {
+      hero: { shape: 'human', weapon: heroBackdropWeapon(g), shield: g.hero.classId === 'warrior' }
+    });
     State.backdropSeed = E.rnd.seed();
     try {
-      Backdrop.draw($('#scene-canvas'), { kind, palette: s.palette, seed: State.backdropSeed });
-      $('#scene-canvas').dataset.kind = kind;
+      Backdrop.draw($('#scene-canvas'), { kind, palette: s.palette, seed: State.backdropSeed, actors });
+      const canvas = $('#scene-canvas');
+      canvas.dataset.kind = kind;
+      canvas.dataset.enemies = actors.enemies.join(',');
     } catch (e) { /* canvas может быть недоступен — не критично */ }
+  }
+
+  /** Оружие героя для силуэта: у каждого класса своё. */
+  function heroBackdropWeapon(g) {
+    const byClass = { warrior: 'sword', rogue: 'shield', scholar: 'staff', mage: 'staff', wanderer: 'bow', diplomat: 'sword' };
+    return byClass[g.hero.classId] || 'sword';
   }
 
   function setSceneStatus(text, done) {
@@ -4798,7 +6105,12 @@ body[data-screen="game"] .toasts { display: none; }
     const g = State.game;
     if (!g) return;
     const s = E.scenarioById(g.scenarioId);
-    const used = prompt || E.fallbackImagePrompt(g, action && action.text);
+    const used = E.composeSceneImagePrompt(g, {
+      aiPrompt: prompt,
+      sceneText: (g.scene && g.scene.text) || '',
+      npc: g.scene && g.scene.npc,
+      action
+    });
     if (!silent) setSceneStatus('рисуем сцену…');
     $('#scene-badge').textContent = 'фон рисуется';
     $('#scene-badge').hidden = false;
@@ -4944,17 +6256,26 @@ body[data-screen="game"] .toasts { display: none; }
     direct: 'Мастер описывает последствия…'
   }[kind] || 'Мастер описывает последствия…');
 
-  function setActionsLoading(text) {
-    const wrap = clear($('#actions'));
-    wrap.appendChild(h('div', { class: 'actions__loading' }, [
-      h('span', { class: 'spinner' }), h('span', { text })
-    ]));
+  /** «Мастер думает» показываем в шапке рядом с названием игры. */
+  function setTurnStatus(text) {
+    const box = $('#game-status');
+    if (!box) return;
+    const label = $('#game-status-text');
+    if (text) {
+      label.textContent = text;
+      box.hidden = false;
+    } else {
+      box.hidden = true;
+    }
   }
 
-  const statusHook = () => kind => {
-    const el = $('#actions .actions__loading span:last-child');
-    if (el) el.textContent = statusText(kind);
-  };
+  /** Пока ждём ответ, внизу стоят «заготовки» будущих кнопок. */
+  function setActionsLoading(text) {
+    setTurnStatus(text || 'Мастер думает…');
+    renderActions(null, true);
+  }
+
+  const statusHook = () => kind => setTurnStatus(statusText(kind));
 
   /** Сборка своего мира / своей игры: ИИ придумывает название, цель и первую сцену. */
   async function buildWorldThenStart() {
@@ -5033,11 +6354,16 @@ body[data-screen="game"] .toasts { display: none; }
       notes: notes,
       offline: !!turn.offline
     });
+    if (turn.world || turn.backstory || (turn.plan && turn.plan.length)) {
+      g.intro = { world: turn.world || '', backstory: turn.backstory || '', plan: turn.plan || [] };
+    }
     g.scene = {
       text: turn.scene,
       options: turn.options,
       npc: turn.npc || '',
-      imagePrompt: turn.imagePrompt || E.fallbackImagePrompt(g, action && action.text),
+      imagePrompt: turn.imagePrompt || E.composeSceneImagePrompt(g, {
+        sceneText: turn.scene, npc: turn.npc, action
+      }),
       image: g.scene && g.scene.image ? g.scene.image : '',
       imageSource: g.scene && g.scene.imageSource ? g.scene.imageSource : ''
     };
@@ -5045,8 +6371,12 @@ body[data-screen="game"] .toasts { display: none; }
     if (!isWorldBuild) E.tickCooldowns(g);
     State.storage.save(g);
     State.busy = false;
+    setTurnStatus('');
     renderGameTop();
     renderLog();
+    renderIntro(g.intro);
+    // первая сцена открывается прологом: сначала мир, потом предыстория, потом сцена и план
+    if (g.intro && !g.introSeen && !State.prologueOpen) openPrologue();
     renderSceneText(turn.scene, { typewriter: true });
     const npcEl = $('#scene-npc');
     if (turn.npc) { npcEl.textContent = '👤 ' + turn.npc; npcEl.hidden = false; }
@@ -5160,6 +6490,8 @@ body[data-screen="game"] .toasts { display: none; }
           State.storage.save(g);
           closeModal();
           State.game = null;
+          State.busy = false;
+          setTurnStatus('');
           show('menu');
           toast('Игра сохранена в «Мои игры»', { kind: 'good' });
         }
@@ -5399,6 +6731,8 @@ body[data-screen="game"] .toasts { display: none; }
         case 'start-own-game': startOwnGame(); break;
         case 'start-adventure': startAdventure(); break;
         case 'close-game': confirmCloseGame(); break;
+        case 'open-prologue': Sound.tap(); openPrologue(); break;
+        case 'close-prologue': Sound.tap(); closePrologue(); break;
         case 'reload-image': Sound.tap(); loadSceneImage(State.game && State.game.scene && State.game.scene.imagePrompt, null, false); break;
         case 'open-hero': openHeroSheet(); break;
         case 'random-name':
@@ -5434,7 +6768,12 @@ body[data-screen="game"] .toasts { display: none; }
     // клавиши: 1/2/3 — вариант, U — умение, Esc — закрыть диалог
     document.addEventListener('keydown', ev => {
       if (document.body.dataset.screen !== 'game') return;
-      if (ev.key === 'Escape') { if (!$('#modal').hidden) closeModal(); return; }
+      if (ev.key === 'Escape') {
+        if (!$('#modal').hidden) { closeModal(); return; }
+        if (State.prologueOpen) { closePrologue(); return; }
+        return;
+      }
+      if (State.prologueOpen) return;
       if (ev.key.toLowerCase() === 'u' || ev.key.toLowerCase() === 'г') { onUseAbility(); return; }
       const index = ['1', '2', '3', '4'].indexOf(ev.key);
       if (index === -1 || State.busy) return;

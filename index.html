@@ -155,15 +155,23 @@
           </div>
         </label>
 
-        <div class="section-title">Класс</div>
-        <div class="arch-list" id="class-list"></div>
+        <div class="hint hint--profile" id="hero-profile-note" hidden></div>
 
-        <div class="section-title">Раса / вид</div>
-        <div class="chips chips--race" id="race-list"></div>
-        <p class="hint" id="race-hint"></p>
+        <div id="section-class">
+          <div class="section-title" id="label-class">Класс</div>
+          <div class="arch-list" id="class-list"></div>
+        </div>
 
-        <div class="section-title">Происхождение</div>
-        <div class="arch-list arch-list--compact" id="origin-list"></div>
+        <div id="section-race">
+          <div class="section-title" id="label-race">Раса / вид</div>
+          <div class="chips chips--race" id="race-list"></div>
+          <p class="hint" id="race-hint"></p>
+        </div>
+
+        <div id="section-origin">
+          <div class="section-title" id="label-origin">Происхождение</div>
+          <div class="arch-list arch-list--compact" id="origin-list"></div>
+        </div>
 
         <div class="section-title">Итоговые характеристики</div>
         <div class="stat-grid" id="stat-preview"></div>
@@ -181,6 +189,10 @@
         <div class="game-topbar__text">
           <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
           <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
+          <div class="game-status" id="game-status" hidden>
+            <span class="spinner spinner--sm"></span>
+            <span class="game-status__text" id="game-status-text"></span>
+          </div>
         </div>
         <button class="icon-btn icon-btn--close" type="button" data-act="close-game" aria-label="Закрыть игру">✕</button>
         <div class="hp-track"><div class="hp-fill" id="game-hp"></div></div>
@@ -204,9 +216,39 @@
         <div class="scene-npc" id="scene-npc" hidden></div>
         <div class="log-bar">
           <button class="log-toggle" type="button" id="log-toggle">История</button>
+          <button class="log-toggle" type="button" id="prologue-btn" data-act="open-prologue" hidden>Пролог</button>
         </div>
         <div class="log-wrap" id="log-wrap" hidden>
           <div id="log-list"></div>
+        </div>
+      </div>
+
+      <!-- Пролог: мир, предыстория героя и план отыгрыша (полный экран, читается спокойно) -->
+      <div class="prologue" id="prologue" hidden>
+        <div class="prologue__inner">
+          <div class="prologue__head">
+            <span class="prologue__title" id="prologue-title">Пролог</span>
+            <button class="icon-btn" type="button" data-act="close-prologue" aria-label="Свернуть пролог">✕</button>
+          </div>
+          <div class="prologue__body" id="prologue-body">
+            <div class="intro-card intro-card--world" id="intro-world" hidden>
+              <div class="intro-card__label">🌍 Этот мир</div>
+              <div class="intro-card__text" id="intro-world-text"></div>
+            </div>
+            <div class="intro-card intro-card--back" id="intro-back" hidden>
+              <div class="intro-card__label">📜 Твоя предыстория</div>
+              <div class="intro-card__text" id="intro-back-text"></div>
+            </div>
+            <div class="intro-card intro-card--plan" id="intro-plan" hidden>
+              <div class="intro-card__label">🗺 План отыгрыша</div>
+              <ol class="intro-plan" id="intro-plan-list"></ol>
+            </div>
+            <div class="intro-card" id="intro-scene" hidden>
+              <div class="intro-card__label">🎬 Ты входишь в сцену</div>
+              <div class="intro-card__text" id="intro-scene-text"></div>
+            </div>
+          </div>
+          <button class="btn btn--primary prologue__go" type="button" data-act="close-prologue">Играть</button>
         </div>
       </div>
 
