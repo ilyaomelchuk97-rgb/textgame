@@ -34,9 +34,17 @@ const POLLINATIONS_KEY = process.env.POLLINATIONS_API_KEY || 'sk_kCqSS3Q96WUonzr
 
 const http = require('http');
 const fs = require('fs');
+const zlib = require('zlib');
+const crypto = require('crypto');
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
+// Сколько токенов разрешаем мастеру: мир + предыстория + сцена + план + герой
+// помещаются только с запасом — иначе JSON обрывается на середине.
+const TEXT_MAX_TOKENS = Number(process.env.TEXT_MAX_TOKENS || 1500);
+// Канал тратит бюджет ответа на скрытые рассуждения: с полным бюджетом видимого
+// текста не остаётся вовсе. 'low' оставляет рассуждения короткими.
+const POLLINATIONS_EFFORT = process.env.POLLINATIONS_EFFORT || 'low';
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
 const VERSION = '1.0.0';
@@ -59,6 +67,154 @@ const MIME = {
   '.md': 'text/markdown; charset=utf-8',
   '.webmanifest': 'application/manifest+json'
 };
+
+/* ---------------------------------------------------------- */
+/* Сжатие, ETag и кэш промптов                                 */
+/* ---------------------------------------------------------- */
+
+const GZIP_TYPES = /\.(html|js|css|json|svg|md|webmanifest|txt)$/i;
+const STATIC_CACHE = new Map();          // путь → {mtime, size, gzip}
+const STATIC_CACHE_MAX = 12;
+
+function acceptsGzip(req) {
+  return /gzip/i.test(String(req.headers['accept-encoding'] || ''));
+}
+
+/** Отдаём текст с gzip, если клиент умеет: game.html весит 860 КБ, а по сети уходит ~200. */
+function sendText(req, res, code, type, body, extraHeaders) {
+  const buf = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8');
+  const headers = Object.assign({
+    'Content-Type': type,
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store'
+  }, extraHeaders || {});
+  if (acceptsGzip(req) && buf.length > 1024) {
+    zlib.gzip(buf, (err, gz) => {
+      if (err || res.writableEnded) {
+        headers['Content-Length'] = buf.length;
+        res.writeHead(code, headers);
+        return res.end(buf);
+      }
+      headers['Content-Encoding'] = 'gzip';
+      headers['Vary'] = 'Accept-Encoding';
+      headers['Content-Length'] = gz.length;
+      res.writeHead(code, headers);
+      res.end(gz);
+    });
+    return;
+  }
+  headers['Content-Length'] = buf.length;
+  res.writeHead(code, headers);
+  res.end(buf);
+}
+
+/** Статика: ETag по размеру и времени правки, 304 без пересылки тела, gzip в памяти. */
+function serveStatic(req, res, abs, stat) {
+  const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"';
+  const ext = path.extname(abs).toLowerCase();
+  const type = MIME[ext] || 'application/octet-stream';
+  const headers = { 'Content-Type': type };
+  if (ext === '.jpg' || ext === '.png' || ext === '.webp' || ext === '.ico') {
+    headers['Cache-Control'] = 'public, max-age=86400';
+    headers['ETag'] = etag;
+  } else {
+    headers['Cache-Control'] = 'no-cache';
+    headers['ETag'] = etag;
+  }
+  if (String(req.headers['if-none-match'] || '') === etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  if (!GZIP_TYPES.test(abs) || !acceptsGzip(req)) {
+    res.writeHead(200, headers);
+    return res.end(fs.readFileSync(abs));
+  }
+  const cached = STATIC_CACHE.get(abs);
+  if (cached && cached.mtime === stat.mtimeMs && cached.size === stat.size) {
+    headers['Content-Encoding'] = 'gzip';
+    headers['Vary'] = 'Accept-Encoding';
+    res.writeHead(200, headers);
+    return res.end(cached.gzip);
+  }
+  zlib.gzip(fs.readFileSync(abs), (err, gz) => {
+    if (err) { res.writeHead(200, headers); return res.end(fs.readFileSync(abs)); }
+    if (STATIC_CACHE.size >= STATIC_CACHE_MAX) STATIC_CACHE.clear();
+    STATIC_CACHE.set(abs, { mtime: stat.mtimeMs, size: stat.size, gzip: gz });
+    headers['Content-Encoding'] = 'gzip';
+    headers['Vary'] = 'Accept-Encoding';
+    res.writeHead(200, headers);
+    res.end(gz);
+  });
+}
+
+/* Кэш ответов мастера: одинаковый промпт не гоняем по сети дважды. */
+const GM_CACHE = new Map();              // ключ → {text, provider, ts}
+const GM_CACHE_TTL = 20 * 60 * 1000;
+const GM_CACHE_MAX = 80;
+
+function gmCacheKey(messages, budget) {
+  const h = crypto.createHash('sha1');
+  h.update(String(budget) + '|');
+  messages.forEach(m => h.update(m.role + ':' + m.content + '\n'));
+  return h.digest('hex');
+}
+function gmCacheGet(key) {
+  const hit = GM_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > GM_CACHE_TTL) { GM_CACHE.delete(key); return null; }
+  return hit;
+}
+function gmCacheSet(key, text, provider) {
+  if (GM_CACHE.size >= GM_CACHE_MAX) GM_CACHE.delete(GM_CACHE.keys().next().value);
+  GM_CACHE.set(key, { text, provider, ts: Date.now() });
+}
+
+/** Поток ответа от канала: строки SSE «data: {...}» → куски текста. */
+async function pollinationsStream(messages, key, onDelta, timeoutMs) {
+  const headers = { 'content-type': 'application/json' };
+  if (key) headers['Authorization'] = 'Bearer ' + key;
+  const res = await fetchWithTimeout('https://text.pollinations.ai/openai', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: 'openai-fast', messages, temperature: 0.9, stream: true,
+      max_tokens: TEXT_MAX_TOKENS, private: true, reasoning_effort: POLLINATIONS_EFFORT
+    })
+  }, timeoutMs || 26000);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    const data = await res.json();
+    const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!text) throw new Error('empty completion');
+    onDelta(text);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let piece = '';
+      try {
+        const obj = JSON.parse(payload);
+        piece = (obj.choices && obj.choices[0] && ((obj.choices[0].delta && obj.choices[0].delta.content) || obj.choices[0].text)) || '';
+      } catch (e) { continue; }
+      if (piece) { full += piece; onDelta(piece); }
+    }
+  }
+  if (!full) throw new Error('empty stream');
+  return full;
+}
 
 function sendJson(res, code, data) {
   const body = JSON.stringify(data);
@@ -113,7 +269,7 @@ function textProvidersSummary() {
   if (process.env.OPENROUTER_API_KEY) out.push('openrouter');
   if (process.env.OPENAI_API_KEY) out.push('openai');
   if (POLLINATIONS_KEY) out.push('pollinations-key');
-  out.push('pollinations-anon');
+  out.push('pollinations-anon');   // оба канала работают гонкой внутри одного провайдера
   return out;
 }
 
@@ -148,7 +304,7 @@ const PROVIDERS = [
           body: JSON.stringify({
             systemInstruction: sys ? { parts: [{ text: sys }] } : undefined,
             contents: [{ role: 'user', parts: [{ text: user }] }],
-            generationConfig: { temperature: 0.9, maxOutputTokens: 640, responseMimeType: 'application/json' }
+            generationConfig: { temperature: 0.9, maxOutputTokens: Math.min(TEXT_MAX_TOKENS, 2048), responseMimeType: 'application/json' }
           })
         }, 20000);
       if (!res.ok) throw new Error('gemini HTTP ' + res.status);
@@ -186,27 +342,35 @@ const PROVIDERS = [
     }
   },
   {
-    name: 'pollinations-key',
-    enabled: () => !!POLLINATIONS_KEY,
-    async run(messages) {
-      return pollinationsChat(messages, POLLINATIONS_KEY);
-    }
-  },
-  {
-    name: 'pollinations-anon',
+    // Оба канала Pollinations запускаем параллельно: какой ответит первым, тот и ведёт игру.
+    // Сервис часто отвечает 429/502 — поэтому ещё и повторяем запрос.
+    name: 'pollinations',
     enabled: () => true,
-    // анонимный канал иногда отвечает «нет баланса» — пробуем несколько раз
-    async run(messages) {
-      let lastErr = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
+    async run(messages, budgetMs) {
+      const round = (key, timeout) => pollinationsChat(messages, key, timeout);
+      const started = Date.now();
+      const budget = Math.max(6000, Math.min(32000, Number(budgetMs) || 32000));
+      const left = () => budget - (Date.now() - started);      // сервер отвечает раньше, чем устанет клиент
+      // волна 1: ключевой канал, не спеша — большие промпты обрабатываются долго
+      try {
+        return await round(POLLINATIONS_KEY, Math.min(26000, left()));
+      } catch (err) { /* 429/502 — пробуем дальше */ }
+      // волна 2: оба канала наперегонки
+      if (left() > 4000) {
         try {
-          const text = await pollinationsChat(messages, null, 9000);
-          if (!isJunk(text)) return text;
-          lastErr = new Error('junk response');
-        } catch (err) { lastErr = err; }
-        await new Promise(r => setTimeout(r, 600));
+          return await firstGood([round(POLLINATIONS_KEY, Math.min(16000, left())), round(null, Math.min(8000, left()))]);
+        } catch (err2) { /* лимит частоты: ждём и пробуем ещё */ }
       }
-      throw lastErr || new Error('pollinations failed');
+      // волны 3-4: лимит частоты обычно отпускает через несколько секунд
+      let lastErr = new Error('HTTP 429');
+      for (const wait of [2500, 5000]) {
+        if (left() < 6000) break;
+        await sleep(wait);
+        try {
+          return await firstGood([round(POLLINATIONS_KEY, Math.min(12000, left())), round(null, Math.min(7000, left()))]);
+        } catch (err3) { lastErr = err3; }
+      }
+      throw lastErr;
     }
   }
 ];
@@ -215,7 +379,7 @@ async function openAiChat({ url, key, model, messages }) {
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify({ model, messages, temperature: 0.9, max_tokens: 640 })
+    body: JSON.stringify({ model, messages, temperature: 0.9, max_tokens: TEXT_MAX_TOKENS })
   }, 20000);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
@@ -231,7 +395,10 @@ async function pollinationsChat(messages, key, timeoutMs) {
   const res = await fetchWithTimeout('https://text.pollinations.ai/openai', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: 'openai-fast', messages, temperature: 0.9, max_tokens: 520, private: true })
+    body: JSON.stringify({
+      model: 'openai-fast', messages, temperature: 0.9,
+      max_tokens: TEXT_MAX_TOKENS, private: true, reasoning_effort: POLLINATIONS_EFFORT
+    })
   }, timeoutMs || 16000);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
@@ -239,6 +406,36 @@ async function pollinationsChat(messages, key, timeoutMs) {
     (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
   if (!text) throw new Error('empty completion');
   return text;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** Первый осмысленный ответ из нескольких параллельных попыток. */
+function firstGood(promises) {
+  return new Promise((resolve, reject) => {
+    let failed = 0;
+    let done = false;
+    const reasons = [];
+    promises.forEach(pm => {
+      Promise.resolve(pm).then(text => {
+        if (done) return;
+        if (isJunk(text)) {
+          reasons.push('junk');
+          failed++;
+          if (failed === promises.length) reject(new Error(reasons.join(' / ')));
+          return;
+        }
+        done = true;
+        resolve(text);
+      }).catch(err => {
+        if (done) return;
+        reasons.push(String(err && err.message || err));
+        failed++;
+        if (failed === promises.length) reject(new Error(reasons.join(' / ')));
+      });
+    });
+    if (!promises.length) reject(new Error('нет попыток'));
+  });
 }
 
 /**
@@ -252,7 +449,7 @@ async function askMaster(messages, budgetMs) {
     if (!p.enabled()) continue;
     if (Date.now() > deadline) { tried.push({ provider: p.name, ok: false, reason: 'budget' }); continue; }
     try {
-      const text = await p.run(messages);
+      const text = await p.run(messages, budgetMs);
       if (isJunk(text)) { tried.push({ provider: p.name, ok: false, reason: 'junk' }); continue; }
       return { ok: true, text, provider: p.name, tried };
     } catch (err) {
@@ -396,6 +593,67 @@ async function handleRequest(req, res) {
     });
   }
 
+  if (pathname === '/api/gm/stream') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'content-type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      });
+      return res.end();
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
+    try {
+      const payload = JSON.parse((await readBody(req)) || '{}');
+      const messages = (Array.isArray(payload.messages) ? payload.messages : [])
+        .filter(m => m && typeof m.content === 'string' && (m.role === 'system' || m.role === 'user'))
+        .map(m => ({ role: m.role, content: m.content.slice(0, 6000) })).slice(-8);
+      if (!messages.length) return sendJson(res, 400, { ok: false, error: 'messages required' });
+      const budget = Math.max(6000, Math.min(34000, Number(payload.budgetMs) || 26000));
+      const cacheKey = gmCacheKey(messages, budget);
+
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': '*'
+      });
+      const send = obj => { if (!res.writableEnded) res.write(JSON.stringify(obj) + '\n'); };
+      const finish = (text, provider, extra) => {
+        if (text) gmCacheSet(cacheKey, text, provider);
+        send(Object.assign({ done: true, provider, length: (text || '').length }, extra || {}));
+        res.end();
+      };
+
+      const cached = gmCacheGet(cacheKey);
+      if (cached) {
+        send({ delta: cached.text, cached: true });
+        return finish(cached.text, cached.provider, { cached: true });
+      }
+
+      let full = '';
+      try {
+        full = await pollinationsStream(messages, POLLINATIONS_KEY, piece => {
+          full += '';                       // full собирает сам поток
+          send({ delta: piece });
+        }, Math.min(budget, 30000));
+        if (full) return finish(full, 'pollinations-stream');
+      } catch (err) {
+        send({ note: 'stream-failed', reason: String(err && err.message || err) });
+      }
+      // поток не сложился — обычный путь: результат уйдёт одним куском
+      const result = await askMaster(messages, budget);
+      if (!result.ok) {
+        send({ done: true, ok: false, tried: result.tried });
+        return res.end();
+      }
+      send({ delta: result.text });
+      return finish(result.text, result.provider, { fallback: true });
+    } catch (err) {
+      return sendJson(res, 200, { ok: false, error: String(err && err.message || err) });
+    }
+  }
+
   if (pathname === '/api/gm') {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -414,12 +672,20 @@ async function handleRequest(req, res) {
       const clean = messages
         .filter(m => m && typeof m.content === 'string' && (m.role === 'system' || m.role === 'user'))
         .map(m => ({ role: m.role, content: m.content.slice(0, 6000) }));
-      const result = await askMaster(clean, 22000);
+      // клиент может попросить короткий бюджет (запрос героя): тогда быстрее придёт отказ
+      const budget = Math.max(6000, Math.min(34000, Number(payload.budgetMs) || 26000));
+      const cacheKey = gmCacheKey(clean, budget);
+      const cached = gmCacheGet(cacheKey);
+      if (cached) {
+        return sendJson(res, 200, { ok: true, text: cached.text, provider: cached.provider, cached: true });
+      }
+      const result = await askMaster(clean, budget);
       if (res.writableEnded) return;
       if (!result.ok) {
         console.warn('[gm] все провайдеры не ответили:', JSON.stringify(result.tried));
         return sendJson(res, 200, { ok: false, tried: result.tried });
       }
+      gmCacheSet(cacheKey, result.text, result.provider);
       return sendJson(res, 200, { ok: true, text: result.text, provider: result.provider });
     } catch (err) {
       return sendJson(res, 200, { ok: false, error: String(err && err.message || err) });
@@ -444,12 +710,7 @@ async function handleRequest(req, res) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Не найдено: ' + filePath);
     }
-    const ext = path.extname(abs).toLowerCase();
-    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-    headers['Cache-Control'] = (ext === '.jpg' || ext === '.png' || ext === '.webp')
-      ? 'public, max-age=86400' : 'no-cache';
-    res.writeHead(200, headers);
-    res.end(fs.readFileSync(abs));
+    return serveStatic(req, res, abs, stat);
   });
 }
 

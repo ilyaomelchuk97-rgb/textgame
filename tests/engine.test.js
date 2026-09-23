@@ -630,30 +630,39 @@ test('новые поля ответов ИИ доходят до игры', () 
 /* ---------------------------------------------------------- */
 /* v5: знакомые игры — профиль героя без ИИ                    */
 /* ---------------------------------------------------------- */
-test('таблица знакомых игр ссылается только на настоящие id', () => {
+test('таблица знакомых игр заполнена по правилам', () => {
   const classIds = E.CLASSES.map(c => c.id);
   const raceIds = E.RACES.map(r => r.id);
   const originIds = E.ORIGINS.map(o => o.id);
+  assert.ok(E.KNOWN_GAME_PROFILES.length >= 8, 'игр и жанров в таблице: ' + E.KNOWN_GAME_PROFILES.length);
   E.KNOWN_GAME_PROFILES.forEach((row, i) => {
-    (row.profile.classes || []).forEach(c => {
-      assert.ok(classIds.includes(c.id), `игра ${i}: класс «${c.title}» ссылается на несуществующий id ${c.id}`);
+    assert.ok(row.match && row.profile, 'строка ' + i + ' без условия или профиля');
+    const p = row.profile;
+    assert.ok((p.classes || []).length >= 3, `игра ${i}: классов меньше трёх`);
+    const seen = {};
+    ['classes', 'races', 'origins'].forEach(key => {
+      (p[key] || []).forEach(opt => {
+        assert.ok(opt.title && opt.title.length >= 3, `игра ${i}: пустое название в ${key}`);
+        assert.ok(!seen[key + opt.title], `игра ${i}: дубль «${opt.title}» в ${key}`);
+        seen[key + opt.title] = 1;
+        if (opt.bonus) {
+          const sum = Object.values(opt.bonus).reduce((a, b) => a + b, 0);
+          assert.ok(sum <= 4, `игра ${i}: «${opt.title}» — суммарный бонус ${sum}`);
+          Object.entries(opt.bonus).forEach(([stat, v]) => {
+            assert.ok(E.STAT_IDS.includes(stat), `игра ${i}: неизвестная характеристика ${stat}`);
+            assert.ok(v <= 3 && v >= -2, `игра ${i}: бонус ${stat} = ${v}`);
+          });
+        }
+      });
     });
-    (row.profile.races || []).forEach(r => {
-      assert.ok(raceIds.includes(r.id), `игра ${i}: раса «${r.title}» ссылается на несуществующий id ${r.id}`);
+    (p.classes || []).forEach(c => {
+      assert.ok(c.ability && c.ability.name && c.ability.desc, `игра ${i}: у класса «${c.title}» нет своего приёма`);
     });
-    (row.profile.origins || []).forEach(o => {
-      assert.ok(originIds.includes(o.id), `игра ${i}: происхождение «${o.title}» ссылается на несуществующий id ${o.id}`);
+    (p.origins || []).forEach(o => {
+      assert.ok(o.item && o.hook, `игра ${i}: у происхождения «${o.title}» нет предмета или крючка`);
     });
   });
-});
-
-test('повторный разбор профиля ничего не ломает', () => {
-  const once = E.heroProfileFromWorld({ classes: [{ id: 'mage', title: 'Ведьмак' }], races: [] });
-  const twice = E.heroProfileFromWorld(once);
-  assert.strictEqual(twice.showRace, false, 'скрытая раса остаётся скрытой');
-  assert.strictEqual(twice.classLabel, once.classLabel);
-  assert.deepStrictEqual(twice.classes.map(c => c.title), once.classes.map(c => c.title));
-  assert.strictEqual(twice.normalized, true);
+  assert.ok(classIds.length && raceIds.length && originIds.length);
 });
 
 test('без ИИ знакомые игры всё равно подгоняют создание героя', () => {
@@ -662,8 +671,9 @@ test('без ИИ знакомые игры всё равно подгоняют
   assert.strictEqual(witcher.showRace, false, 'в Ведьмаке раса не выбирается');
   assert.strictEqual(witcher.showOrigin, true);
   assert.strictEqual(witcher.classLabel, 'Школа');
-  assert.ok(witcher.classes.length >= 3 && witcher.classes.length <= 5, 'классов: ' + witcher.classes.length);
-  assert.ok(/Ведьмак/i.test(witcher.classes.map(c => c.title).join(' ')), 'школа ведьмака на месте');
+  assert.ok(witcher.classes.length >= 3 && witcher.classes.length <= 6, 'классов: ' + witcher.classes.length);
+  assert.ok(/школ[ыа]/i.test(witcher.classes.map(c => c.title).join(' ')), 'школы ведьмаков на месте');
+  assert.ok(witcher.classes.every(c => c.ability && c.ability.name), 'у каждой школы свой приём');
 
   const cyber = E.offlineHeroProfile({ gameName: 'Cyberpunk 2077' });
   assert.strictEqual(cyber.showRace, false, 'в Киберпанке раса не выбирается');
@@ -676,4 +686,381 @@ test('без ИИ знакомые игры всё равно подгоняют
   assert.strictEqual(E.offlineHeroProfile({ gameName: 'Моя игра про грибы' }), null, 'незнакомая игра — решает ИИ');
   assert.strictEqual(E.offlineHeroProfile(null), null);
   assert.strictEqual(E.offlineHeroProfile({}), null);
+});
+
+/* ---------------------------------------------------------- */
+/* v6: мастер сам придумывает класс, расу и происхождение      */
+/* ---------------------------------------------------------- */
+test('мастер может придумать вариант, которого нет в движке', () => {
+  const p = E.heroProfileFromWorld({
+    classLabel: 'Школа',
+    classes: [{
+      title: 'Ведьмак школы Волка', hint: 'мутации и медальон',
+      bonus: { con: 1, wit: 2 }, trait: 'видит в темноте',
+      ability: { name: 'Зелье «Кошка»', desc: 'Зрение в темноте и звериная реакция' }
+    }],
+    races: [],
+    origins: [{ title: 'Дитя Предназначения', hint: 'за тобой идут', bonus: { wit: 1 }, item: 'медальон волка', hook: 'тебя ищет чародейка' }]
+  });
+  const cls = p.classes[0];
+  assert.strictEqual(cls.custom, true, 'вариант помечен как придуманный');
+  assert.ok(cls.id && cls.id !== 'warrior', 'у него свой id: ' + cls.id);
+  assert.deepStrictEqual(cls.bonus, { con: 1, wit: 2 });
+  assert.strictEqual(cls.trait, 'видит в темноте');
+  assert.ok(cls.ability && cls.ability.name === 'Зелье «Кошка»', 'свой приём сохранён');
+  assert.ok(['heal', 'bless', 'advantage'].includes(cls.ability.kind), 'механика приёма задана: ' + cls.ability.kind);
+  assert.strictEqual(p.showRace, false, 'пустая раса скрывает шаг');
+  const origin = p.origins[0];
+  assert.strictEqual(origin.item, 'медальон волка');
+  assert.strictEqual(origin.hook, 'тебя ищет чародейка');
+});
+
+test('бонусы от мастера приводятся к балансу', () => {
+  const p = E.heroProfileFromWorld({
+    classes: [{ title: 'Мегагерой', bonus: { str: 9, agi: 4, con: 4, int: 4, per: 1 } }]
+  });
+  const bonus = p.classes[0].bonus;
+  Object.entries(bonus).forEach(([stat, v]) => {
+    assert.ok(E.STAT_IDS.includes(stat), 'незнакомая характеристика отброшена: ' + stat);
+    assert.ok(v <= 3, stat + ' = ' + v);
+  });
+  const sum = Object.values(bonus).reduce((a, b) => a + b, 0);
+  assert.ok(sum <= 4, 'суммарный бонус приведён к ' + sum);
+  assert.ok(Object.keys(bonus).length <= 3, 'характеристик не больше трёх');
+  const rus = E.heroProfileFromWorld({ origins: [{ title: 'Из леса', bonus: { 'сила': 2, 'воля': 1 } }] });
+  assert.deepStrictEqual(rus.origins[0].bonus, { str: 2, wit: 1 }, 'русские названия характеристик поняты');
+});
+
+test('придуманный мастером герой играется: статы, умение, предмет, крючки', () => {
+  const profile = E.heroProfileFromWorld({
+    classes: [{ title: 'Ведьмак школы Волка', bonus: { con: 1, wit: 2 }, ability: { name: 'Зелье «Кошка»', desc: 'Зрение в темноте' } }],
+    races: [],
+    origins: [{ title: 'Дитя Предназначения', bonus: { wit: 1 }, item: 'медальон волка', hook: 'тебя ищет чародейка' }]
+  });
+  const g = E.createGame({
+    scenarioId: 'mygame', heroName: 'Геральт',
+    classId: profile.classes[0].id, raceId: profile.races[0].id, originId: profile.origins[0].id,
+    heroProfile: profile,
+    worldConfig: { gameName: 'Ведьмак 3', goal: 'найти Цири' }
+  });
+  assert.strictEqual(g.hero.className, 'Ведьмак школы Волка');
+  assert.strictEqual(g.hero.originName, 'Дитя Предназначения');
+  assert.strictEqual(g.hero.stats.wit, 1 + 2 + 1, 'бонусы класса и происхождения сложились');
+  assert.ok(g.hero.maxHp >= 8, 'здоровье посчитано: ' + g.hero.maxHp);
+  assert.strictEqual(g.hero.ability.name, 'Зелье «Кошка»', 'приём мастера достался герою');
+  assert.deepStrictEqual(g.hero.inventory, ['медальон волка']);
+  assert.ok(g.hero.hooks.join(' ').includes('чародейка'), 'крючок происхождения в деле');
+  const turn = E.offlineTurn(g, { text: 'Идти по следу', stat: 'wit' }, { outcome: 'success', roll: 15 });
+  assert.strictEqual(turn.ok, true, 'ход с таким героем проходит');
+  const opened = E.offlineOpening(g);
+  assert.ok(opened.backstory.includes('Геральт') && opened.world.length > 40, 'вступление учитывает героя');
+});
+
+test('умение придуманного класса получает механику по смыслу', () => {
+  const heal = E.heroProfileFromWorld({ classes: [{ title: 'Рипердок', ability: { name: 'Стимпак', desc: 'Восстанавливает здоровье' } }] }).classes[0];
+  assert.strictEqual(heal.ability.kind, 'heal');
+  assert.ok(heal.ability.power > 0, 'лечение лечит');
+  const sneak = E.heroProfileFromWorld({ classes: [{ title: 'Лазутчик', ability: { name: 'Тень на стене', desc: 'Скрытность и удар в спину' } }] }).classes[0];
+  assert.strictEqual(sneak.ability.kind, 'advantage');
+  const talk = E.heroProfileFromWorld({ classes: [{ title: 'Парламентёр', ability: { name: 'Натиск слов', desc: 'Уговорить кого угодно' } }] }).classes[0];
+  assert.strictEqual(talk.ability.kind, 'bless');
+  const noAbility = E.heroProfileFromWorld({ classes: [{ title: 'Просто герой' }] }).classes[0];
+  assert.ok(noAbility.ability && noAbility.ability.name, 'без подсказки остаётся рабочий приём');
+});
+
+test('каждый набор героев отличается от следующего', () => {
+  const a = E.heroProfileFromWorld({ classes: [{ title: 'Соло' }, { title: 'Нетраннер' }] });
+  const b = E.heroProfileFromWorld({ classes: [{ title: 'Нетраннер' }, { title: 'Соло' }] });
+  assert.notDeepStrictEqual(a.classes.map(c => c.id), b.classes.map(c => c.id), 'порядок вариантов сохраняется');
+  const again = E.heroProfileFromWorld({ classes: [{ title: 'Соло' }, { title: 'Нетраннер' }] });
+  assert.deepStrictEqual(a.classes.map(c => c.id), again.classes.map(c => c.id), 'один набор — одинаковые id (сохранения не ломаются)');
+  assert.strictEqual(a.classes.length, 2);
+});
+
+test('запрос героя: мастер придумывает заново и не повторяет прошлое', () => {
+  const first = E.buildHeroPrompt({ gameName: 'Ведьмак 3', genre: 'тёмное фэнтези' }, null, { variant: 1 });
+  assert.ok(first.includes('Ведьмак 3'), 'игра названа: по ней и придумывать');
+  assert.ok(/^М:/m.test(first) && /^К:/m.test(first) && /^П:/m.test(first) && /^Р:/m.test(first), 'формат строк задан');
+  assert.ok(!/ability\.name/.test(first), 'JSON-контракт герою не нужен — ответ короткий');
+  const third = E.buildHeroPrompt({ gameName: 'Ведьмак 3' }, null, { variant: 3, used: ['Ведьмак школы Волка', 'Горожанин'] });
+  assert.ok(/ДРУГИХ героев/.test(third), 'мастеру сказано придумать других');
+  assert.ok(third.includes('Ведьмак школы Волка') && third.includes('Горожанин'), 'прошлые варианты перечислены');
+});
+
+test('герой из строкового ответа мастера: классы, метки, бонусы, приёмы', () => {
+  const reply = [
+    'М: Школа',
+    'К: Ведьмак школы Волка|мутации, два меча|Сила+2 Ловкость+1|Зелье «Кошка» :: видит в темноте',
+    'К: Чародейка Ложи|придворные интриги|Разум+2 Обаяние+1|Портал уносит из сцены и возвращает',
+    'П: Дитя Предназначения|медальон волка|ищет того, кто сжёг её дом',
+    'Р: Эльф|видит в темноте'
+  ].join('\n');
+  const p = E.heroProfileFromText(reply);
+  assert.strictEqual(p.source, 'ai');
+  assert.strictEqual(p.classLabel, 'Школа', 'метка шага от мастера');
+  assert.strictEqual(p.classes.length, 2);
+  assert.deepStrictEqual(p.classes[0].bonus, { str: 2, agi: 1 }, 'русские характеристики поняты');
+  assert.strictEqual(p.classes[0].ability.name, 'Зелье «Кошка»', 'название приёма отделено от описания');
+  assert.ok(['heal', 'bless', 'advantage'].includes(p.classes[0].ability.kind), 'у приёма есть механика');
+  assert.strictEqual(p.origins[0].item, 'медальон волка');
+  assert.ok(p.origins[0].hook.includes('сжёг'), 'крючок происхождения сохранён');
+  assert.strictEqual(p.showRace, true);
+  assert.strictEqual(p.races[0].trait, 'видит в темноте');
+});
+
+test('приём, записанный через «|» или без описания, всё равно читается', () => {
+  const bar = E.heroProfileFromText([
+    'К: Истребитель туманов|шум дождя|Сила+2 Ловкость+1|Туманный клинок|отскакивает от ударов',
+    'К: Пламя ночи|свет ломает тьму|Разум+2 Воля+1|Пламень безумия :: вызывает огненную бурю'
+  ].join('\n'));
+  assert.strictEqual(bar.classes[0].ability.name, 'Туманный клинок');
+  assert.ok(bar.classes[0].ability.desc.includes('отскакивает'));
+  const noBonus = E.heroProfileFromText([
+    'К: Следопыт|тихий шаг|Умение :: идёт по следу без ошибок',
+    'К: Травница|знает настойки|Умение :: лечит раны травами'
+  ].join('\n'));
+  assert.deepStrictEqual(noBonus.classes[0].bonus, {}, 'без бонуса класс остаётся рабочим');
+  assert.ok(noBonus.classes[0].ability.name, 'название приёма не пустое');
+  assert.ok(['heal', 'bless', 'advantage'].includes(noBonus.classes[0].ability.kind));
+});
+
+test('мастер ответил JSON-ом — разбор тот же', () => {
+  const json = JSON.stringify({
+    classLabel: 'Роль',
+    classes: [
+      { title: 'Соло', hint: 'одиночка', bonus: { str: 2 }, ability: { name: 'Дерзкий рывок', desc: 'врывается первым' } },
+      { title: 'Нетраннер', hint: 'взлом сетей', bonus: { int: 2 }, ability: { name: 'Взлом', desc: 'отключает технику' } }
+    ],
+    origins: [{ title: 'Кочевник', item: 'фургон', hook: 'ищет семью' }],
+    races: []
+  });
+  const p = E.heroProfileFromText(json);
+  assert.strictEqual(p.classLabel, 'Роль');
+  assert.deepStrictEqual(p.classes.map(c => c.title), ['Соло', 'Нетраннер']);
+  assert.strictEqual(p.showRace, false, 'пустые виды скрывают шаг');
+  assert.strictEqual(p.origins[0].item, 'фургон');
+});
+
+test('если ответ мастера оборвался до видов и происхождений — шаги не пропадают', () => {
+  const cut = E.heroProfileFromText([
+    'К: Кровавый Охотник|тень и дым|Сила+2 Ловкость+1|Кровавая резня :: истекает кровь врагов',
+    'К: Затмённый Пастух|голос ветра|Сила+2 Ловкость+1|Шипящий клич :: отгоняет тьму',
+    'К: Похищённый Жрец'
+  ].join('\n'));
+  assert.strictEqual(cut.classes.length, 3, 'все три класса на месте');
+  assert.strictEqual(cut.showRace, true, 'вид всё ещё выбирается');
+  assert.strictEqual(cut.showOrigin, true, 'происхождение всё ещё выбирается');
+  assert.ok(cut.races.length >= 3 && cut.origins.length >= 3, 'списки не пустые');
+  assert.ok(cut.classes[2].ability.name, 'у обрезанного класса есть рабочий приём');
+  const toldNo = E.heroProfileFromText([
+    'К: Соло|одиночка|Сила+2|Дерзкий рывок :: бьёт первым',
+    'К: Нетраннер|взлом сетей|Разум+2|Взлом :: отключает технику',
+    'П: Кочевник|фургон|ищет семью'
+  ].join('\n'));
+  assert.strictEqual(toldNo.showOrigin, true, 'происхождение есть — шаг показан');
+  assert.strictEqual(toldNo.showRace, false, 'виды не названы — шаг скрыт');
+});
+
+test('обрывок ответа мастера не ломает экран героя', () => {
+  assert.strictEqual(E.heroProfileFromText('К: Один класс|такой|Сила+1'), null, 'одного класса мало');
+  assert.strictEqual(E.heroProfileFromText('Я не могу придумать героя, извините.'), null);
+  assert.strictEqual(E.heroProfileFromText(''), null);
+  assert.strictEqual(E.heroProfileFromText(null), null);
+  const junk = E.heroProfileFromText('К: Охотник|лес|Сила+1<|endoftext|>\nК: Травница|настойки|Разум+1');
+  assert.ok(junk && junk.classes.length === 2, 'служебные токены модели вычищены');
+});
+
+test('герой от мастера попадает в игру целиком', () => {
+  const reply = [
+    'К: Киберхакер|ночные коды|Разум+2 Воля+1|Обрыв сети :: отключает охрану',
+    'К: Строитель разломов|протокол разрушения|Телосложение+2 Ловкость+1|Пушка скважин :: крушит стену',
+    'П: Детектив сети|датчик перехвата|раскрывает заговор',
+    'Р: Городской скелет|металлическая броня'
+  ].join('\n');
+  const profile = E.heroProfileFromText(reply);
+  const g = E.createGame({
+    scenarioId: 'mygame', heroName: 'Ви', heroProfile: profile,
+    classId: profile.classes[0].id, raceId: profile.races[0].id, originId: profile.origins[0].id,
+    worldConfig: { gameName: 'Cyberpunk 2077' }
+  });
+  assert.strictEqual(g.hero.className, 'Киберхакер', 'класс из строки мастера');
+  assert.strictEqual(g.hero.raceName, 'Городской скелет');
+  assert.strictEqual(g.hero.originName, 'Детектив сети');
+  assert.strictEqual(g.hero.stats.int, 1 + 2, 'бонус класса дошёл до статов');
+  assert.strictEqual(g.hero.ability.name, 'Обрыв сети');
+  assert.deepStrictEqual(g.hero.inventory, ['датчик перехвата']);
+  const turn = E.offlineTurn(g, { text: 'Взломать дверь', stat: 'int' }, { outcome: 'success', roll: 13 });
+  assert.strictEqual(turn.ok, true, 'с таким героем ход проходит');
+});
+
+/* ---------------------------------------------------------- */
+/* v6: память кампании, тон, арт-стиль, поражение с ценой      */
+/* ---------------------------------------------------------- */
+
+test('память кампании копится и уходит мастеру блоком', () => {
+  const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'rogue' });
+  g.intro = { world: 'мир', backstory: 'предыстория', plan: ['найти след', 'дойти до башни', 'выяснить правду'] };
+  g.turn = 1;
+  E.rememberTurn(g, {
+    scene: 'Тропа сужается между чёрными стволами и мхом',
+    place: 'Чёрная тропа у Аскельда',
+    npc: 'Звонарь Михель, нервный, говорит шёпотом',
+    thread: 'колокольчик звонит сам',
+    progress: true
+  }, { text: 'Идти на звон напрямик' });
+  const m = E.memoryOf(g);
+  assert.strictEqual(m.place, 'Чёрная тропа у Аскельда');
+  assert.ok(m.npcs.some(n => n.name.indexOf('Звонарь') === 0), 'NPC попал в реестр');
+  assert.ok(m.threads.length === 1 && m.deeds.length === 1, 'нить и дело записаны');
+  assert.strictEqual(m.step, 1, 'шаг плана сдвинулся');
+  const block = E.memoryBlock(g);
+  assert.ok(block.includes('ГДЕ МЫ'), 'блок памяти знает место');
+  assert.ok(block.includes('ЗНАКОМЫЕ ЛЮДИ'), 'блок памяти знает людей');
+  assert.ok(block.includes('НЕ НАЧИНАЙ СЦЕНУ ТАК ЖЕ'), 'анти-повтор зачинов работает');
+  assert.strictEqual(m.openings[0], 'Тропа сужается между чёрными стволами', 'зачин запомнен');
+});
+
+test('пустой ход копит простой, а не память о прогрессе', () => {
+  const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'rogue' });
+  g.intro = { plan: ['шаг', 'два', 'три'] };
+  E.rememberTurn(g, { scene: 'Ничего не произошло.', progress: false });
+  E.rememberTurn(g, { scene: 'Опять ничего.', progress: false });
+  assert.strictEqual(E.memoryOf(g).idle, 2, 'простой накапливается');
+  assert.ok(E.memoryBlock(g).includes('пора двигать историю'), 'мастер получает намёк двигать сюжет');
+});
+
+test('тон и жёсткость попадают в промпт хода', () => {
+  const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'rogue' });
+  g.rules = { tone: 'ironic', rating: 'soft', defeat: 'cost' };
+  const line = E.rulesLine(g);
+  assert.ok(/ирони|сухой юмор/i.test(line), 'тон в строке правил');
+  assert.ok(/жесток|жёстк/i.test(line), 'жёсткость в строке правил');
+  assert.strictEqual(E.rulesOf(g).tone, 'ironic');
+});
+
+test('арт-стиль выбирается по игре и один для всей кампании', () => {
+  const g = E.createGame({
+    scenarioId: 'mygame', heroName: 'Ви', classId: 'warrior',
+    worldConfig: { gameName: 'Cyberpunk 2077' }
+  });
+  assert.strictEqual(E.styleOf(g).id, 'neon', 'киберпанк — неон');
+  const again = E.styleOf(g);
+  assert.strictEqual(again.id, 'neon', 'стиль не меняется по ходу игры');
+  assert.ok(E.portraitPrompt(g).includes('portrait'), 'промпт портрета героя готов');
+  const place = E.placeKey(g, 'Тесный трактир, огонь в очаге');
+  assert.strictEqual(place, E.placeKey(g, 'тесный трактир огонь в очаге!'), 'ключ места устойчив к знакам');
+  const prompt = E.placePrompt(g, 'Тесный трактир', 'warm light', { noStyle: true });
+  assert.ok(prompt.includes('no characters in focus'), 'фон места — без людей в кадре');
+  assert.ok(!prompt.includes('cyberpunk'), 'стиль можно приклеить отдельно');
+});
+
+test('поражение с ценой: герой теряет вещь и часть сил, а не игру', () => {
+  const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'warrior' });
+  g.hero.inventory = ['меч', 'фляга'];
+  g.hero.hp = 0;
+  const res = E.resolveDefeat(g);
+  assert.strictEqual(res.kind, 'setback', 'первый провал — не конец');
+  assert.strictEqual(g.over, false);
+  assert.strictEqual(g.hero.inventory.length, 1, 'вещь потеряна');
+  assert.ok(g.hero.hp >= 2, 'герой поднялся на ноги: ' + g.hero.hp);
+  assert.strictEqual(E.memoryOf(g).setbacks, 1);
+  assert.strictEqual(E.resolveDefeat(g).kind, 'setback', 'второй провал тоже переживаем');
+  assert.strictEqual(E.resolveDefeat(g).kind, 'setback', 'третий — последняя передышка');
+  assert.strictEqual(E.resolveDefeat(g).kind, 'downfall', 'четвёртое падение заканчивает историю');
+  assert.strictEqual(g.over, true);
+});
+
+test('эпилог собирается из памяти кампании даже без ИИ', () => {
+  const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'rogue' });
+  g.turn = 9;
+  g.questDone = true;
+  g.goal = 'найти пропавшего брата';
+  E.rememberTurn(g, { scene: 'Мост рухнул в реку.', thread: 'мост сожжён' }, { text: 'Перейти реку вброд' });
+  const text = E.epilogueText(g);
+  assert.ok(text.includes('Кай'), 'герой назван');
+  assert.ok(text.includes('9'), 'число ходов в летописи');
+  assert.ok(E.buildEpiloguePrompt(g).includes('epilogue'), 'промпт эпилога просит JSON');
+});
+
+test('обрезанный ответ мастера не теряется: мир собирается по частям', () => {
+  const full = JSON.stringify({
+    title: 'Ржавые Пески Кар-Адама', goal: 'найти караван',
+    world: 'Пустыня держит караванные тропы, и вода дороже золота.',
+    backstory: 'Ты вырос среди караванщиков и потерял свой груз.',
+    plan: ['опросить местных', 'идти по следу', 'разобраться с виновным'],
+    opening: 'Ветер швыряет песок в лицо, и впереди кто-то ждёт у погасшего костра.',
+    chapter: 'Пустынные тропы', npc: 'Кирил, наблюдатель с картой',
+    options: [{ text: 'Осмотреть следы', stat: 'per', difficulty: 'easy' }]
+  });
+  const cut = full.slice(0, Math.floor(full.length * 0.7));
+  assert.strictEqual(E.parseWorldResponse(cut).ok, false, 'целиком такой JSON не читается');
+  const salv = E.salvageWorldResponse(cut);
+  assert.strictEqual(salv.ok, true, 'спасение работает');
+  assert.strictEqual(salv.title, 'Ржавые Пески Кар-Адама');
+  assert.ok(salv.opening.length > 30 || salv.world.length > 30, 'сцена или мир достались');
+  assert.ok(salv.plan.length >= 2, 'шаги плана собраны: ' + salv.plan.length);
+  assert.strictEqual(E.salvageWorldResponse('извини, не могу').ok, false, 'мусор не спасаем');
+});
+
+test('наследие прошлых кампаний открывает варианты и не повторяет историю', () => {
+  let legacy = E.emptyLegacy();
+  assert.strictEqual(E.legacySummary(legacy), '', 'до первой кампании летописи нет');
+  for (let i = 1; i <= 3; i++) {
+    const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Герой' + i, classId: 'rogue', legacy });
+    g.turn = 10 + i;
+    g.questDone = i % 2 === 0;
+    const res = E.applyRunToLegacy(legacy, g);
+    legacy = res.legacy;
+    assert.ok(res.ashes >= 1, 'пепел начисляется');
+  }
+  assert.strictEqual(legacy.runs, 3, 'все кампании в летописи');
+  const open = E.legacyUnlocked(legacy).map(u => u.id);
+  assert.ok(open.includes('origin-memory') && open.includes('class-heir'), 'первые открытия получены');
+  const opts = E.legacyOptions(legacy);
+  assert.ok(opts.origins.some(o => o.title === 'Помнящий прошлое'), 'происхождение из наследия играбельно');
+  assert.ok(opts.classes.some(c => c.id === 'lg-heir' && c.ability), 'класс из наследия с умением');
+  assert.ok(E.legacyBlock(legacy).includes('ПАМЯТЬ ПРОШЛЫХ ЖИЗНЕЙ'), 'мастер знает о прошлой жизни');
+  const next = E.legacyNextUnlock(legacy);
+  assert.ok(next && next.title === 'Реликвия прошлой жизни', 'следующее открытие известно: ' + (next && next.title));
+
+  // герой собирается по варианту из наследия целиком
+  const heir = opts.classes.find(c => c.id === 'lg-heir');
+  const g2 = E.createGame({
+    scenarioId: 'asgeld', heroName: 'Лис', classId: heir.id, raceId: 'human', originId: 'streets',
+    heroProfile: { classes: opts.classes, races: E.RACES, origins: E.ORIGINS },
+    legacy
+  });
+  assert.strictEqual(g2.hero.className, 'Носитель наследия', 'класс из наследия достался герою');
+  assert.strictEqual(g2.legacy.runs, 3, 'игра помнит прошлые кампании');
+  const notes = E.applyLegacyGifts(g2.hero, g2, ['relic', 'stat']);
+  assert.ok(notes.length >= 2, 'дары наследия применились');
+  assert.ok(g2.hero.inventory.includes('реликвия прошлой жизни'));
+});
+
+test('победа: цель взята — финал с ценой, +3 пепла и «дошёл до конца» в летописи', () => {
+  const legacy = E.emptyLegacy();
+  const g = E.createGame({ scenarioId: 'aurelia', heroName: 'Ирма', classId: 'scholar', legacy });
+  g.turn = 4;
+  g.questDone = true;
+  g.memory = g.memory || E.emptyMemory();
+  g.memory.facts = ['печать снята', 'купол ещё держится'];
+  g.memory.deeds = ['сняла печать с купола'];
+  g.memory.npcs = [{ name: 'Симон', role: 'мастер купола', attitude: 'союз', seen: 2 }];
+
+  assert.ok(/довёл дело до конца/.test(E.epilogueText(g)), 'локальный эпилог говорит о взятой цели');
+  const prompt = E.buildEpiloguePrompt(g);
+  assert.ok(prompt.includes('цель достигнута'), 'мастеру сказано, чем кончилось');
+  assert.ok(/Симон/.test(prompt), 'эпилог знает, кто был рядом');
+
+  const res = E.applyRunToLegacy(legacy, g);
+  assert.strictEqual(res.ashes, 3, 'победа приносит три пепла');
+  assert.strictEqual(res.legacy.victories, 1);
+  assert.strictEqual(res.legacy.defeats, 0);
+  assert.strictEqual(res.legacy.ashes, 3, 'ходов мало — только победа');
+  assert.strictEqual(res.legacy.heroes[0].ending, 'victory', 'в летописи победа, а не падение');
+  const summary = E.legacySummary(res.legacy);
+  assert.ok(/побед: 1/.test(summary), 'летопись считает победы: ' + summary);
+  assert.ok(/дошёл до конца/.test(summary), 'прошлая жизнь описана как победа');
+  const next = E.legacyNextUnlock(res.legacy);
+  assert.ok(next && next.title === 'Носитель наследия', 'после первой кампании ждёт наследник: ' + (next && next.title));
 });

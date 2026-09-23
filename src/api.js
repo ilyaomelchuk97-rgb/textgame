@@ -24,6 +24,7 @@
 
   const CONFIG = {
     textTimeoutMs: 22000,
+    serverTimeoutMs: 30000,   // сервер сам пытается несколько раз, но не тянет время зря
     imageTimeoutMs: 30000,
     retriesPerProvider: 1,
     textModel: 'openai-fast',
@@ -130,14 +131,67 @@
   /* ---------------------------------------------------------- */
   /* Текст: гейм-мастер                                         */
   /* ---------------------------------------------------------- */
-  async function viaServer(messages, timeoutMs) {
+  /* ---------------------------------------------------------- */
+  /* Очередь запросов к мастеру                                  */
+  /*                                                             */
+  /* Бесплатный канал даёт примерно один ответ за раз: если       */
+  /* запустить сцену, героя и мир одновременно, часть уйдёт в 429. */
+  /* Поэтому генерации идут по одной, а важное — вперёд.          */
+  /* ---------------------------------------------------------- */
+
+  const PRIORITY = { turn: 30, epilogue: 25, hero: 20, world: 10 };
+  const queue = { items: [], active: null };
+
+  function queueDepth() { return queue.items.length + (queue.active ? 1 : 0); }
+  function queueInfo() {
+    return { active: queue.active ? queue.active.kind : '', waiting: queue.items.map(i => i.kind) };
+  }
+
+  function pump() {
+    if (queue.active || !queue.items.length) return;
+    queue.items.sort((a, b) => b.priority - a.priority);
+    const item = queue.items.shift();
+    if (item.dropped) return pump();
+    queue.active = item;
+    Promise.resolve()
+      .then(() => (item.dropped ? null : item.task()))
+      .then(
+        res => { queue.active = null; item.resolve(res); pump(); },
+        err => { queue.active = null; item.reject(err); pump(); }
+      );
+  }
+
+  /** Поставить генерацию в очередь: kind — 'turn' | 'hero' | 'world' | 'epilogue'. */
+  function runQueued(kind, task) {
+    return new Promise((resolve, reject) => {
+      queue.items.push({ kind, priority: PRIORITY[kind] || 15, task, resolve, reject });
+      pump();
+    });
+  }
+
+  /** Отменить всё, что ещё не началось (например, мир при выходе в меню). */
+  function cancelQueued(kind) {
+    let dropped = 0;
+    queue.items.forEach(item => {
+      if (item.kind === kind && !item.dropped) {
+        item.dropped = true;
+        dropped += 1;
+        item.resolve(null);
+      }
+    });
+    queue.items = queue.items.filter(i => !i.dropped);
+    if (dropped) log('снято из очереди:', dropped, kind);
+    return dropped;
+  }
+
+  async function viaServer(messages, timeoutMs, budgetMs) {
     if (!CONFIG.backend) return null;
-    const t = withTimeout(timeoutMs || 30000);
+    const t = withTimeout(timeoutMs || CONFIG.serverTimeoutMs);
     try {
       const res = await fetch(serverUrl('api/gm'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, budgetMs }),
         signal: t.signal
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -199,10 +253,66 @@
     ];
   }
 
+  /**
+   * Потоковый запрос: мастер отвечает по кускам, сцена печатается сразу,
+   * а не после того, как весь JSON склеится. Только через свой сервер —
+   * браузерные каналы поток не отдают.
+   */
+  async function askGameMasterStream(messages, hooks, onDelta) {
+    const server = await probeBackend();
+    if (!server) return { ok: false };
+    const t = withTimeout(hooks.timeoutMs || CONFIG.serverTimeoutMs);
+    try {
+      const res = await fetch(serverUrl('api/gm/stream'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages, budgetMs: hooks.budgetMs }),
+        signal: t.signal
+      });
+      if (!res.ok || !res.body || typeof res.body.getReader !== 'function') throw new Error('HTTP ' + res.status);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let full = '';
+      let provider = '';
+      let stopped = false;
+      while (!stopped) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let obj = null;
+          try { obj = JSON.parse(trimmed); } catch (err) { continue; }
+          if (obj.delta) {
+            full += obj.delta;
+            if (onDelta) onDelta(full);
+          }
+          if (obj.done) {
+            provider = obj.provider || '';
+            if (obj.ok === false) throw new Error('канал не ответил');
+          }
+          if (obj.error) throw new Error(obj.error);
+        }
+      }
+      if (!full) throw new Error('пустой поток');
+      if (looksLikeJunk(full)) throw new Error('мусор в потоке');
+      log('текст потоком, провайдер:', provider || 'stream');
+      return { ok: true, text: full, source: 'server:' + (provider || 'stream') };
+    } catch (err) {
+      log('поток не сложился:', String(err && err.message || err));
+      if (onDelta) onDelta('');                     // сбрасываем предпросмотр
+      return { ok: false };
+    } finally { t.done(); }
+  }
+
   async function askGameMaster(messages, hooks = {}) {
     const server = await probeBackend();
     if (server) {
-      const viaSrv = await viaServer(messages);
+      const viaSrv = await viaServer(messages, null, hooks.budgetMs);
       if (viaSrv) return Object.assign({ ok: true }, viaSrv);
     }
     for (const provider of directProviders()) {
@@ -227,7 +337,17 @@
       { role: 'system', content: E.SYSTEM_PROMPT },
       { role: 'user', content: E.buildTurnPrompt(game, action, check) }
     ];
-    const res = await askGameMaster(messages, hooks);
+    const started = Date.now();
+    let res = await runQueued('turn', async () => {
+      if (hooks.onDelta) {
+        const streamed = await askGameMasterStream(messages, hooks, hooks.onDelta);
+        if (streamed.ok) return streamed;
+        if (hooks.onPreviewEnd) hooks.onPreviewEnd();
+        // канал молчит: не тянем ход — дальше сцену соберёт локальный мастер
+        if (Date.now() - started > 14000) return { ok: false };
+      }
+      return askGameMaster(messages, hooks);
+    });
     if (res.ok) {
       const parsed = E.parseGmResponse(res.text, { game });
       if (parsed.ok) {
@@ -239,6 +359,20 @@
           action
         });
         return Object.assign(parsed, { source: res.source });
+      }
+      const salv = E.salvageWorldResponse(res.text);
+      if (salv.ok && salv.opening) {
+        // сцена из обрезанного ответа лучше, чем ход локального мастера:
+        // варианты и последствия добавим из локальной таблицы
+        const local = E.offlineTurn(game, action, check);
+        return Object.assign(local, {
+          scene: salv.opening,
+          chapter: salv.chapter || local.chapter,
+          npc: salv.npc || local.npc,
+          partial: true,
+          source: res.source,
+          options: (local.options || []).map((o, i) => o)
+        });
       }
       log('не смог разобрать ответ модели — беру локального мастера');
     }
@@ -288,40 +422,110 @@
    * Генерация мира по настройкам игрока (свой мир / своя игра).
    * ИИ придумывает название, цель, вступление и первую сцену.
    */
+  /**
+   * Герой от мастера: отдельный короткий запрос — большой ответ канала
+   * обрывается на середине, поэтому героя просим отдельно от мира.
+   * Возвращает {ok, profile, source} либо {ok: false, reason}.
+   */
+  async function generateHeroProfile(game, hooks = {}) {
+    const base = E.scenarioById(game.scenarioId);
+    const messages = [
+      { role: 'system', content: E.HERO_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: E.buildHeroPrompt(game.worldConfig, base.customGame ? null : base, {
+          variant: hooks.variant,
+          used: hooks.used
+        })
+      }
+    ];
+    const ask = async () => {
+      const opts = Object.assign({ budgetMs: 12000, timeoutMs: 15000 }, hooks);
+      const started = Date.now();
+      if (hooks.onDelta) {
+        const streamed = await askGameMasterStream(messages, opts, hooks.onDelta);
+        if (streamed.ok) return streamed;
+        if (hooks.onPreviewEnd) hooks.onPreviewEnd();
+        // канал занят — не тянем: лучше быстро попробовать снова
+        if (Date.now() - started > 8000) return { ok: false };
+      }
+      return askGameMaster(messages, opts);
+    };
+    const t0 = Date.now();
+    let res = await runQueued('hero', ask);
+    // герой — то, без чего экран не собрать: даём мастеру ещё пару шансов,
+    // но общий кап держим: игрок не должен ждать набор дольше ~20 секунд
+    for (const wait of [900, 2600]) {
+      if (res.ok) break;
+      if (Date.now() - t0 > 20000) break;
+      if (hooks.onStatus) hooks.onStatus('retry');
+      await sleep(wait);
+      res = await runQueued('hero', ask);
+    }
+    if (!res.ok) return { ok: false, reason: 'мастер не ответил' };
+    const profile = E.heroProfileFromText(res.text, hooks.labels || {});
+    if (!profile) return { ok: false, reason: 'ответ мастера не разобрался', text: res.text };
+    log('герой от мастера:', profile.classes.map(c => c.title).join(', '));
+    return { ok: true, profile: profile, source: res.source, text: res.text };
+  }
+
   async function generateWorld(game, hooks = {}) {
     const base = E.scenarioById(game.scenarioId);
     const messages = [
       { role: 'system', content: E.SYSTEM_PROMPT },
-      { role: 'user', content: E.buildWorldPrompt(game.worldConfig, base.customGame ? null : base) }
+      { role: 'user', content: E.buildWorldPrompt(game.worldConfig, base.customGame ? null : base, { variant: hooks.variant }) }
     ];
-    const res = await askGameMaster(messages, hooks);
+    // поток: первый кусок виден сразу, а обрезанный ответ можно спасти
+    const run = async () => {
+      if (hooks.onDelta) {
+        const streamed = await askGameMasterStream(messages, hooks, hooks.onDelta);
+        if (streamed.ok) return streamed;
+        if (hooks.onPreviewEnd) hooks.onPreviewEnd();
+      }
+      return askGameMaster(messages, hooks);
+    };
+    // мастер любит отвечать 429/502 — даём ему вторую попытку, прежде чем звать локального
+    let res = await runQueued('world', run);
+    if (!res || !res.ok) {
+      if (hooks.onStatus) hooks.onStatus('retry');
+      await sleep(700);
+      res = await runQueued('world', run);
+    }
+    if (!res) return null;                       // запрос сняли из очереди (игрок вышел)
     if (res.ok) {
       const parsed = E.parseWorldResponse(res.text);
-      if (parsed.ok && parsed.opening) {
+      // канал с жёстким лимитом длины иногда рубит JSON на середине:
+      // тогда собираем мир из того, что успело дойти, а не зовём локального мастера
+      const partial = (parsed.ok && parsed.opening) ? null : E.salvageWorldResponse(res.text);
+      const data = (parsed.ok && parsed.opening) ? parsed : (partial && partial.ok ? partial : null);
+      if (data) {
         const danger = game.worldConfig && game.worldConfig.danger;
         const options = [];
-        (parsed.options || []).slice(0, 4).forEach((o, i) => {
+        (data.options || []).slice(0, 4).forEach((o, i) => {
           const opt = E.sanitizeOption(o, i, danger);
           if (opt) options.push(opt);
         });
         while (options.length < 3) options.push(E.sanitizeOption(E.offlineOpening(game).options[options.length] || null, options.length, danger));
         options.forEach((o, i) => { o.id = 'o' + i; });
+        const scene = data.opening || data.scene || '';
         return {
           ok: true,
+          partial: !!partial,
+          raw: res.text,
           source: res.source,
-          title: parsed.title || (game.worldConfig && game.worldConfig.title) || 'Безымянный мир',
-          goal: parsed.goal || 'Найти своё место в этом мире',
-          world: parsed.world || '',
-          backstory: parsed.backstory || '',
-          plan: parsed.plan || [],
-          hero: parsed.hero || null,
-          scene: parsed.opening,
-          chapter: parsed.chapter || 'Пролог',
-          npc: parsed.npc || '',
+          title: data.title || (game.worldConfig && game.worldConfig.title) || 'Безымянный мир',
+          goal: data.goal || 'Найти своё место в этом мире',
+          world: data.world || '',
+          backstory: data.backstory || '',
+          plan: data.plan || [],
+          hero: data.hero || null,
+          scene,
+          chapter: data.chapter || 'Пролог',
+          npc: data.npc || '',
           imagePrompt: E.composeSceneImagePrompt(game, {
-            aiPrompt: parsed.imagePrompt || base.imagePrompts[0],
-            sceneText: parsed.opening,
-            npc: parsed.npc
+            aiPrompt: data.imagePrompt || base.imagePrompts[0],
+            sceneText: scene,
+            npc: data.npc
           }),
           options,
           effects: { hp: 0, item: '', goal: false }
@@ -365,6 +569,23 @@
    * запускаются с задержкой, если никто ещё не ответил.
    * @returns {Promise<{ok:boolean,url?:string,source?:string,prompt?:string}>}
    */
+  /** Эпилог кампании: короткий текст от мастера, иначе — летопись из памяти. */
+  async function generateEpilogue(game, hooks = {}) {
+    const messages = [
+      { role: 'system', content: E.SYSTEM_PROMPT.split('ОТВЕЧАЙ')[0].trim() },
+      { role: 'user', content: E.buildEpiloguePrompt(game) }
+    ];
+    const res = await runQueued('epilogue', () => askGameMaster(messages, Object.assign({ budgetMs: 20000 }, hooks)));
+    if (res && res.ok) {
+      const data = E.extractJsonObject(res.text);
+      const text = data && typeof data.epilogue === 'string' ? E.polishSceneText(data.epilogue, 1400) : '';
+      if (text.length > 80) {
+        return { ok: true, text, title: (data && data.title) || 'Финал', source: 'ai' };
+      }
+    }
+    return { ok: true, text: E.epilogueText(game), title: 'Финал', source: 'local' };
+  }
+
   async function generateImage({ prompt, style, aspect = '16:9', seed, width, height, onAttempt, hedgeFirstMs = 0 }) {
     const built = E.buildImageUrl({
       prompt, style, aspect, seed,
@@ -424,7 +645,8 @@
 
   return {
     CONFIG, BUILTIN_API_KEY, setApiKey, getApiKey, isBuiltinKey, probeBackend, mode, serverUrl, setServerBase,
-    askGameMaster, generateTurn, generateOpening, generateWorld,
+    askGameMaster, askGameMasterStream, runQueued, cancelQueued, queueDepth, queueInfo, PRIORITY,
+    generateTurn, generateOpening, generateWorld, generateHeroProfile, generateEpilogue,
     generateImage, prefetch, loadImageOnce, looksLikeJunk, sleep
   };
 });

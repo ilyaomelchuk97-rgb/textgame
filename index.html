@@ -145,6 +145,7 @@
       </header>
       <div class="scroll">
         <div class="scenario-banner" id="hero-scenario"></div>
+        <div class="hero-legacy" id="hero-legacy" hidden></div>
 
         <label class="field" for="hero-name">
           <span class="field__label">Имя героя</span>
@@ -155,7 +156,10 @@
           </div>
         </label>
 
-        <div class="hint hint--profile" id="hero-profile-note" hidden></div>
+        <div class="hint hint--profile" id="hero-profile-note" hidden>
+          <span class="hint__text" id="hero-profile-text"></span>
+          <button class="link-btn" type="button" id="hero-reroll" data-act="reroll-hero">🎲 Другой набор</button>
+        </div>
 
         <div id="section-class">
           <div class="section-title" id="label-class">Класс</div>
@@ -187,6 +191,7 @@
       <!-- 8% сверху: название игры + закрыть -->
       <header class="game-topbar">
         <div class="game-topbar__text">
+          <span class="game-avatar" id="game-avatar" hidden></span>
           <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
           <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
           <div class="game-status" id="game-status" hidden>
@@ -200,8 +205,10 @@
 
       <!-- 22%: картинка окружающего мира (мгновенный фон + ИИ поверх) -->
       <div class="scene-media" id="scene-media">
+        <img id="scene-img" alt="Фон местности" hidden>
+        <img id="scene-img2" alt="" aria-hidden="true" hidden>
         <canvas id="scene-canvas" aria-hidden="true"></canvas>
-        <img id="scene-img" alt="Сцена" hidden>
+        <canvas id="scene-actors" aria-hidden="true"></canvas>
         <div class="scene-media__status" id="scene-status">
           <span class="dot"></span><span id="scene-status-text">рисуем…</span>
         </div>
@@ -212,11 +219,13 @@
       <!-- Текст ИИ-мастера -->
       <div class="panel" id="panel">
         <div class="notices" id="notices"></div>
+        <div class="scene-chapter" id="scene-chapter" hidden></div>
         <div class="scene-text__body" id="scene-text"></div>
         <div class="scene-npc" id="scene-npc" hidden></div>
         <div class="log-bar">
           <button class="log-toggle" type="button" id="log-toggle">История</button>
           <button class="log-toggle" type="button" id="prologue-btn" data-act="open-prologue" hidden>Пролог</button>
+          <button class="log-toggle" type="button" id="speak-btn" data-act="speak-scene" aria-pressed="false">🔊 Озвучить</button>
         </div>
         <div class="log-wrap" id="log-wrap" hidden>
           <div id="log-list"></div>
@@ -231,6 +240,13 @@
             <button class="icon-btn" type="button" data-act="close-prologue" aria-label="Свернуть пролог">✕</button>
           </div>
           <div class="prologue__body" id="prologue-body">
+            <div class="prologue__title-card" id="prologue-card">
+              <div class="prologue__world" id="prologue-world">
+                <img id="prologue-img" alt="" hidden>
+              </div>
+              <div class="prologue__campaign" id="prologue-campaign"></div>
+              <div class="prologue__hero" id="prologue-hero"></div>
+            </div>
             <div class="intro-card intro-card--world" id="intro-world" hidden>
               <div class="intro-card__label">🌍 Этот мир</div>
               <div class="intro-card__text" id="intro-world-text"></div>
@@ -273,9 +289,26 @@
   </div>
 
   <!-- ============ ОВЕРЛЕЙ БРОСКА КУБИКА ============ -->
+  <!-- Эпилог: чем кончилась кампания -->
+  <div class="prologue prologue--epilogue" id="epilogue" hidden>
+    <div class="prologue__inner">
+      <div class="prologue__head">
+        <span class="prologue__title" id="epilogue-title">Финал</span>
+        <button class="icon-btn icon-btn--close" type="button" data-act="close-epilogue" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="prologue__body" id="epilogue-body"></div>
+      <div class="prologue__foot">
+        <button class="btn btn--ghost" type="button" data-act="epilogue-saves">Мои игры</button>
+        <button class="btn btn--quiet" type="button" data-act="close-epilogue">Остаться в мире</button>
+        <button class="btn btn--primary" type="button" data-act="restart-run">Новая кампания</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="dice-overlay" hidden>
     <div class="dice-scene">
       <div class="dice-caption"></div>
+      <div class="dice-check" id="dice-check" hidden></div>
       <div class="die" id="die">
         <div class="die__face die__face--front">7</div>
         <div class="die__face die__face--back">13</div>

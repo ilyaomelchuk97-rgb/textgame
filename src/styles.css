@@ -510,16 +510,17 @@ button { font-family: inherit; }
   background: #060a0c;
 }
 .scene-media img {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  opacity: 1;
-  transition: opacity 0.45s ease, filter 0.45s ease;
-  animation: imgIn 0.6s ease both;
+  opacity: 0;
+  transition: opacity 0.55s ease, filter 0.45s ease;
 }
+.scene-media img.is-visible { opacity: 1; animation: imgIn 0.7s ease both; }
 .scene-media img.is-loading { opacity: 0.4; filter: blur(3px) saturate(0.8); }
 .scene-media img[hidden] { display: none; }
 @keyframes imgIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: scale(1); } }
@@ -1080,14 +1081,7 @@ body[data-screen="game"] .toasts { display: none; }
   display: block;
   z-index: 0;
 }
-.scene-media img {
-  position: relative;
-  z-index: 1;
-  opacity: 0;
-  transition: opacity 0.6s ease;
-}
-.scene-media img.is-visible { opacity: 1; }
-.scene-media::after { z-index: 2; }
+.scene-media::after { z-index: 4; }
 .scene-media__status {
   position: absolute;
   left: 10px;
@@ -1414,3 +1408,173 @@ body[data-screen="game"] .toasts { display: none; }
   font-size: 12.5px;
   line-height: 1.45;
 }
+.hint--profile .hint__text { display: block; }
+.hint--profile .link-btn { margin-top: 6px; }
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-btn[disabled] { opacity: 0.5; text-decoration: none; cursor: default; }
+.link-btn--busy { opacity: 0.7; }
+
+
+/* ============================================================
+ * v6: слои сцены, темы, типографика и новые элементы
+ * ============================================================ */
+
+/* --- фон локации (низ) + слой действия (верх) --- */
+.scene-media { position: relative; }
+.scene-media__status, .scene-media__badge, .scene-media__reload { z-index: 5; }
+
+/* --- аватар героя в шапке --- */
+.game-avatar {
+  width: 26px; height: 26px; margin-right: 8px; border-radius: 50%; flex: 0 0 auto;
+  background-size: cover; background-position: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4) inset;
+}
+
+/* --- текст сцены: читаемость и «живой» курсор потока --- */
+.scene-text__body { max-width: 62ch; line-height: 1.58; }
+.scene-text__body.is-streaming::after {
+  content: '▍'; margin-left: 2px; opacity: 0.75;
+  animation: caretBlink 1s steps(2, start) infinite;
+}
+@keyframes caretBlink { 0%, 50% { opacity: 0.75; } 50.01%, 100% { opacity: 0; } }
+
+/* --- подпись броска: характеристика и сложность --- */
+.dice-check {
+  margin-top: 6px; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted, #9aa6b2); text-align: center;
+}
+.dice-scene.is-crit .dice-result__value { animation: critPop 0.5s ease; color: #ffd76a; }
+.dice-scene.is-fail .dice-result__value { opacity: 0.72; }
+.dice-scene.is-crit { animation: critShake 0.45s ease; }
+@keyframes critPop { 0% { transform: scale(0.6); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes critShake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  25% { transform: translate3d(-4px, 2px, 0); }
+  50% { transform: translate3d(4px, -2px, 0); }
+  75% { transform: translate3d(-2px, 1px, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dice-scene.is-crit, .dice-scene.is-crit .dice-result__value { animation: none; }
+  .scene-text__body.is-streaming::after { animation: none; }
+}
+
+/* --- портрет героя в карточке --- */
+.hero-sheet__top { display: flex; align-items: center; gap: 12px; }
+.hero-sheet__portrait {
+  width: 64px; height: 64px; border-radius: 14px; flex: 0 0 auto; object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+}
+.hero-sheet__portrait--empty { display: none; }
+
+/* --- эпилог --- */
+.prologue--epilogue .prologue__body { white-space: pre-wrap; line-height: 1.6; }
+.epilogue__stats {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px; margin-top: 14px;
+}
+.epilogue__stat {
+  padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08); font-size: 13px;
+}
+.epilogue__stat b { display: block; font-size: 18px; margin-bottom: 2px; }
+
+/* --- настройки: ряды правил --- */
+.rules-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.rules-btn {
+  padding: 8px 12px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.06); color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.rules-btn.is-on {
+  background: color-mix(in srgb, var(--accent, #9fe6d0) 26%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #9fe6d0) 55%, transparent);
+}
+.rules-hint { margin: 0 0 6px; }
+
+/* --- пролог-титул: картинка мира и имя героя --- */
+.prologue__title-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 0 6px;
+}
+.prologue__world {
+  border-radius: 16px; overflow: hidden; margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04);
+  min-height: 92px; position: relative;
+}
+.prologue__world img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity 0.6s ease; }
+.prologue__world img.is-on { opacity: 1; }
+.prologue__campaign { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted, #9aa6b2); }
+.prologue__hero { font-size: 22px; font-weight: 600; }
+
+
+/* ============================================================
+ * Темы: стиль игры задаёт палитру всего интерфейса
+ * ============================================================ */
+body[data-theme="night"] {
+  --bg: #05070a; --bg-2: #0a0f14;
+  --panel: rgba(12, 18, 24, 0.9); --panel-2: rgba(16, 24, 30, 0.94);
+  --text: #e6eef5; --muted: #8d9aa8;
+}
+body[data-theme="neon"] {
+  --bg: #07060f; --bg-2: #0f0b22;
+  --panel: rgba(18, 14, 34, 0.88); --panel-2: rgba(24, 18, 44, 0.94);
+  --line: rgba(120, 180, 255, 0.18); --line-strong: rgba(120, 180, 255, 0.34);
+  --text: #eae6ff; --muted: #9a95c4;
+}
+body[data-theme="parchment"] {
+  --bg: #0d0a06; --bg-2: #171207;
+  --panel: rgba(26, 20, 11, 0.9); --panel-2: rgba(34, 26, 14, 0.94);
+  --line: rgba(215, 180, 120, 0.18); --line-strong: rgba(215, 180, 120, 0.34);
+  --text: #f3e8d2; --muted: #b8a583;
+}
+body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
+
+
+/* --- наследие на экране героя --- */
+.hero-legacy {
+  display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline;
+  margin: 10px 0 2px; padding: 10px 12px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+.hero-legacy__text { font-size: 13px; line-height: 1.45; }
+.hero-legacy__next { font-size: 12px; color: var(--muted, #9aa6b2); }
+
+/* --- строка главы и «открыто» в эпилоге --- */
+.scene-chapter {
+  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--muted, #9aa6b2); margin: 0 0 6px 2px;
+}
+.epilogue__unlock {
+  margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent, #9fe6d0) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 34%, transparent);
+  font-size: 14px;
+}
+
+/* --- кнопка озвучки включена --- */
+.log-toggle.is-on { border-color: color-mix(in srgb, var(--accent, #9fe6d0) 45%, transparent); }
+
+
+/* --- кнопки финала: две в ряд, «новая кампания» во всю ширину --- */
+#epilogue .prologue__foot {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  padding: 10px 12px 12px;
+  background: var(--bg-2, #101a1c);
+  border-top: 1px solid var(--line);
+}
+#epilogue .prologue__foot .btn { width: 100%; }
+#epilogue .prologue__foot .btn:last-child { grid-column: 1 / -1; }
+#epilogue .prologue__body { padding-bottom: 14px; }

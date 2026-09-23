@@ -281,7 +281,8 @@
    * @param {HTMLCanvasElement} canvas
    * @param {object} opts {kind, palette:[bg,mid,accent], seed, tint}
    */
-  function draw(canvas, opts) {
+  /** Подготовка холста и палитры — общая для полной сцены и слоя действия. */
+  function prepare(canvas, opts) {
     const o = opts || {};
     const dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
     const w = canvas.clientWidth || 448;
@@ -289,9 +290,8 @@
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
     const palette = (o.palette && o.palette.length >= 3) ? o.palette : ['#101820', '#2f4f5a', '#9fe6d0'];
     const rng = makeRng(o.seed || 1);
     const kind = SILHOUETTES[o.kind] ? o.kind : 'forest';
@@ -299,6 +299,76 @@
       sky: palette[0], mid: palette[1], accent: palette[2],
       dark: shift(palette[0], -14)
     };
+    return { o, ctx, w, h, rng, kind, col };
+  }
+
+  /** Туман, погода и медленный дрейф дымки — «дыхание» фона. */
+  function weather(ctx, w, h, rng, col, kind, o) {
+    for (let i = 0; i < 4; i++) {
+      const fy = h * (0.45 + rng() * 0.5);
+      const fg = ctx.createLinearGradient(0, fy - h * 0.12, 0, fy + h * 0.12);
+      fg.addColorStop(0, 'rgba(0,0,0,0)');
+      fg.addColorStop(0.5, rgba(col.mid, 0.10 + rng() * 0.12));
+      fg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = fg;
+      ctx.fillRect(0, fy - h * 0.12, w, h * 0.24);
+    }
+    (PARTICLES[KIND_PARTICLES[kind] || 'none'])(ctx, w, h, rng);
+    const t = (o.time || 0) / 1000;
+    if (!t) return;
+    for (let i = 0; i < 2; i++) {
+      const y = h * (0.55 + i * 0.18) + Math.sin(t * 0.25 + i) * h * 0.02;
+      const dx = Math.sin(t * 0.15 + i * 2) * w * 0.05;
+      const grad = ctx.createLinearGradient(dx, y - h * 0.1, dx + w, y + h * 0.1);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(0.5, rgba(col.accent, 0.05));
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, y - h * 0.1, w, h * 0.2);
+    }
+  }
+
+  /** Винетка и зерно. Поверх ИИ-фона винетка мягче — картинку не глушим. */
+  function vignette(ctx, w, h, rng, o) {
+    const strength = o.over ? 0.42 : 0.62;
+    const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 1.05);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(0,0,0,' + strength + ')');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 0.05;
+    for (let i = 0; i < Math.round(w * h / 220); i++) {
+      ctx.fillStyle = rng() > 0.5 ? '#fff' : '#000';
+      ctx.fillRect(rng() * w, rng() * h, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Кто в кадре: фигуры появляются, а не возникают рывком. */
+  function actorsLayer(ctx, w, h, rng, col, o) {
+    if (!o.actors) return;
+    const progress = Math.max(0, Math.min(1, o.progress === undefined ? 1 : o.progress));
+    if (o.over) {
+      const shadow = ctx.createLinearGradient(0, h * 0.45, 0, h);
+      shadow.addColorStop(0, 'rgba(0,0,0,0)');
+      shadow.addColorStop(1, 'rgba(0,0,0,0.44)');
+      ctx.fillStyle = shadow;
+      ctx.fillRect(0, h * 0.45, w, h * 0.55);
+    } else {
+      ctx.fillStyle = rgba(col.sky, 0.34);
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.2 + 0.8 * progress;
+    ctx.translate(0, (1 - progress) * h * 0.04);
+    drawActors(ctx, w, h, rng, col, o.actors);
+    ctx.restore();
+  }
+
+  function draw(canvas, opts) {
+    const P = prepare(canvas, opts);
+    if (!P) return;
+    const { o, ctx, w, h, rng, kind, col } = P;
 
     // небо: два градиента + свечение светила
     const sky = ctx.createLinearGradient(0, 0, w * 0.3, h);
@@ -329,40 +399,23 @@
     layer(SILHOUETTES[kind], 0);
     layer(SILHOUETTES[kind], 0.4);
 
-    // туманные полосы
-    for (let i = 0; i < 4; i++) {
-      const fy = h * (0.45 + rng() * 0.5);
-      const fg = ctx.createLinearGradient(0, fy - h * 0.12, 0, fy + h * 0.12);
-      fg.addColorStop(0, 'rgba(0,0,0,0)');
-      fg.addColorStop(0.5, rgba(col.mid, 0.1 + rng() * 0.12));
-      fg.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = fg;
-      ctx.fillRect(0, fy - h * 0.12, w, h * 0.24);
-    }
+    weather(ctx, w, h, rng, col, kind, o);
+    actorsLayer(ctx, w, h, rng, col, o);
+    vignette(ctx, w, h, rng, o);
+  }
 
-    (PARTICLES[KIND_PARTICLES[kind] || 'none'])(ctx, w, h, rng);
-
-    // кто в кадре: герой, противники и предметы окружения из текущей сцены.
-    // Перед ними приглушаем фон, чтобы фигуры читались с первого взгляда.
-    if (o.actors) {
-      ctx.fillStyle = rgba(col.sky, 0.34);
-      ctx.fillRect(0, 0, w, h);
-      drawActors(ctx, w, h, rng, col, o.actors);
-    }
-
-    // винетка и зерно
-    const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 1.05);
-    vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(0,0,0,0.62)');
-    ctx.fillStyle = vig;
-    ctx.fillRect(0, 0, w, h);
-
-    ctx.globalAlpha = 0.05;
-    for (let i = 0; i < Math.round(w * h / 220); i++) {
-      ctx.fillStyle = rng() > 0.5 ? '#fff' : '#000';
-      ctx.fillRect(rng() * w, rng() * h, 1, 1);
-    }
-    ctx.globalAlpha = 1;
+  /**
+   * Слой действия поверх готового фона локации: погода и фигуры, без неба и
+   * силуэтов. Так фон можно оставить прежним, а «что происходит» — сменить.
+   */
+  function drawOver(canvas, opts) {
+    const P = prepare(canvas, opts);
+    if (!P) return;
+    const { o, ctx, w, h, rng, kind, col } = P;
+    ctx.clearRect(0, 0, w, h);
+    weather(ctx, w, h, rng, col, kind, Object.assign({}, o, { over: true }));
+    actorsLayer(ctx, w, h, rng, col, Object.assign({}, o, { over: true }));
+    vignette(ctx, w, h, rng, Object.assign({}, o, { over: true }));
   }
 
   /** Отрисовка в data-URL (для сохранения/превью). */
@@ -821,6 +874,6 @@
     ctx.restore();
   }
 
-  return { draw, toDataUrl, makeRng, mix, shift, rgba, hexToRgb, KIND_PARTICLES, SILHOUETTES, ACTOR_SHAPES, PROPS, drawActors };
+  return { draw, drawOver, toDataUrl, makeRng, mix, shift, rgba, hexToRgb, KIND_PARTICLES, SILHOUETTES, ACTOR_SHAPES, PROPS, drawActors };
 
 });
