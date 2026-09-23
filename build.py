@@ -27,11 +27,47 @@ def data_uri(path: pathlib.Path) -> str:
     return "data:%s;base64,%s" % (mime, base64.b64encode(path.read_bytes()).decode("ascii"))
 
 
+# Обложки — иллюстрации к карточкам, а не постеры: в WebP при 512 px они
+# весят в полтора-два раза меньше и всё ещё выглядят хорошо на телефоне.
+WEBP_MAX = 512
+MENU_MAX = 1024
+
+
+def webp_bytes(path: pathlib.Path, max_side: int, quality: int = 72):
+    """Сжимаем картинку в WebP. Нет Pillow — возвращаем None и живём на JPEG."""
+    try:
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        img = Image.open(path).convert("RGB")
+        if max(img.size) > max_side:
+            k = max_side / float(max(img.size))
+            img = img.resize((max(1, int(img.width * k)), max(1, int(img.height * k))), Image.LANCZOS)
+        import io
+        buf = io.BytesIO()
+        img.save(buf, format="WEBP", quality=quality, method=6)
+        return buf.getvalue()
+    except Exception as err:
+        print("! WebP не вышел для %s: %s" % (path.name, err), file=sys.stderr)
+        return None
+
+
+def asset_uri(name: str, path: pathlib.Path) -> str:
+    """Картинка в data-URI: сначала пробуем WebP, потом честный JPEG."""
+    max_side = MENU_MAX if name == "menu-bg" else WEBP_MAX
+    raw = webp_bytes(path, max_side)
+    if raw:
+        return "data:image/webp;base64,%s" % base64.b64encode(raw).decode("ascii")
+    return data_uri(path)
+
+
 def main() -> int:
     html = (ROOT / "index.html").read_text(encoding="utf-8")
     css = (SRC / "styles.css").read_text(encoding="utf-8")
     js_parts = [(SRC / name).read_text(encoding="utf-8")
-                for name in ("engine.js", "backdrop.js", "critters.js", "api.js", "app.js")]
+                for name in ("metrics.js", "books.js", "engine.js", "backdrop.js",
+                             "critters.js", "api.js", "app.js")]
 
     # 1. Встроить картинки меню/сценариев (и в CSS, и в JS-карту ассетов)
     assets_map = {}
@@ -40,7 +76,7 @@ def main() -> int:
         if not path.exists():
             print("! нет файла %s" % path, file=sys.stderr)
             return 1
-        assets_map[name] = data_uri(path)
+        assets_map[name] = asset_uri(name, path)
 
     # картинки подставляются через window.DT_ASSETS, поэтому правки CSS не нужны
 

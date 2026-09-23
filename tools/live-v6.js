@@ -63,8 +63,8 @@ const shot = (page, name) => page.screenshot({ path: 'shots/' + name, fullPage: 
       bonus: (c.querySelector('.arch-card__bonus') || {}).textContent.replace(/\s+/g, ' ').trim(),
       ability: (c.querySelector('.arch-card__ability') || {}).textContent.replace(/\s+/g, ' ').trim().slice(0, 70)
     })),
-    races: Array.from(document.querySelectorAll('#race-list .chip')).slice(0, 3).map(c => c.textContent.replace(/\s+/g, ' ').trim().slice(0, 70)),
-    origins: Array.from(document.querySelectorAll('#origin-list .arch-card')).slice(0, 3).map(o => o.textContent.replace(/\s+/g, ' ').trim().slice(0, 90))
+    races: Array.from(document.querySelectorAll('#race-list .chip')).slice(0, 3).map(c => Array.from(c.children).map(x => x.textContent.trim()).join(' · ').slice(0, 90)),
+    origins: Array.from(document.querySelectorAll('#origin-list .arch-card')).slice(0, 3).map(o => Array.from(o.children).map(x => x.textContent.trim()).join(' · ').slice(0, 100))
   }));
   console.log(stamp(), 'набор героя:', JSON.stringify(heroSet, null, 1));
   await shot(page, 'v6-02-hero-ready.png');
@@ -191,6 +191,20 @@ const shot = (page, name) => page.screenshot({ path: 'shots/' + name, fullPage: 
     console.log(stamp(), 'ход ' + turn + ':', JSON.stringify(after, null, 1));
   }
   await shot(page, 'v6-06-after-turns.png');
+
+  // игра могла закончиться финалом прямо в этих ходах: тогда сначала закрываем финал,
+  // иначе он перекрывает кнопку выхода
+  const epilogueOpen = await page.evaluate(() => {
+    const el = document.getElementById('epilogue');
+    return !!el && !el.hidden;
+  });
+  if (epilogueOpen) {
+    await page.evaluate(() => {
+      const b = document.querySelector('#epilogue [data-act="close-epilogue"]');
+      if (b) b.click();
+    });
+    await page.waitForTimeout(600);
+  }
 
   // «Мои игры» → настройки: правила, озвучка, тема
   await page.click('[data-act="close-game"]');

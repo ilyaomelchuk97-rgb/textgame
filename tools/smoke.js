@@ -129,7 +129,9 @@ async function main() {
   const customWorld = await page.evaluate(() => JSON.parse(localStorage.getItem('dt2:worlds') || '[]'));
   console.log('   сохранённые миры:', JSON.stringify(customWorld).slice(0, 120));
 
-  // «своя игра»: пишем название игры — мир и профиль героя собирает ИИ, поэтому мокаем мастера
+  // «своя игра»: пишем название игры — мир и профиль героя собирает ИИ, поэтому мокаем мастера.
+  // Игра сначала пробует поток (/api/gm/stream): обрываем его, чтобы ответ пришёл от мока.
+  await page.route('**/api/gm/stream', route => route.abort());
   await page.route('**/api/gm', route => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({
@@ -248,7 +250,10 @@ async function main() {
   });
 
   await page.click('#screen-hero [data-act="start-adventure"]');
-  await page.waitForSelector('#screen-game:not([hidden])', { timeout: 5000 });
+  // перед первой сценой игра спрашивает, где начинается история: отвечаем «пусть решает мастер»
+  await page.waitForSelector('#modal:not([hidden]) .btn', { timeout: 12000 }).catch(() => {});
+  await page.click('#modal .btn--ghost').catch(() => {});
+  await page.waitForSelector('#screen-game:not([hidden])', { timeout: 12000 });
 
   // Раскладка: 8% сверху, 22% картинка
   await page.waitForSelector('#actions .action-btn', { timeout: LIVE ? 60000 : 15000 });
@@ -256,7 +261,7 @@ async function main() {
   await page.waitForFunction(() => {
     const img = document.getElementById('scene-img');
     return img && img.getAttribute('src') && img.getAttribute('src').length > 10;
-  }, { timeout: LIVE ? 45000 : 10000 }).catch(() => console.log('  ! картинка не появилась за отведённое время'));
+  }, { timeout: LIVE ? 75000 : 10000 }).catch(() => console.log('  ! картинка не появилась за отведённое время'));
   await page.waitForTimeout(400);
   // фон рисуется мгновенно, но кадр может совпасть с перерисовкой — даём пару попыток
   const canvasPainted = await page.waitForFunction(() => {

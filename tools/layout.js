@@ -58,7 +58,12 @@ const TARGETS = [
     if (!heroLayout.footerVisible) problemsPre.push(name + ': кнопка «Начать приключение» вне экрана');
     if (!heroLayout.scrollAreaWorks) problemsPre.push(name + ': список выбора героя не прокручивается');
     await page.click('#screen-hero [data-act="start-adventure"]');
+    // перед первой сценой игра спрашивает, где начинается история
+    await page.waitForSelector('#modal:not([hidden]) .btn', { timeout: 15000 }).catch(() => {});
+    await page.click('#modal .btn--ghost').catch(() => {});
     await page.waitForSelector('#actions .action-btn', { timeout: 30000 });
+    // пролог открывается поверх сцены: закрываем его, иначе он закрывает раскладку
+    await page.evaluate(() => { const b = document.querySelector('[data-act="close-prologue"], .prologue__go'); if (b) b.click(); });
     await page.waitForTimeout(600);
 
     const m = await page.evaluate(() => {

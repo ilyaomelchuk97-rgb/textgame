@@ -34,6 +34,7 @@
           <button class="btn btn--ghost" type="button" data-act="my-games">
             Мои игры <span class="badge" id="menu-saves-count" hidden></span>
           </button>
+          <button class="btn btn--quiet" type="button" data-act="open-books">📖 Книга-игра без ИИ</button>
         </div>
 
         <div class="menu-stage" id="menu-critters" aria-hidden="true"></div>
@@ -58,6 +59,7 @@
         <button class="tab is-active" type="button" data-mode="random">Случайные</button>
         <button class="tab" type="button" data-mode="games">По играм</button>
         <button class="tab" type="button" data-mode="custom">Свой мир</button>
+        <button class="tab" type="button" data-mode="books">📖 Книги</button>
       </div>
 
       <div class="scroll" id="scenario-scroll">
@@ -81,6 +83,14 @@
         </div>
 
         <!-- конструктор мира -->
+        <!-- книги-игры: главы написаны вручную, ИИ не нужен -->
+        <div id="pane-books" hidden>
+          <div class="notice notice--info">
+            📖 Книги играются без ИИ и без сети: главы написаны вручную, выборы меняют концовку.
+          </div>
+          <div id="books-list"></div>
+        </div>
+
         <div id="pane-custom" hidden>
           <div class="notice notice--info">
             Соберите мир как конструктор: выбирайте готовые варианты, комбинируйте и добавляйте свои.
@@ -224,6 +234,9 @@
         <div class="scene-npc" id="scene-npc" hidden></div>
         <div class="log-bar">
           <button class="log-toggle" type="button" id="log-toggle">История</button>
+          <button class="log-toggle" type="button" data-act="open-journal">🗒 Журнал</button>
+          <button class="log-toggle" type="button" data-act="open-map">🗺 Карта</button>
+          <button class="log-toggle" type="button" data-act="open-run">🎯 Забег</button>
           <button class="log-toggle" type="button" id="prologue-btn" data-act="open-prologue" hidden>Пролог</button>
           <button class="log-toggle" type="button" id="speak-btn" data-act="speak-scene" aria-pressed="false">🔊 Озвучить</button>
         </div>
@@ -272,6 +285,39 @@
       <div class="actions" id="actions"></div>
     </section>
 
+    <!-- ============ ЭКРАН: ЖУРНАЛ (цель, вехи, нити) ============ -->
+    <section class="screen" id="screen-journal" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back-game" aria-label="Назад">‹</button>
+        <h2>🗒 Журнал</h2>
+        <span class="sub-header__note" id="journal-turn"></span>
+      </header>
+      <div class="scroll" id="journal-body"></div>
+    </section>
+
+    <!-- ============ ЭКРАН: КАРТА МЕСТ ============ -->
+    <section class="screen" id="screen-map" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back-game" aria-label="Назад">‹</button>
+        <h2>🗺 Карта</h2>
+        <span class="sub-header__note" id="map-note"></span>
+      </header>
+      <div class="scroll">
+        <div class="map-canvas" id="map-canvas"></div>
+        <div class="map-list" id="map-list"></div>
+      </div>
+    </section>
+
+    <!-- ============ ЭКРАН: ЗАБЕГ (ходы, броски, цена) ============ -->
+    <section class="screen" id="screen-run" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back-game" aria-label="Назад">‹</button>
+        <h2>🎯 Забег</h2>
+        <span class="sub-header__note" id="run-note"></span>
+      </header>
+      <div class="scroll" id="run-body"></div>
+    </section>
+
     <!-- ============ ЭКРАН 5: МОИ ИГРЫ ============ -->
     <section class="screen" id="screen-saves" hidden>
       <header class="sub-header">
@@ -280,7 +326,9 @@
         <button class="icon-btn" type="button" data-act="export-all" aria-label="Скачать все сохранения">⬇</button>
       </header>
       <div class="scroll" id="saves-list"></div>
-      <div class="footer-bar">
+      <div class="footer-bar footer-bar--cloud">
+        <button class="btn btn--ghost" type="button" data-act="cloud-put">☁ Выложить по коду</button>
+        <button class="btn btn--ghost" type="button" data-act="cloud-get">🔑 Ввести код</button>
         <button class="btn btn--ghost" type="button" data-act="import-save">Импорт из файла</button>
         <button class="btn btn--primary" type="button" data-act="new-game">Новая игра</button>
       </div>
@@ -300,6 +348,7 @@
       <div class="prologue__foot">
         <button class="btn btn--ghost" type="button" data-act="epilogue-saves">Мои игры</button>
         <button class="btn btn--quiet" type="button" data-act="close-epilogue">Остаться в мире</button>
+        <button class="btn btn--quiet" type="button" data-act="continue-death" id="epilogue-new-hero">🎲 Тем же миром, новым героем</button>
         <button class="btn btn--primary" type="button" data-act="restart-run">Новая кампания</button>
       </div>
     </div>
@@ -340,6 +389,8 @@
   <div class="toasts" id="toasts"></div>
   <input type="file" id="file-input" accept=".json,application/json" multiple hidden>
 
+  <script src="src/metrics.js"></script>
+  <script src="src/books.js"></script>
   <script src="src/engine.js"></script>
   <script src="src/backdrop.js"></script>
   <script src="src/critters.js"></script>

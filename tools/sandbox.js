@@ -23,12 +23,14 @@ const { chromium } = require('playwright');
   // любые внешние запросы — обрыв
   await page.route('**/*', route => {
     const u = route.request().url();
-    if (u.startsWith('http://localhost')) return route.continue();
+    if (u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1')) return route.continue();
     return route.abort();
   });
 
-  // без сервера игры: только статика, все внешние запросы рвутся
-  await page.goto('http://localhost:8123/game.html', { waitUntil: 'load' });
+  // Статика с любого порта: либо свой статический сервер, либо основной (3000)
+  const base = process.env.BASE || 'http://localhost:3000';
+  // без сервера ИИ: все внешние запросы рвутся, статика отдаётся локально
+  await page.goto(base + '/game.html', { waitUntil: 'load' });
   await page.waitForTimeout(800);
 
   const menuOk = await page.isVisible('#screen-menu [data-act="new-game"]');

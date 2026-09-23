@@ -6,6 +6,7 @@
  *   2. POST /api/gm    — прокси к текстовому ИИ (гейм-мастеру).
  *   3. GET  /api/image — прокси к генератору картинок.
  *   4. GET  /api/health — сообщает клиенту, какие каналы доступны.
+ *   5. GET  /api/tts   — нейросетевая озвучка сцены (нейронный голос, mp3).
  *
  * Прокси нужен потому, что браузерные запросы к text.pollinations.ai
  * сейчас требуют Cloudflare Turnstile, а серверные — нет.
@@ -45,6 +46,123 @@ const TEXT_MAX_TOKENS = Number(process.env.TEXT_MAX_TOKENS || 1500);
 // Канал тратит бюджет ответа на скрытые рассуждения: с полным бюджетом видимого
 // текста не остаётся вовсе. 'low' оставляет рассуждения короткими.
 const POLLINATIONS_EFFORT = process.env.POLLINATIONS_EFFORT || 'low';
+
+/**
+ * Новый шлюз Pollinations (gen.pollinations.ai). Через него доступны десятки
+ * моделей: умный текст (Mistral Large 3, GLM-5.3, Qwen 3.8), быстрые генераторы
+ * картинок (Z-Image Turbo — «турбо»-дистилляция, кадр за считанные секунды)
+ * и нейросетевой синтез речи (Fish Audio S2.1 Pro).
+ * Ключ тот же, что и раньше: он просто должен быть разрешён для этих моделей.
+ */
+const GEN_BASE = (process.env.POLLINATIONS_GEN_BASE || 'https://gen.pollinations.ai').replace(/\/$/, '');
+
+/** Порядок моделей-мастеров: сначала самая толковая, дальше — по убыванию. */
+const GEN_TEXT_MODELS = (process.env.GEN_TEXT_MODELS || [
+  'mistralai/mistral-large-3',                        // самая толковая: сюжет, числа, характеры
+  'community/scriptsnsenses-sys/glm-5.3-flash-free',  // быстрая и живая, хорошо держит русский
+  'community/scriptsnsenses-sys/gpt-5.6-sol-free',
+  'community/gggff123/qwen3.8-27b:free',              // очень быстрая, но лимит 1 запрос в минуту
+  'community/NamanSoni78/gemini-3.8-flash'            // медленная, но с большим контекстом
+].join(',')).split(',').map(x => x.trim()).filter(Boolean);
+// Модели, которые в потоке отдают только «рассуждения» без текста: для мастера
+// они бесполезны (игрок ждёт описания сцены, а не цепочку мыслей) — не берём их.
+const GEN_STREAM_SKIP = /Claude-Fable|gpt-5\.6-Luna|Glm-5\.3-Thinking|opus-5-max/i;
+
+/** У каждой модели лимит — примерно один запрос в минуту: ведём «остывание». */
+const GEN_MODEL_COOLDOWN = Number(process.env.GEN_MODEL_COOLDOWN || 62000);
+const genModelUsedAt = new Map();
+function genMarkUsed(model) { genModelUsedAt.set(model, Date.now()); }
+/**
+ * Порядок моделей. Для набора героя важнее скорость (игрок ждёт экран),
+ * поэтому первыми идут быстрые модели; для ходов — сначала самая толковая.
+ * Внутри порядка сперва идут отдохнувшие, использованные — в конец.
+ */
+const GEN_FAST_MODELS = (process.env.GEN_FAST_MODELS || [
+  'community/gggff123/qwen3.8-27b:free',
+  'community/scriptsnsenses-sys/glm-5.3-flash-free',
+  'mistralai/mistral-large-3',
+  'community/scriptsnsenses-sys/gpt-5.6-sol-free'
+].join(',')).split(',').map(x => x.trim()).filter(Boolean);
+
+function genModelOrder(kind) {
+  const preferred = kind === 'hero' ? GEN_FAST_MODELS : GEN_TEXT_MODELS;
+  const now = Date.now();
+  return preferred.slice().sort((a, b) => {
+    const fa = (genModelUsedAt.get(a) || 0) + GEN_MODEL_COOLDOWN - now;
+    const fb = (genModelUsedAt.get(b) || 0) + GEN_MODEL_COOLDOWN - now;
+    return (fa > 0 ? fa + 1e6 : 0) - (fb > 0 ? fb + 1e6 : 0) || preferred.indexOf(a) - preferred.indexOf(b);
+  });
+}
+
+/**
+ * Неудачи генераторов картинок: у шлюза лимит запросов на пользователя, поэтому
+ * модель, только что отказавшую, ставим в конец очереди и на время не трогаем.
+ */
+const GEN_IMAGE_FAILED_AT = new Map();
+const GEN_IMAGE_COOLDOWN = Number(process.env.GEN_IMAGE_COOLDOWN || 15000);
+function genImageNoteFailure(model) { GEN_IMAGE_FAILED_AT.set(model, Date.now()); }
+function genImageCooled(model) {
+  return Date.now() - (GEN_IMAGE_FAILED_AT.get(model) || 0) > GEN_IMAGE_COOLDOWN;
+}
+let genImageTurn = 0;
+function genImageOrder() {
+  const ready = [], resting = [];
+  GEN_IMAGE_MODELS.forEach(m => (genImageCooled(m) ? ready : resting).push(m));
+  if (ready.length) {
+    // Кадр сцены и портрет героя уходят почти одновременно. Если оба начнут
+    // с одной модели, второй получит «1 запрос в минуту» и будет ждать впустую:
+    // сдвигаем порядок от запроса к запросу, чтобы стартовые модели различались.
+    const shift = genImageTurn++ % ready.length;
+    ready.push(...ready.splice(0, shift));
+  }
+  return ready.concat(resting);
+}
+
+/** Генераторы картинок шлюза: у каждого свой upstream, поэтому их можно гонять гонкой. */
+const GEN_IMAGE_MODELS = (process.env.GEN_IMAGE_MODELS || [
+  'community/NamanSoni78/Z-Image-Turbo',
+  'tongyi-mai/z-image-turbo',
+  'community/NamanSoni78/Imagine-4-low'
+].join(',')).split(',').map(x => x.trim()).filter(Boolean);
+
+/** Голос для озвучки: у Fish Audio работает 'alloy'. */
+const GEN_TTS_MODEL = process.env.GEN_TTS_MODEL || 'community/NamanSoni78/FISH-AUDIO-S2.1-PRO';
+const GEN_TTS_VOICE = process.env.GEN_TTS_VOICE || 'alloy';
+
+/**
+ * Баланс ключа может кончиться, и тогда шлюз отвечает мгновенным отказом
+ * («Insufficient balance»). Ждать его впустую нельзя: помечаем ключ отдыхающим,
+ * пока не оживёт, и работаем на безключевых источниках.
+ */
+const GEN_KEY_REST_MS = Number(process.env.GEN_KEY_REST_MS || 20 * 60 * 1000);
+let GEN_KEY_RESTING_UNTIL = 0;
+function genKeyResting() { return Date.now() < GEN_KEY_RESTING_UNTIL; }
+// «нет баланса» помним дольше, чем отдых: иначе через 20 минут статус снова
+// бодро пишет «5 моделей», хотя ключ по-прежнему пустой.
+const GEN_KEY_DEAD_TTL = Number(process.env.GEN_KEY_DEAD_TTL || 6 * 60 * 60 * 1000);
+let GEN_KEY_DEAD = { at: 0, why: '' };
+function genKeyDeadFresh() { return !!GEN_KEY_DEAD.at && (Date.now() - GEN_KEY_DEAD.at) < GEN_KEY_DEAD_TTL; }
+function genKeyMarkDead(why) { GEN_KEY_DEAD = { at: Date.now(), why: String(why || 'нет баланса') }; }
+function genKeyRest(why) {
+  // «нет баланса» приходит и по-русски (внутренние метки), и по-английски (шлюз)
+  if (looksLikeNoBalance(why) || /402|нет баланса/i.test(String(why || ''))) genKeyMarkDead(why);
+  if (genKeyResting()) return;
+  GEN_KEY_RESTING_UNTIL = Date.now() + GEN_KEY_REST_MS;
+  console.log('[gen] ключ шлюза отдыхает ' + Math.round(GEN_KEY_REST_MS / 60000) + ' мин (' + why +
+    ') — кадры рисуют безключевые генераторы, текст ведут запасные каналы');
+}
+function genWake() {
+  GEN_KEY_RESTING_UNTIL = 0;
+  GEN_KEY_DEAD = { at: 0, why: '' };
+  console.log('[gen] ключ шлюза снова в строю');
+}
+function looksLikeNoBalance(text) {
+  return /insufficient balance|not enough credits|no credits|top ?up|INSUFFICIENT_BALANCE|available balance is 0/i.test(String(text || ''));
+}
+function genReady() { return !!GEN_KEY_ACTIVE && !genKeyResting(); }
+/** Готовые нейронные голоса Edge есть всегда, когда есть сеть и websocket-клиент. */
+function edgeReady() { return !!edgeSocket(); }
+const GEN_KEY_ACTIVE = POLLINATIONS_KEY;
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
 const VERSION = '1.0.0';
@@ -152,9 +270,8 @@ const GM_CACHE = new Map();              // ключ → {text, provider, ts}
 const GM_CACHE_TTL = 20 * 60 * 1000;
 const GM_CACHE_MAX = 80;
 
-function gmCacheKey(messages, budget) {
+function gmCacheKey(messages) {
   const h = crypto.createHash('sha1');
-  h.update(String(budget) + '|');
   messages.forEach(m => h.update(m.role + ':' + m.content + '\n'));
   return h.digest('hex');
 }
@@ -171,6 +288,12 @@ function gmCacheSet(key, text, provider) {
 
 /** Поток ответа от канала: строки SSE «data: {...}» → куски текста. */
 async function pollinationsStream(messages, key, onDelta, timeoutMs) {
+  return queuePollinations('text', () => withQueueRetry(
+    leftMs => pollinationsStreamRaw(messages, key, onDelta, Math.max(6000, Math.min(timeoutMs, leftMs))),
+    timeoutMs, key ? 'stream-key' : 'stream-anon'));
+}
+
+async function pollinationsStreamRaw(messages, key, onDelta, timeoutMs) {
   const headers = { 'content-type': 'application/json' };
   if (key) headers['Authorization'] = 'Bearer ' + key;
   const res = await fetchWithTimeout('https://text.pollinations.ai/openai', {
@@ -252,6 +375,100 @@ async function fetchWithTimeout(url, options, ms) {
 }
 
 /* ---------------------------------------------------------- */
+/* Очередь к Pollinations                                     */
+/* ---------------------------------------------------------- */
+/**
+ * У Pollinations лимит на IP — один запрос в работе: второй получает
+ * «Queue full for IP» и это видел игрок как «мастер перестал отвечать».
+ * Текстовый и картинный сервисы считают лимит отдельно, поэтому очереди две:
+ * текст (ходы, герой, мир) и картинки (кадры, портрет). Внутри каждой — по одному
+ * запросу за раз, иначе игра сама себе перекрывает канал.
+ */
+const PLLN_QUEUES = { text: { items: [], busy: false }, image: { items: [], busy: false } };
+
+/**
+ * Ставим запрос в очередь канала. Отсчёт времени начинается, когда слот
+ * освободился: пока запрос ждал, бюджет не тратится — иначе второй ход
+ * подряд отваливался бы «по таймауту», не успев начаться.
+ */
+const PLLN_INFLIGHT = new Map();   // одинаковые запросы к каналу не дублируем
+
+function queuePollinations(kind, task, dedupeKey) {
+  const q = PLLN_QUEUES[kind] || PLLN_QUEUES.text;
+  const key = dedupeKey ? kind + '|' + dedupeKey : '';
+  if (key && PLLN_INFLIGHT.has(key)) return PLLN_INFLIGHT.get(key);
+  const job = new Promise((resolve, reject) => {
+    q.items.push({ task, resolve, reject, at: Date.now() });
+    pumpPollinations(kind);
+  });
+  if (key) {
+    PLLN_INFLIGHT.set(key, job);
+    const clear = () => PLLN_INFLIGHT.delete(key);
+    job.then(clear, clear);
+  }
+  return job;
+}
+
+async function pumpPollinations(kind) {
+  const q = PLLN_QUEUES[kind];
+  if (!q || q.busy) return;
+  const next = q.items.shift();
+  if (!next) return;
+  q.busy = true;
+  const waited = Date.now() - (next.at || Date.now());
+  if (kind === 'text' && waited > 45000) {
+    // держать игрока в очереди дольше — хуже, чем честно уйти на локального мастера
+    next.reject(new Error('queue-timeout: ' + Math.round(waited / 1000) + 's'));
+    q.busy = false;
+    return setImmediate(() => pumpPollinations(kind));
+  }
+  try {
+    next.resolve(await next.task());
+  } catch (err) {
+    next.reject(err);
+  } finally {
+    q.busy = false;
+    setImmediate(() => pumpPollinations(kind));
+  }
+}
+
+/** Сколько запросов ждёт очереди — для диагностики. */
+function pollinationsQueueDepth() {
+  return {
+    text: { wait: PLLN_QUEUES.text.items.length, busy: PLLN_QUEUES.text.busy },
+    image: { wait: PLLN_QUEUES.image.items.length, busy: PLLN_QUEUES.image.busy }
+  };
+}
+
+/**
+ * «Queue full» — это не отказ, а просьба подождать. Повторяем, но строго внутри
+ * общего бюджета: каждая попытка получает остаток времени, а не полный таймаут
+ * заново, — иначе один запрос мог растянуться на минуты и мастер «замолкал».
+ */
+async function withQueueRetry(makeCall, budgetMs, label) {
+  const total = Number(budgetMs) || 20000;
+  const started = Date.now();
+  let lastErr = null;
+  let attempt = 0;
+  while (attempt < 4) {
+    attempt++;
+    const left = total - (Date.now() - started);
+    if (left < 3000) break;
+    try {
+      return await makeCall(left);
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err && err.message || err);
+      if (!/queue full|HTTP 429|rate/i.test(msg)) throw err;
+      const rest = total - (Date.now() - started);
+      if (rest < 3500) break;
+      await sleep(Math.min(2500, Math.max(500, rest / 3)));
+    }
+  }
+  throw lastErr || new Error('pollinations: ' + label);
+}
+
+/* ---------------------------------------------------------- */
 /* Провайдеры текста                                          */
 /* ---------------------------------------------------------- */
 const JUNK_RE = /(top up|insufficient balance|not enough credit|payment required|valid api key|missing turnstile|unauthorized)/i;
@@ -261,9 +478,64 @@ function isJunk(text) {
   return JUNK_RE.test(String(text));
 }
 
+/**
+ * Каналы мастера для выбора в настройках: id (его клиент присылает в provider),
+ * название для игрока, доступность и короткое пояснение. Порядок — от умного к запасному.
+ */
+function masterChoices() {
+  const out = [
+    { id: 'auto', title: 'Авто (умный, быстрый)', hint: 'игра сама выбирает лучший живой канал',
+      available: true, detail: textProvidersSummary().join(', ') }
+  ];
+  if (GEN_KEY_ACTIVE) {
+    out.push({
+      id: 'gen',
+      title: 'Шлюз: ' + GEN_TEXT_MODELS.length + ' моделей',
+      hint: 'Mistral Large, GLM, Qwen — самые умные',
+      available: genReady(),
+      detail: genReady() ? 'готов' : (genKeyDeadFresh() ? 'у ключа нет баланса' : 'ключ отдыхает')
+    });
+  }
+  if (process.env.GROQ_API_KEY) out.push({ id: 'groq', title: 'Groq', hint: 'Llama 3.3 70B, очень быстрый', available: true, detail: 'ключ задан' });
+  if (process.env.GEMINI_API_KEY) out.push({ id: 'gemini', title: 'Gemini', hint: 'Google, щедрая бесплатная квота', available: true, detail: 'ключ задан' });
+  if (process.env.OPENROUTER_API_KEY) out.push({ id: 'openrouter', title: 'OpenRouter', hint: 'бесплатные маршруты :free', available: true, detail: 'ключ задан' });
+  if (process.env.OPENAI_API_KEY) out.push({ id: 'openai', title: 'OpenAI', hint: 'GPT-4o mini', available: true, detail: 'ключ задан' });
+  for (const extra of customProviders()) {
+    out.push({ id: extra.id, title: extra.title, hint: extra.hint, available: true, detail: 'свой канал' });
+  }
+  if (POLLINATIONS_KEY) out.push({ id: 'pollinations-key', title: 'Pollinations (ключ)', hint: 'запасной канал игры', available: true, detail: 'вшитый ключ' });
+  out.push({ id: 'pollinations-anon', title: 'Pollinations (без ключа)', hint: 'всегда доступен, отвечает медленно', available: true, detail: 'анонимно' });
+  out.push({ id: 'local', title: 'Встроенный мастер', hint: 'без сети: ведёт игру сама игра, мгновенно', available: true, detail: 'память и вехи кампании' });
+  return out;
+}
+
+/**
+ * Свои каналы из окружения: LLM_BASE_1/LLM_KEY_1/LLM_MODEL_1 (и до 3 штук).
+ * Так можно подключить любой OpenAI-совместимый сервис — включая бесплатные
+ * (LLM7, OVH, Ollama рядом, корпоративный шлюз) — без правки кода.
+ */
+function customProviders() {
+  const out = [];
+  for (let i = 1; i <= 3; i++) {
+    const base = process.env['LLM_BASE_' + i];
+    if (!base) continue;
+    out.push({
+      id: 'custom' + i,
+      title: process.env['LLM_TITLE_' + i] || ('Свой канал ' + i),
+      hint: process.env['LLM_HINT_' + i] || 'OpenAI-совместимый сервис',
+      url: base.replace(/\/$/, '') + '/chat/completions',
+      key: process.env['LLM_KEY_' + i] || 'none',
+      model: process.env['LLM_MODEL_' + i] || 'auto:free'
+    });
+  }
+  return out;
+}
+
 /** Какие каналы есть — клиенту показываем списком. */
 function textProvidersSummary() {
   const out = [];
+  if (genReady()) out.push(genKeyDeadFresh() ? 'gen:без баланса, пробуем' : 'gen:' + GEN_TEXT_MODELS.length + 'моделей');
+  else if (GEN_KEY_ACTIVE) out.push(genKeyDeadFresh() ? 'gen:без баланса (ключ отдыхает)' : 'gen:ключ отдыхает');
   if (process.env.GROQ_API_KEY) out.push('groq');
   if (process.env.GEMINI_API_KEY) out.push('gemini');
   if (process.env.OPENROUTER_API_KEY) out.push('openrouter');
@@ -342,33 +614,42 @@ const PROVIDERS = [
     }
   },
   {
-    // Оба канала Pollinations запускаем параллельно: какой ответит первым, тот и ведёт игру.
+    // Шлюз gen.pollinations.ai: умные модели (Mistral Large 3, GLM-5.3, Qwen 3.8).
+    // Он идёт первым — мастер должен быть толковым, а не «на сдачу».
+    name: 'gen',
+    enabled: () => genReady(),
+    async run(messages, budgetMs, kind) {
+      const res = await genChatRotating(messages, { budgetMs: Math.max(8000, Math.min(32000, budgetMs || 26000)), kind });
+      return res.text;
+    }
+  },
+  {
+    // Старый канал Pollinations: остаётся запасным — если шлюз недоступен, игра не встанет.
     // Сервис часто отвечает 429/502 — поэтому ещё и повторяем запрос.
     name: 'pollinations',
     enabled: () => true,
     async run(messages, budgetMs) {
-      const round = (key, timeout) => pollinationsChat(messages, key, timeout);
       const started = Date.now();
       const budget = Math.max(6000, Math.min(32000, Number(budgetMs) || 32000));
       const left = () => budget - (Date.now() - started);      // сервер отвечает раньше, чем устанет клиент
-      // волна 1: ключевой канал, не спеша — большие промпты обрабатываются долго
-      try {
-        return await round(POLLINATIONS_KEY, Math.min(26000, left()));
-      } catch (err) { /* 429/502 — пробуем дальше */ }
-      // волна 2: оба канала наперегонки
-      if (left() > 4000) {
-        try {
-          return await firstGood([round(POLLINATIONS_KEY, Math.min(16000, left())), round(null, Math.min(8000, left()))]);
-        } catch (err2) { /* лимит частоты: ждём и пробуем ещё */ }
-      }
-      // волны 3-4: лимит частоты обычно отпускает через несколько секунд
+      // Каналы строго по очереди: два одновременных запроса Pollinations
+      // гарантированно получают «Queue full». Ключевой канал — основной,
+      // анонимный — запасной, он часто разгружен.
+      const attempts = POLLINATIONS_KEY ? [POLLINATIONS_KEY, null] : [null];
       let lastErr = new Error('HTTP 429');
-      for (const wait of [2500, 5000]) {
-        if (left() < 6000) break;
-        await sleep(wait);
-        try {
-          return await firstGood([round(POLLINATIONS_KEY, Math.min(12000, left())), round(null, Math.min(7000, left()))]);
-        } catch (err3) { lastErr = err3; }
+      for (const key of attempts) {
+        for (let wave = 0; wave < 2; wave++) {
+          const timeout = Math.max(6000, Math.min(22000, left()));
+          if (timeout < 6000) break;
+          try {
+            return await pollinationsChat(messages, key, timeout);
+          } catch (err) {
+            lastErr = err;
+            if (left() < 8000) break;
+            await sleep(1200);
+          }
+        }
+        if (left() < 8000) break;
       }
       throw lastErr;
     }
@@ -390,6 +671,12 @@ async function openAiChat({ url, key, model, messages }) {
 }
 
 async function pollinationsChat(messages, key, timeoutMs) {
+  return queuePollinations('text', () => withQueueRetry(
+    leftMs => pollinationsChatRaw(messages, key, Math.max(6000, Math.min(timeoutMs, leftMs))),
+    timeoutMs, key ? 'chat-key' : 'chat-anon'));
+}
+
+async function pollinationsChatRaw(messages, key, timeoutMs) {
   const headers = { 'content-type': 'application/json' };
   if (key) headers['Authorization'] = 'Bearer ' + key;
   const res = await fetchWithTimeout('https://text.pollinations.ai/openai', {
@@ -409,6 +696,94 @@ async function pollinationsChat(messages, key, timeoutMs) {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------------------------------------------------------- */
+/* Шлюз gen.pollinations.ai                                   */
+/* ---------------------------------------------------------- */
+
+/** Один запрос к шлюзу. stream=true — читаем SSE и отдаём куски в onDelta. */
+async function genChat(messages, opts) {
+  const o = opts || {};
+  const body = {
+    model: o.model,
+    messages,
+    temperature: typeof o.temperature === 'number' ? o.temperature : 0.85
+  };
+  if (o.maxTokens) body.max_tokens = o.maxTokens;
+  if (o.stream) body.stream = true;
+  const res = await fetchWithTimeout(GEN_BASE + '/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + GEN_KEY_ACTIVE },
+    body: JSON.stringify(body)
+  }, o.timeoutMs || 30000);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.text()).replace(/\s+/g, ' ').slice(0, 140); } catch (e) { /* noop */ }
+    if (res.status === 402 || looksLikeNoBalance(detail)) genKeyRest('HTTP ' + res.status);
+    throw new Error('HTTP ' + res.status + (detail ? ' ' + detail : ''));
+  }
+  if (!o.stream || !res.body || typeof res.body.getReader !== 'function') {
+    const data = await res.json();
+    const text = data && data.choices && data.choices[0] &&
+      (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+    if (!text) throw new Error('пустой ответ модели');
+    if (looksLikeNoBalance(text)) { genKeyRest('модель вернула «нет баланса»'); throw new Error('шлюз: нет баланса ключа'); }
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const obj = JSON.parse(payload);
+        const delta = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+        if (delta) { full += delta; if (o.onDelta) o.onDelta(delta); }
+      } catch (e) { /* мусорная строка потока — пропускаем */ }
+    }
+  }
+  if (!full) throw new Error('пустой поток модели');
+  if (looksLikeNoBalance(full)) { genKeyRest('поток вернул «нет баланса»'); throw new Error('шлюз: нет баланса ключа'); }
+  return full;
+}
+
+/**
+ * Мастер от шлюза: перебираем модели по кругу, у каждой свой минутный лимит.
+ * Успех и неудача одинаково «остужают» модель, чтобы не биться в закрытую дверь.
+ */
+async function genChatRotating(messages, opts) {
+  const o = opts || {};
+  const deadline = Date.now() + (o.budgetMs || 30000);
+  let lastErr = null;
+  // Набору героя нужен быстрый ответ: короткая попытка и переход к следующей модели.
+  const perAttempt = o.kind === 'hero' ? 12000 : 22000;
+  for (const model of genModelOrder(o.kind)) {
+    if (o.stream && GEN_STREAM_SKIP.test(model)) continue;
+    const left = deadline - Date.now();
+    if (left < 5000) break;
+    try {
+      // Не даём одной модели съесть весь бюджет: если она «задумалась», быстрее
+      // перейдём к следующей — у нас их пять.
+      const text = await genChat(messages, Object.assign({}, o, { model, timeoutMs: Math.min(o.timeoutMs || perAttempt, left) }));
+      genMarkUsed(model);
+      return { text, model };
+    } catch (err) {
+      genMarkUsed(model);
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('шлюз: нет доступной модели');
+}
 
 /** Первый осмысленный ответ из нескольких параллельных попыток. */
 function firstGood(promises) {
@@ -442,14 +817,40 @@ function firstGood(promises) {
  * Прогон по всем провайдерам: возвращает первый осмысленный ответ.
  * Бюджет времени ограничен, чтобы клиент не ждал дольше своего таймаута.
  */
-async function askMaster(messages, budgetMs) {
+function providerList(want) {
+  // Выбор игрока: 'auto' — обычный порядок, иначе только выбранный канал.
+  if (!want || want === 'auto') return PROVIDERS;
+  if (want === 'pollinations-anon') {
+    return PROVIDERS.filter(p => p.name === 'pollinations').map(p => Object.assign({}, p, {
+      name: 'pollinations-anon',
+      run: (messages, budget, kind) => pollinationsChat(messages, null, Math.max(6000, Math.min(22000, budget || 20000)))
+    }));
+  }
+  if (want === 'pollinations-key') {
+    return POLLINATIONS_KEY ? PROVIDERS.filter(p => p.name === 'pollinations').map(p => Object.assign({}, p, {
+      name: 'pollinations-key',
+      run: (messages, budget) => pollinationsChat(messages, POLLINATIONS_KEY, Math.max(6000, Math.min(22000, budget || 20000)))
+    })) : [];
+  }
+  const custom = customProviders().find(c => c.id === want);
+  if (custom) {
+    return [{
+      name: custom.id,
+      enabled: () => true,
+      run: messages => openAiChat({ url: custom.url, key: custom.key, model: custom.model, messages })
+    }];
+  }
+  return PROVIDERS.filter(p => p.name === want);
+}
+
+async function askMaster(messages, budgetMs, kind, want) {
   const tried = [];
   const deadline = Date.now() + (budgetMs || 24000);
-  for (const p of PROVIDERS) {
+  for (const p of providerList(want)) {
     if (!p.enabled()) continue;
     if (Date.now() > deadline) { tried.push({ provider: p.name, ok: false, reason: 'budget' }); continue; }
     try {
-      const text = await p.run(messages, budgetMs);
+      const text = await p.run(messages, budgetMs, kind);
       if (isJunk(text)) { tried.push({ provider: p.name, ok: false, reason: 'junk' }); continue; }
       return { ok: true, text, provider: p.name, tried };
     } catch (err) {
@@ -460,10 +861,308 @@ async function askMaster(messages, budgetMs) {
 }
 
 /* ---------------------------------------------------------- */
+/* Озвучка                                                    */
+/* ---------------------------------------------------------- */
+/**
+ * Облачные сейвы: короткий код вместо файла. Хранится рядом с сервером (data/),
+ * чтобы «продолжить на другом телефоне» работало без настройки базы. Диск на
+ * бесплатных хостингах эфемерный — поэтому рядом всегда есть файл-экспорт.
+ */
+const CLOUD_DIR = path.join(ROOT, 'data');
+const CLOUD_FILE = path.join(CLOUD_DIR, 'cloud-saves.json');
+const CLOUD_TTL_MS = Number(process.env.CLOUD_TTL_MS || 30 * 24 * 60 * 60 * 1000);   // 30 дней
+const CLOUD_MAX = Number(process.env.CLOUD_MAX || 500);
+const CLOUD_ALPHABET = 'ACDEFGHJKLMNPQRTUVWXYZ2346789';      // без похожих букв и цифр
+
+function cloudLoad() {
+  try { return JSON.parse(fs.readFileSync(CLOUD_FILE, 'utf8')) || {}; } catch (e) { return {}; }
+}
+function cloudSaveAll(all) {
+  const now = Date.now();
+  const entries = Object.entries(all)
+    .filter(([, v]) => v && (now - (v.at || 0)) < CLOUD_TTL_MS)
+    .sort((a, b) => (b[1].at || 0) - (a[1].at || 0))
+    .slice(0, CLOUD_MAX);
+  const fresh = {};
+  entries.forEach(([k, v]) => { fresh[k] = v; });
+  try {
+    fs.mkdirSync(CLOUD_DIR, { recursive: true });
+    fs.writeFileSync(CLOUD_FILE, JSON.stringify(fresh));
+  } catch (e) { /* диск может быть только для чтения — тогда сейвы живут до перезапуска */ }
+  CLOUD_MEM = fresh;
+}
+let CLOUD_MEM = null;
+function cloudAll() { if (!CLOUD_MEM) CLOUD_MEM = cloudLoad(); return CLOUD_MEM; }
+function cloudCode() {
+  let code = '';
+  for (let i = 0; i < 6; i++) code += CLOUD_ALPHABET[Math.floor(Math.random() * CLOUD_ALPHABET.length)];
+  return code;
+}
+function cloudPut(code, data, settings, meta) {
+  const all = cloudAll();
+  let key = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  if (key && !all[key]) key = '';                 // чужой код не перезаписываем: только свой
+  if (!key) { do { key = cloudCode(); } while (all[key]); }
+  all[key] = { at: Date.now(), data, settings: settings || null, meta: meta || null, v: (all[key] && all[key].v || 0) + 1 };
+  cloudSaveAll(all);
+  return key;
+}
+function cloudGet(code) {
+  const all = cloudAll();
+  const hit = all[String(code || '').toUpperCase()];
+  if (!hit) return null;
+  if (Date.now() - (hit.at || 0) > CLOUD_TTL_MS) { delete all[code.toUpperCase()]; cloudSaveAll(all); return null; }
+  return hit;
+}
+
+const TTS_CACHE = new Map();           // text+voice → {body, ts}
+const TTS_CACHE_TTL = 1000 * 60 * 30;
+const TTS_CACHE_MAX = 60;
+
+/** Нейросетевой синтез речи (Fish Audio S2.1 Pro через шлюз). */
+/**
+ * Нейронные голоса Microsoft Edge — без ключа и без регистрации. Качество заметно
+ * выше «переводчика»: живая интонация, а главное — управляемый тон: prosody
+ * (rate/pitch) даёт разную подачу для мрачной сцены, бодрой победы или шёпота.
+ * Токен Sec-MS-GEC меняется каждые 5 минут: SHA256 от «тиков» Windows и токена клиента.
+ */
+const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+const EDGE_TTS_VERSION = process.env.EDGE_TTS_VERSION || '1-143.0.3650.75';
+const EDGE_TTS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0';
+/*
+   Русских голосов у Microsoft два (Svetlana и Dmitry), но мультиязычные голоса
+   из новой линейки читают по-русски не хуже, а звучат живее: у них больше
+   естественных интонаций. Даём четыре варианта — игрок выбирает на слух.
+*/
+const EDGE_TTS_VOICES = {
+  female: 'ru-RU-SvetlanaNeural',
+  male: 'ru-RU-DmitryNeural',
+  ava: 'en-US-AvaMultilingualNeural',
+  andrew: 'en-US-AndrewMultilingualNeural',
+  emma: 'en-US-EmmaMultilingualNeural'
+};
+function edgeSecMsGec() {
+  const WIN_EPOCH = 11644473600;                        // секунды между 1601-01-01 и 1970-01-01
+  let ticks = Math.floor(Date.now() / 1000) + WIN_EPOCH;
+  ticks -= ticks % 300;                                 // Microsoft ждёт шаг в 5 минут
+  const str = String(BigInt(ticks) * 10000000n);        // 100-нс интервалы (BigInt: 1.7e19 не влезает в double)
+  return crypto.createHash('sha256').update(str + EDGE_TTS_TOKEN).digest('hex').toUpperCase();
+}
+function edgeSocket() {
+  try { return require('ws'); } catch (e) { /* на Node 22+ WebSocket есть из коробки */ }
+  return typeof WebSocket !== 'undefined' ? WebSocket : null;
+}
+function edgeSpeech(text, opts) {
+  const o = opts || {};
+  const WS = edgeSocket();
+  if (!WS) return Promise.reject(new Error('нет websocket-клиента'));
+  const voice = o.voice || EDGE_TTS_VOICES.female;
+  const signed = v => (v >= 0 ? '+' : '') + v;
+  const rate = signed(typeof o.rate === 'number' ? o.rate : 0) + '%';
+  const pitch = signed(typeof o.pitch === 'number' ? o.pitch : 0) + 'Hz';
+  const rid = () => crypto.randomUUID().replace(/-/g, '');
+  const url = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1' +
+    '?TrustedClientToken=' + EDGE_TTS_TOKEN + '&ConnectionId=' + rid() +
+    '&Sec-MS-GEC=' + edgeSecMsGec() + '&Sec-MS-GEC-Version=' + EDGE_TTS_VERSION;
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    let ws;
+    try {
+      ws = new WS(url, { headers: {
+        'Origin': 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold',
+        'User-Agent': EDGE_TTS_UA,
+        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+        'Pragma': 'no-cache',
+        'Cache-Control': 'no-cache',
+        'Sec-WebSocket-Version': '13'
+      } });
+    } catch (err) { return reject(err); }
+    const chunks = [];
+    const timer = setTimeout(() => { try { ws.terminate(); } catch (e) { /* noop */ } reject(new Error('таймаут 25с')); }, 25000);
+    const esc = t => String(t).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    ws.on('open', () => {
+      const ts = new Date().toISOString();
+      ws.send('X-Timestamp:' + ts + '\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n' +
+        JSON.stringify({ context: { synthesis: { audio: {
+          metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false },
+          outputFormat: o.format || 'audio-24khz-96kbitrate-mono-mp3' } } } }));
+      const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='ru-RU'>" +
+        "<voice name='" + voice + "'><prosody rate='" + rate + "' pitch='" + pitch + "'>" + esc(text) +
+        "</prosody></voice></speak>";
+      ws.send('X-RequestId:' + rid() + '\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:' + ts +
+        '\r\nPath:ssml\r\n\r\n' + ssml);
+    });
+    ws.on('message', (data, isBinary) => {
+      if (!isBinary) {
+        const line = String(data);
+        if (line.includes('Path:turn.end')) {
+          clearTimeout(timer);
+          try { ws.close(); } catch (e) { /* noop */ }
+          const body = Buffer.concat(chunks);
+          return body.length >= 512 ? resolve({ body, source: 'edge:' + voice, ms: Date.now() - started })
+            : reject(new Error('пустая озвучка Edge'));
+        }
+        if (/event: error|"error"/.test(line) && /Path:response/.test(line)) {
+          clearTimeout(timer);
+          try { ws.terminate(); } catch (e) { /* noop */ }
+          reject(new Error('Edge TTS: ' + line.replace(/\s+/g, ' ').slice(0, 120)));
+        }
+        return;
+      }
+      const buf = Buffer.from(data);
+      const len = buf.readUInt16BE(0);
+      if (/Path:\s*audio/.test(buf.slice(2, 2 + len).toString())) chunks.push(buf.slice(2 + len));
+    });
+    ws.on('error', err => { clearTimeout(timer); reject(err); });
+    ws.on('close', code => { clearTimeout(timer); if (!chunks.length) reject(new Error('Edge TTS закрыт (' + code + ')')); });
+  });
+}
+
+/** Подача голоса по тону истории и по тому, что случилось в этот ход. */
+const VOICE_MOODS = {
+  book:    { rate: -2, pitch: 0,  note: 'ровно, как чтец' },
+  dark:    { rate: -8, pitch: -6, note: 'глухо и медленно' },
+  heroic:  { rate: 7,  pitch: 4,  note: 'с подъёмом' },
+  ironic:  { rate: 6,  pitch: 3,  note: 'с усмешкой' },
+  soft:    { rate: -6, pitch: 2,  note: 'мягко' },
+  hard:    { rate: 2,  pitch: -3, note: 'жёстко, без нежностей' },
+  hurt:    { rate: -7, pitch: -8, note: 'сбитое дыхание' },
+  triumph: { rate: 6,  pitch: 6,  note: 'победа' },
+  dread:   { rate: -12, pitch: -9, note: 'страшно, почти шёпотом' },
+  tense:   { rate: 4,  pitch: 2,  note: 'напряжение' }
+};
+function voiceMood(text) {
+  const raw = String(text || 'book').split('+').map(x => x.trim().toLowerCase()).filter(Boolean);
+  let rate = 0, pitch = 0;
+  const used = [];
+  raw.forEach(name => {
+    const m = VOICE_MOODS[name];
+    if (!m) return;
+    rate += m.rate; pitch += m.pitch; used.push(name);
+  });
+  if (!used.length) return { rate: 0, pitch: 0, mood: 'book' };
+  return {
+    rate: Math.max(-40, Math.min(40, Math.round(rate / used.length * 1.6))),
+    pitch: Math.max(-25, Math.min(25, Math.round(pitch / used.length * 1.5))),
+    mood: used.join('+')
+  };
+}
+
+async function synthesize(text, voice, mood, gender) {
+  const m = voiceMood(mood);
+  const key = [voice || GEN_TTS_VOICE, m.mood, m.rate, m.pitch, gender || 'f', text].join('|');
+  const hit = TTS_CACHE.get(key);
+  if (hit && Date.now() - hit.ts < TTS_CACHE_TTL) return { body: hit.body, cached: true, source: hit.source || 'cache' };
+  if (!genReady()) {
+    // ключ шлюза отдыхает: сначала нейронные голоса Edge, потом «переводчик»
+    try {
+      const voiceName = EDGE_TTS_VOICES[gender] || (gender === 'm' ? EDGE_TTS_VOICES.male : EDGE_TTS_VOICES.female);
+      const r = await edgeSpeech(text, { voice: voiceName, rate: m.rate, pitch: m.pitch });
+      TTS_CACHE.set(key, { body: r.body, ts: Date.now(), source: r.source });
+      return { body: r.body, cached: false, source: r.source };
+    } catch (err) {
+      console.log('[tts] Edge не вышло:', String(err && err.message || err).slice(0, 120));
+      return googleSpeech(text, key);
+    }
+  }
+  const res = await fetchWithTimeout(GEN_BASE + '/v1/audio/speech', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + GEN_KEY_ACTIVE },
+    body: JSON.stringify({
+      model: GEN_TTS_MODEL,
+      input: text,
+      voice: voice || GEN_TTS_VOICE,
+      response_format: 'mp3'
+    })
+  }, 45000);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (e) { /* noop */ }
+    throw new Error('HTTP ' + res.status + (detail ? ' ' + detail : ''));
+  }
+  const body = Buffer.from(await res.arrayBuffer());
+  if (!body.length) throw new Error('пустая озвучка');
+  TTS_CACHE.set(key, { body, ts: Date.now() });
+  if (TTS_CACHE.size > TTS_CACHE_MAX) {
+    const oldest = Array.from(TTS_CACHE.keys()).sort((a, b) => TTS_CACHE.get(a).ts - TTS_CACHE.get(b).ts);
+    oldest.slice(0, TTS_CACHE.size - TTS_CACHE_MAX).forEach(k => TTS_CACHE.delete(k));
+  }
+  return { body, cached: false };
+}
+
+/**
+ * Резервный голос без ключа: Google Translate TTS, один спокойный женский голос.
+ * Звучит ровнее, чем голос устройства, и отвечает за десятые доли секунды.
+ */
+async function googleSpeech(text, cacheKey) {
+  const chunk = String(text).replace(/\s+/g, ' ').trim().slice(0, 200);
+  const url = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q=' + encodeURIComponent(chunk);
+  const res = await fetchWithTimeout(url, {
+    headers: { referer: 'https://translate.google.com/', 'user-agent': 'Mozilla/5.0' }
+  }, 15000);
+  if (!res.ok) throw new Error('резервная озвучка: HTTP ' + res.status);
+  const body = Buffer.from(await res.arrayBuffer());
+  if (!body.length) throw new Error('резервная озвучка пуста');
+  if (cacheKey) {
+    TTS_CACHE.set(cacheKey, { body, ts: Date.now(), source: 'google:резерв' });
+    if (TTS_CACHE.size > TTS_CACHE_MAX) {
+      const oldest = Array.from(TTS_CACHE.keys()).sort((a, b) => TTS_CACHE.get(a).ts - TTS_CACHE.get(b).ts);
+      oldest.slice(0, TTS_CACHE.size - TTS_CACHE_MAX).forEach(k => TTS_CACHE.delete(k));
+    }
+  }
+  return { body, cached: false, fallback: true, source: 'google:резерв' };
+}
+
+/* ---------------------------------------------------------- */
 /* Картинки                                                   */
 /* ---------------------------------------------------------- */
 const IMAGE_CACHE = new Map(); // url → {type, body, ts}
 const IMAGE_CACHE_TTL = 1000 * 60 * 60;
+/** Сколько всего ждём кадр: дальше игра показывает локальный фон и идёт дальше. */
+const IMAGE_DEADLINE_MS = Number(process.env.IMAGE_DEADLINE_MS || 16000);
+
+/**
+ * Список генераторов картинок для настроек: игрок выбирает, чем рисовать.
+ * Старый sana — самый быстрый (2–3 с), открытые Space'ы с FLUX — качественнее,
+ * «локальный фон» — мгновенно и без сети.
+ */
+function imageCandidateNames() {
+  return HF_SPACES.map(x => x.name);
+}
+function imageChoices() {
+  const out = [
+    { id: 'auto', title: 'Авто (быстро)', hint: 'гонка генераторов, побеждает первый', available: true, detail: imageCandidateNames().join(', ') },
+    { id: 'sana', title: 'Старый sana', hint: 'самый быстрый: 2–3 секунды', available: true, detail: 'image.pollinations.ai' }
+  ];
+  HF_SPACES.forEach(space => {
+    out.push({ id: space.name, title: space.name.replace(/^hf:/, '') + ' (HF)', hint: 'открытый Space, качество выше', available: true, detail: space.base.replace('https://', '').split('.')[0] });
+  });
+  out.push({ id: 'local', title: 'Только локальный фон', hint: 'мгновенно, без сети — рисует сама игра', available: true, detail: 'процедурный фон по тексту' });
+  return out;
+}
+
+/**
+ * Бывает, что разом отказывают все безключевые генераторы: у Space'ов кончается
+ * анонимная квота, старый генератор перестаёт отвечать. Тогда каждый кадр — это
+ * шестнадцать секунд ожидания впустую. Считаем отказы подряд и объявляем тишину:
+ * фон игрок получает локально, сразу, а генераторы пробуем позже.
+ */
+const IMAGE_REST_MS = Number(process.env.IMAGE_REST_MS || 10 * 60 * 1000);
+const IMAGE_REST_AFTER = Number(process.env.IMAGE_REST_AFTER || 2);   // игрок не должен ждать впустую три раза подряд
+let IMAGE_FAIL_STREAK = 0;
+let IMAGE_RESTING_UNTIL = 0;
+function imageResting() { return Date.now() < IMAGE_RESTING_UNTIL; }
+function imageRestLeft() { return Math.max(0, IMAGE_RESTING_UNTIL - Date.now()); }
+function imageRestTick(ok) {
+  if (ok) { IMAGE_FAIL_STREAK = 0; IMAGE_RESTING_UNTIL = 0; return; }
+  IMAGE_FAIL_STREAK++;
+  if (IMAGE_FAIL_STREAK >= IMAGE_REST_AFTER && !imageResting()) {
+    IMAGE_RESTING_UNTIL = Date.now() + IMAGE_REST_MS;
+    console.log('[image] генераторы молчат ' + IMAGE_FAIL_STREAK + ' кадра подряд — пауза ' +
+      Math.round(IMAGE_REST_MS / 60000) + ' мин, фон рисуем локально');
+  }
+}
 
 /**
  * Кандидаты на картинку. Первые два запускаются параллельно (гонка),
@@ -474,30 +1173,136 @@ const IMAGE_CACHE_TTL = 1000 * 60 * 60;
  * со сценой, а игрок ждёт именно свой кадр. Пока генератор думает, игра
  * показывает процедурный фон по тексту сцены — он всегда в тему.
  */
-function imageCandidates(prompt, seed, w, h) {
+function imageCandidates(prompt, seed, w, h, want) {
   const q = encodeURIComponent(prompt);
-  const race = [
-    {
-      name: 'pollinations', ms: 30000,
-      url: 'https://image.pollinations.ai/prompt/' + q + '?width=' + w + '&height=' + h +
-        '&model=sana&nologo=true&seed=' + seed + (POLLINATIONS_KEY ? '&token=' + encodeURIComponent(POLLINATIONS_KEY) : '')
-    }
-  ];
-  if (POLLINATIONS_KEY) {
-    race.push({
-      name: 'pollinations-anon', ms: 30000,
-      url: 'https://image.pollinations.ai/prompt/' + q + '?width=' + w + '&height=' + h +
-        '&model=sana&nologo=true&seed=' + seed
+  const race = [];
+  // Модели шлюза: у каждой свой upstream, поэтому запускаем их гонкой —
+  // кто ответит первым, тот и показываем. Таймаут короткий: кадр не должен
+  // держать игрока, пока генератор «думает».
+  if (genReady()) {
+    const safeW = Math.max(256, Math.round(w / 8) * 8);
+    const safeH = Math.max(256, Math.round(h / 8) * 8);
+    genImageOrder().forEach(model => {
+      race.push({
+        name: 'gen:' + String(model).replace(/^community\//, '').replace('NamanSoni78/', 'n/').replace('tongyi-mai/', 't/'),
+        model,
+        ms: 22000,
+        headers: { 'Authorization': 'Bearer ' + GEN_KEY_ACTIVE, 'Accept': 'image/*' },
+        url: GEN_BASE + '/image/' + q + '?model=' + encodeURIComponent(model) +
+          '&width=' + safeW + '&height=' + safeH + '&seed=' + seed
+      });
     });
   }
-  return { race, fallback: [] };
+  // Безключевые Space'ы: ключ им не нужен, поэтому они спасают, когда баланс
+  // шлюза кончился. Рисуют ~5–9 секунд и без водяного знака.
+  HF_SPACES.forEach(space => {
+    race.push({
+      name: space.name,
+      ms: space.ms,
+      run: () => fetchGradioSpace(space, prompt, seed, w, h)
+    });
+  });
+  // Старый генератор (sana) — быстрый (2–3 с), но с водяным знаком и общим лимитом на IP.
+  const legacy = (name, token) => ({
+    name, ms: 18000,
+    url: 'https://image.pollinations.ai/prompt/' + q + '?width=' + w + '&height=' + h +
+      '&model=sana&nologo=true&seed=' + seed + (token ? '&token=' + encodeURIComponent(token) : '')
+  });
+  // Когда ключ отдыхает, быстрый безключевой генератор должен идти первым:
+  // порядок «сначала лучший, потом запасной» рассчитан на живой ключ.
+  if (!genReady()) race.unshift(legacy('pollinations-anon', null));
+  else race.push(legacy('pollinations-anon', null));
+  // Выбор игрока: оставляем только его генератор (или ставим выбранный первым).
+  if (want && want !== 'auto') {
+    const named = race.filter(c => c.name === want);
+    if (named.length) return { race: named, fallback: [] };
+    if (want === 'sana') {
+      const sana = race.filter(c => /pollinations-anon|pollinations-key/.test(c.name));
+      if (sana.length) return { race: sana, fallback: [] };
+    }
+    if (want === 'local') return { race: [], fallback: [] };   // игрок попросил рисовать локально
+  }
+  return { race: race, fallback: [] };
+}
+
+/* ---------------------------------------------------------- */
+/* Картинки без ключа: открытые Space'ы на Hugging Face        */
+/* ---------------------------------------------------------- */
+/**
+ * У каждого Space своя бесплатная квота, поэтому их несколько: если один
+ * занят чужими запросами, кадр возьмёт следующий. Ключ им не нужен.
+ */
+const HF_SPACES = [
+  {
+    name: 'hf:flux-merged',
+    base: 'https://multimodalart-flux-1-merged.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 3.5, 4]
+  },
+  {
+    name: 'hf:flux-1-schnell',
+    base: 'https://black-forest-labs-flux-1-schnell.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 4]
+  },
+  {
+    name: 'hf:sd-3.5-large',
+    base: 'https://stabilityai-stable-diffusion-3-5-large.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, 'blurry, text, watermark', seed, false,
+      Math.max(512, w), Math.max(512, h), 4.5, 12]
+  }
+].map(x => Object.assign(x, { ms: 45000 }));
+
+/** Анонимный вызов Space: create → опрос события → скачивание картинки. */
+async function fetchGradioSpace(space, prompt, seed, w, h) {
+  try {
+    const start = await fetchWithTimeout(space.base + '/call/infer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ data: space.build(String(prompt).replace(/\s+/g, ' ').slice(0, 380), seed, w, h) })
+    }, 20000);
+    if (!start.ok) return null;
+    const id = (await start.json().catch(() => ({}))).event_id;
+    if (!id) return null;
+    const deadline = Date.now() + (space.ms || 45000) - 8000;
+    while (Date.now() < deadline) {
+      const step = await fetchWithTimeout(space.base + '/call/infer/' + id, {}, 12000);
+      const text = await step.text().catch(() => '');
+      const url = (text.match(/"(https?:\/\/[^"]+?\.(?:webp|png|jpe?g)[^"]*)"/) || [])[1];
+      if (url) {
+        const img = await fetchWithTimeout(url, { redirect: 'follow' }, 20000);
+        if (!img.ok) return null;
+        const type = img.headers.get('content-type') || 'image/webp';
+        const body = Buffer.from(await img.arrayBuffer());
+        if (type.indexOf('image/') !== 0 || body.length < 512) return null;
+        return { type, body, source: space.name };
+      }
+      if (/event: error/.test(text)) return null;   // квота Space кончилась — пробуем следующий
+      await sleep(900);
+    }
+    return null;
+  } catch (err) { return null; }
 }
 
 /** Одна попытка скачать картинку. Возвращает {type, body} или null. */
 async function fetchImage(cand) {
   try {
-    const r = await fetchWithTimeout(cand.url, { redirect: 'follow' }, cand.ms);
-    if (!r.ok) return null;
+    // Кандидат со своим способом отрисовки (открытый Space с FLUX) — свой вызов.
+    if (typeof cand.run === 'function') return await cand.run();
+    // Старый генератор живёт на image.pollinations.ai с лимитом «один запрос в работе»
+    // — его запросы идут через очередь. Модели нового шлюза считают лимиты сами,
+    // поэтому их запускаем напрямую: иначе гонка превращается в «по очереди».
+    const legacy = /image\.pollinations\.ai/.test(cand.url);
+    const call = () => fetchWithTimeout(cand.url,
+      { redirect: 'follow', headers: cand.headers || undefined }, cand.ms);
+    const r = legacy ? await queuePollinations('image', call) : await call();
+    if (!r.ok) {
+      // «Нет баланса» у моделей шлюза — повод отдохнуть ключу, а не биться в него каждый кадр
+      if (cand.model && (r.status === 402 || r.status === 401)) {
+        let detail = '';
+        try { detail = await r.text(); } catch (e) { /* noop */ }
+        if (r.status === 402 || looksLikeNoBalance(detail)) genKeyRest('картинки: HTTP ' + r.status);
+      }
+      return null;
+    }
     const type = r.headers.get('content-type') || '';
     if (type.indexOf('image/') !== 0) return null;
     const body = Buffer.from(await r.arrayBuffer());
@@ -509,12 +1314,46 @@ async function fetchImage(cand) {
 }
 
 /** Параллельная гонка: побеждает первый, кто отдал валидную картинку. */
-function raceImage(candidates) {
+/**
+ * Гонка генераторов с подстраховкой. Держать три запроса разом накладно: у шлюза
+ * лимит на пользователя, и часть моделей отвечает отказом. Поэтому вторая модель
+ * стартует, только если первая молчит пару секунд, третья — если молчат обе.
+ */
+function raceImage(candidates, hedgeMs) {
+  const hedge = Number(hedgeMs || 0);
+  if (!candidates || !candidates.length) return Promise.resolve(null);
+  if (hedge > 0) {
+    return new Promise(resolve => {
+      let done = false;
+      let started = 0;
+      let finished = 0;
+      const results = [];
+      const launch = () => {
+        if (done || started >= candidates.length) return;
+        const cand = candidates[started++];
+        fetchImage(cand).then(hit => {
+          finished++;
+          if (cand.onSettle) cand.onSettle(!!hit, 0);
+          if (!hit && cand.model) genImageNoteFailure(cand.model);
+          if (done) return;
+          if (hit) { done = true; resolve(hit); return; }
+          if (finished === candidates.length) resolve(null);
+          else launch();
+        });
+        // если ответа нет — запускаем следующую модель, не дожидаясь таймаута
+        setTimeout(() => { if (!done && started === finished + 1) launch(); }, hedge);
+      };
+      launch();
+    });
+  }
   return new Promise(resolve => {
     let done = false;
     let left = candidates.length;
     candidates.forEach(cand => {
+      const c0 = Date.now();
       fetchImage(cand).then(hit => {
+        if (cand.onSettle) cand.onSettle(!!hit, Date.now() - c0);
+        if (!hit && cand.model) genImageNoteFailure(cand.model);
         left--;
         if (done) return;
         if (hit) { done = true; resolve(hit); }
@@ -524,7 +1363,8 @@ function raceImage(candidates) {
   });
 }
 
-async function proxyImage(res, prompt, seed, w, h) {
+async function proxyImage(res, prompt, seed, w, h, source) {
+  const report = [];
   const key = prompt + '|' + seed + '|' + w + 'x' + h;
   const hit = IMAGE_CACHE.get(key);
   if (hit && Date.now() - hit.ts < IMAGE_CACHE_TTL) {
@@ -532,17 +1372,73 @@ async function proxyImage(res, prompt, seed, w, h) {
     res.end(hit.body);
     return;
   }
+  if (source === 'local') {
+    // Игрок выбрал «только локальный фон»: не тратим ни секунды на сеть
+    res.writeHead(204, { 'X-Image-Source': 'local', 'Access-Control-Allow-Origin': '*' });
+    return res.end();
+  }
+  if (imageResting() && (!source || source === 'auto')) {
+    // Все каналы только что отказывали: не держим игрока, он рисует фон локально
+    res.writeHead(503, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Image-Rest': String(Math.round(imageRestLeft() / 1000))
+    });
+    res.end(JSON.stringify({ ok: false, error: 'image generators resting', retryInMs: imageRestLeft() }));
+    return;
+  }
 
-  const { race, fallback } = imageCandidates(prompt, seed, w, h);
+  const { race, fallback } = imageCandidates(prompt, seed, w, h, source);
   const started = Date.now();
-  // сначала гонка основных генераторов, затем запасной фон — он идёт фоном,
-  // чтобы не ждать лишние секунды, если генераторы молчат
-  const fallbackPromise = raceImage(fallback).then(r => r && Object.assign(r, { late: true }));
-  let winner = await raceImage(race);
-  if (!winner) winner = await fallbackPromise;
-  if (!winner) winner = await raceImage(fallback);
+  const track = list => list.map(c => Object.assign({}, c, {
+    ms: c.ms,
+    onSettle: (ok, ms) => report.push(c.name + (ok ? '=' : '×') + ms)
+  }));
+  // Кандидаты идут по очереди с подстраховкой: следующий стартует, если
+  // предыдущий молчит 2,5 с. Запасной канал не дёргаем параллельно — он нужен
+  // только тогда, когда основные молчат.
+  // Игрок не должен ждать генератор дольше пары десятков секунд: за это время
+  // сцена уже дочитана, и честнее показать нарисованный локально фон.
+  const work = (async () => {
+    let w = await raceImage(track(race), 2500);
+    if (!w && fallback.length) w = await raceImage(track(fallback), 2500);
+    if (!w) {
+      // Генераторы промолчали: у каналов лимиты, поэтому пауза и вторая попытка
+      // только теми моделями, что не отказывали только что.
+      await sleep(1200);
+      const ready = race.filter(c => !c.model || genImageCooled(c.model));
+      w = await raceImage(track(ready.length ? ready : race), 2500);
+    }
+    if (!w && fallback.length) w = await raceImage(track(fallback));
+    return w;
+  })();
+  const winner = await Promise.race([work, sleep(IMAGE_DEADLINE_MS).then(() => null)]);
 
-  if (!winner) return sendJson(res, 502, { ok: false, error: 'image providers failed' });
+  if (!winner) {
+    // Генераторы рисуют медленно (30–45 с): игрок ждать не должен. Но бросать
+    // работу бессмысленно — досчитываем кадр в фоне и кладём в кэш, чтобы
+    // следующее возвращение в это место получило картинку мгновенно.
+    work.then(late => {
+      if (!late) return;
+      IMAGE_CACHE.set(key, { type: late.type, body: late.body, ts: Date.now() });
+      if (IMAGE_CACHE.size > 120) IMAGE_CACHE.delete(IMAGE_CACHE.keys().next().value);
+      console.log('[image] поздний кадр в кэш за ' + Math.round((Date.now() - started) / 1000) + ' с:', prompt.slice(0, 48));
+    }).catch(() => {});
+    imageRestTick(false);
+    console.log('[image] не успели за отведённое время:', prompt.slice(0, 60), '|', report.join(', '),
+      imageResting() ? '| пауза' : '');
+    res.writeHead(202, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Image-Pending': '1',
+      'X-Image-Report': report.join(', ').slice(0, 300)
+    });
+    return res.end(JSON.stringify({
+      ok: false, pending: true, error: 'generators are slow', deadlineMs: IMAGE_DEADLINE_MS,
+      retryInMs: Math.max(12000, Math.round(IMAGE_DEADLINE_MS / 2))
+    }));
+  }
+  imageRestTick(true);
 
   IMAGE_CACHE.set(key, { type: winner.type, body: winner.body, ts: Date.now() });
   if (IMAGE_CACHE.size > 120) {
@@ -554,7 +1450,8 @@ async function proxyImage(res, prompt, seed, w, h) {
     'Cache-Control': 'public, max-age=3600',
     'X-Cache': 'miss',
     'X-Image-Source': winner.source + (winner.late ? '-late' : ''),
-    'X-Image-Ms': String(Date.now() - started)
+    'X-Image-Ms': String(Date.now() - started),
+    'X-Image-Report': report.join(', ').slice(0, 300)
   });
   res.end(winner.body);
 }
@@ -594,6 +1491,17 @@ async function handleRequest(req, res) {
       version: VERSION,
       textProviders: textProvidersSummary(),
       hasKeyedProvider: textProvidersSummary().some(p => p !== 'pollinations-anon'),
+      genKeyDead: genKeyDeadFresh() ? { at: GEN_KEY_DEAD.at, why: GEN_KEY_DEAD.why } : null,
+      imageRestMs: imageRestLeft(),
+      masterChoices: masterChoices(),
+      imageChoices: imageChoices(),
+      imageSources: imageCandidateNames(),
+      ttsProviders: [
+        GEN_KEY_ACTIVE ? 'fish(ключ шлюза)' : null,
+        edgeReady() ? 'edge:нейронные голоса' : null,
+        'google:резерв'
+      ].filter(Boolean),
+      pollinationsQueue: pollinationsQueueDepth(),
       imageProxy: true
     });
   }
@@ -610,12 +1518,14 @@ async function handleRequest(req, res) {
     if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use POST' });
     try {
       const payload = JSON.parse((await readBody(req)) || '{}');
+      const kind = typeof payload.kind === 'string' ? payload.kind.slice(0, 16) : '';
       const messages = (Array.isArray(payload.messages) ? payload.messages : [])
         .filter(m => m && typeof m.content === 'string' && (m.role === 'system' || m.role === 'user'))
         .map(m => ({ role: m.role, content: m.content.slice(0, 6000) })).slice(-8);
       if (!messages.length) return sendJson(res, 400, { ok: false, error: 'messages required' });
       const budget = Math.max(6000, Math.min(34000, Number(payload.budgetMs) || 26000));
-      const cacheKey = gmCacheKey(messages, budget);
+      const want = typeof payload.provider === 'string' ? payload.provider.slice(0, 24) : '';
+      const cacheKey = gmCacheKey(messages) + '|' + (want || 'auto');   // бюджет в ключ не входит: тот же вопрос — тот же ответ
 
       res.writeHead(200, {
         'Content-Type': 'application/x-ndjson; charset=utf-8',
@@ -636,18 +1546,66 @@ async function handleRequest(req, res) {
         return finish(cached.text, cached.provider, { cached: true });
       }
 
+      const allow = name => !want || want === 'auto' || want === name;
+      // 1) Шлюз: умная модель и живой поток. Именно он ведёт игру.
+      let sentAny = false;
+      if (genReady() && allow('gen')) {
+        try {
+          const r = await genChatRotating(messages, {
+            kind,
+            budgetMs: Math.min(budget, 32000),
+            maxTokens: TEXT_MAX_TOKENS,
+            stream: true,
+            onDelta: piece => { sentAny = true; send({ delta: piece }); }
+          });
+          if (r.text) {
+            send({ model: r.model });
+            return finish(r.text, 'gen:' + r.model.split('/').pop());
+          }
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'gen-stream-failed', reason });
+          if (sentAny) {
+            // часть текста уже у игрока: обрывать нельзя — отдаём что есть,
+            // а мастер сцены дособерёт остальное
+            return finish('', 'gen-partial', { partial: true });
+          }
+        }
+      }
+
+      // 2) Старый канал Pollinations — запасной. Поток идёт в очереди текста:
+      // бюджет отсчитывается внутри слота, ожидание в очереди время не тратит.
+      const streamKeys = want === 'pollinations-anon' ? [null]
+        : want === 'pollinations-key' ? (POLLINATIONS_KEY ? [POLLINATIONS_KEY] : [])
+        : want ? []                                        // выбран другой канал — Pollinations не трогаем
+        : (POLLINATIONS_KEY ? [POLLINATIONS_KEY, null] : [null]);
       let full = '';
       try {
-        full = await pollinationsStream(messages, POLLINATIONS_KEY, piece => {
-          full += '';                       // full собирает сам поток
-          send({ delta: piece });
-        }, Math.min(budget, 30000));
+        full = await queuePollinations('text', async () => {
+          const started = Date.now();
+          const streamBudget = Math.min(budget, 26000);   // одна попытка мастера: 26 с
+          const left = () => streamBudget - (Date.now() - started);
+          for (const key of streamKeys) {
+            if (left() < 6000) break;
+            try {
+              const text = await withQueueRetry(
+                leftMs => pollinationsStreamRaw(messages, key, piece => send({ delta: piece }),
+                  Math.max(6000, Math.min(29000, leftMs))),
+                Math.max(6000, Math.min(29000, left())));
+              if (text) return text;
+            } catch (err) {
+              send({ note: 'stream-failed', reason: String(err && err.message || err) });
+            }
+          }
+          return '';
+        });
         if (full) return finish(full, 'pollinations-stream');
       } catch (err) {
         send({ note: 'stream-failed', reason: String(err && err.message || err) });
       }
-      // поток не сложился — обычный путь: результат уйдёт одним куском
-      const result = await askMaster(messages, budget);
+      // поток не сложился — обычный путь: результат уйдёт одним куском.
+      // Бюджет короткий: клиент не должен ждать дольше пары десятков секунд.
+      const result = await askMaster(messages, Math.min(budget, 14000), kind, want);
       if (!result.ok) {
         send({ done: true, ok: false, tried: result.tried });
         return res.end();
@@ -672,6 +1630,7 @@ async function handleRequest(req, res) {
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw || '{}');
+      const kind = typeof payload.kind === 'string' ? payload.kind.slice(0, 16) : '';
       const messages = Array.isArray(payload.messages) ? payload.messages.slice(-8) : [];
       if (!messages.length) return sendJson(res, 400, { ok: false, error: 'messages required' });
       const clean = messages
@@ -679,12 +1638,13 @@ async function handleRequest(req, res) {
         .map(m => ({ role: m.role, content: m.content.slice(0, 6000) }));
       // клиент может попросить короткий бюджет (запрос героя): тогда быстрее придёт отказ
       const budget = Math.max(6000, Math.min(34000, Number(payload.budgetMs) || 26000));
-      const cacheKey = gmCacheKey(clean, budget);
+      const cacheKey = gmCacheKey(clean);
       const cached = gmCacheGet(cacheKey);
       if (cached) {
         return sendJson(res, 200, { ok: true, text: cached.text, provider: cached.provider, cached: true });
       }
-      const result = await askMaster(clean, budget);
+      const want = typeof payload.provider === 'string' ? payload.provider.slice(0, 24) : '';
+      const result = await askMaster(clean, budget, kind, want);
       if (res.writableEnded) return;
       if (!result.ok) {
         console.warn('[gm] все провайдеры не ответили:', JSON.stringify(result.tried));
@@ -697,12 +1657,70 @@ async function handleRequest(req, res) {
     }
   }
 
+  /* --- Облачные сейвы по короткому коду --------------------- */
+  if (pathname === '/api/save') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'content-type',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+      });
+      return res.end();
+    }
+    const q = new URL(req.url, 'http://localhost').searchParams;
+    if (req.method === 'GET') {
+      const code = String(q.get('code') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      const found = code ? cloudGet(code) : null;
+      if (!found) return sendJson(res, 404, { ok: false, error: 'код не найден или срок хранения вышел' });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ ok: true, code, savedAt: found.at, data: found.data, settings: found.settings || null }));
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use GET or POST' });
+    try {
+      const payload = JSON.parse((await readBody(req, 900 * 1024)) || '{}');
+      if (!payload || typeof payload !== 'object' || !payload.data) {
+        return sendJson(res, 400, { ok: false, error: 'нужны поля code (можно пусто) и data' });
+      }
+      const size = JSON.stringify(payload.data).length;
+      if (size > 800 * 1024) return sendJson(res, 413, { ok: false, error: 'слишком большое сохранение' });
+      const code = cloudPut(String(payload.code || ''), payload.data, payload.settings, payload.meta);
+      return sendJson(res, 200, { ok: true, code, savedAt: Date.now(), size });
+    } catch (err) {
+      return sendJson(res, 400, { ok: false, error: String(err && err.message || err).slice(0, 160) });
+    }
+  }
+
+  if (pathname === '/api/tts') {
+    const q = new URL(req.url, 'http://localhost').searchParams;
+    const text = (q.get('text') || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+    if (!text) return sendJson(res, 400, { ok: false, error: 'text required' });
+    try {
+      const { body, cached, source } = await synthesize(text, q.get('voice') || GEN_TTS_VOICE,
+        q.get('mood') || 'book', q.get('gender') || 'f');
+      const m = voiceMood(q.get('mood') || 'book');
+      res.writeHead(200, {
+        'Content-Type': 'audio/mpeg',
+        'Content-Length': body.length,
+        'Cache-Control': 'public, max-age=1800',
+        'X-TTS': cached ? 'hit' : 'miss',
+        'X-TTS-Voice': q.get('voice') || GEN_TTS_VOICE,
+        'X-TTS-Source': String(source || '').slice(0, 60),
+        'X-TTS-Mood': m.mood + ' (rate ' + m.rate + ', pitch ' + m.pitch + ')',
+        'Access-Control-Allow-Origin': '*'
+      });
+      return res.end(body);
+    } catch (err) {
+      return sendJson(res, 502, { ok: false, error: String(err && err.message || err).slice(0, 160) });
+    }
+  }
+
   if (pathname === '/api/image') {
     const prompt = (url.searchParams.get('prompt') || 'dark fantasy landscape').slice(0, 400);
     const seed = parseInt(url.searchParams.get('seed') || '1', 10) || 1;
     const w = Math.min(1024, Math.max(128, parseInt(url.searchParams.get('w') || '512', 10) || 512));
     const h = Math.min(1024, Math.max(128, parseInt(url.searchParams.get('h') || '288', 10) || 288));
-    return proxyImage(res, prompt, seed, w, h);
+    const source = (url.searchParams.get('source') || '').slice(0, 24);   // выбор генератора в настройках
+    return proxyImage(res, prompt, seed, w, h, source);
   }
 
   /* --- Статика --- */
@@ -724,5 +1742,20 @@ server.listen(PORT, HOST, () => {
   console.log('Текстовые каналы:', textProvidersSummary().join(', '));
   if (textProvidersSummary().length === 1) {
     console.log('Подсказка: добавьте бесплатный ключ GROQ_API_KEY или GEMINI_API_KEY — ИИ-мастер будет работать стабильно.');
+  }
+  // Один короткий запрос при старте: сразу видно, живёт ли ключ шлюза и есть ли на нём баланс.
+  // Иначе статус «5 моделей» врёт до первого кадра, который упрётся в «нет баланса».
+  if (GEN_KEY_ACTIVE) {
+    setTimeout(() => {
+      genChat([{ role: 'user', content: 'Ответь одним словом: жив?' }], {
+        model: GEN_TEXT_MODELS[0], maxTokens: 8, timeoutMs: 12000, temperature: 0
+      }).then(() => {
+        genWake();
+        console.log('[gen] ключ шлюза отвечает');
+      }).catch(err => {
+        const m = String(err && err.message || err);
+        console.log('[gen] ключ шлюза не ответил: ' + m.replace(/\s+/g, ' ').slice(0, 100));
+      });
+    }, 400);
   }
 });

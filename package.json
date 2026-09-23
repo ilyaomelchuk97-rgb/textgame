@@ -1,6 +1,6 @@
 {
   "name": "dice-tales",
-  "version": "3.0.0",
+  "version": "7.0.0",
   "private": true,
   "description": "Кости и Судьбы — мобильная текстовая RPG с ИИ-мастером, генерацией картинок и бросками кубика",
   "main": "server.js",
@@ -16,10 +16,18 @@
     "smoke:live": "node tools/smoke.js http://localhost:3000/game.html --live",
     "smoke:mock": "node tools/smoke.js http://localhost:8123/index.html",
     "layout": "node tools/layout.js http://localhost:3000/game.html",
-    "check": "node --check src/engine.js && node --check src/backdrop.js && node --check src/api.js && node --check src/app.js && node --test tests/ && node tools/layout.js http://localhost:3000/game.html"
+    "check": "node --check src/engine.js && node --check src/books.js && node --check src/metrics.js && node --check src/backdrop.js && node --check src/api.js && node --check src/app.js && node --check server.js && node --test tests/ && node tools/layout.js http://localhost:3000/game.html",
+    "live": "node tools/smoke.js http://localhost:3000/game.html --live",
+    "long": "node tools/long-run.js http://localhost:3000/game.html --turns=30",
+    "fonts": "node tools/fonts.js http://localhost:3000/game.html",
+    "screens": "node tools/screens.js http://localhost:3000/game.html",
+    "cloud": "node tools/cloud-check.js"
   },
   "devDependencies": {
     "playwright": "^1.47.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
 }
