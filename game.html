@@ -21,7 +21,7 @@
  * ============================================================ */
 
 :root {
-  --app-h: 100dvh;
+  --app-h: 100vh;          /* JS уточняет до реальной видимой высоты (Safari, вебвью) */
   --bg: #070b0d;
   --bg-2: #0d1418;
   --panel: rgba(16, 24, 28, 0.86);
@@ -43,12 +43,17 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+@supports (height: 100dvh) {
+  :root { --app-h: 100dvh; }
+}
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  height: var(--app-h);
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
@@ -64,7 +69,7 @@ body.no-scroll { touch-action: none; }
 #app {
   position: relative;
   width: 100%;
-  height: var(--app-h, 100dvh);
+  height: var(--app-h);
   overflow: hidden;
   background: radial-gradient(120% 80% at 50% 0%, #12232a 0%, var(--bg) 60%);
 }
@@ -396,9 +401,9 @@ button { font-family: inherit; }
 .arch-card {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 12px 14px;
+  padding: 10px 12px;
   text-align: left;
   color: var(--text);
   background: var(--panel);
@@ -416,13 +421,13 @@ button { font-family: inherit; }
 .arch-card__icon { font-size: 22px; }
 .arch-card__main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .arch-card__title { font-weight: 700; font-size: 15.5px; }
-.arch-card__blurb { font-size: 12.5px; color: var(--muted); }
+.arch-card__blurb { font-size: 12px; color: var(--muted); line-height: 1.35; }
 .arch-card__bonus {
-  font-size: 11.5px;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--accent);
-  max-width: 44%;
+  max-width: 42%;
   text-align: right;
-  overflow-wrap: break-word;
 }
 
 .stat-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -447,12 +452,12 @@ button { font-family: inherit; }
 
 .game-topbar {
   position: relative;
-  flex: 0 0 14%;
-  min-height: 78px;
+  flex: 0 0 auto;
+  min-height: clamp(94px, 16.5%, 132px);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: calc(var(--safe-top) + 6px) 12px 8px 14px;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 10px) 12px 12px 14px;
   background: linear-gradient(180deg, rgba(12, 19, 22, 0.98), rgba(9, 15, 18, 0.9));
   border-bottom: 1px solid var(--line);
   overflow: hidden;
@@ -464,7 +469,7 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 3px;
+  margin-top: 5px;
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -478,7 +483,8 @@ button { font-family: inherit; }
 .game-title {
   display: block;
   max-width: 100%;
-  font-size: 15.5px;
+  font-size: 16.5px;
+  line-height: 1.25;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -492,7 +498,8 @@ button { font-family: inherit; }
 }
 .game-title::before { content: attr(data-icon); font-size: 14px; }
 .game-sub {
-  font-size: 11.5px;
+  margin-top: 2px;
+  font-size: 12.5px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -522,7 +529,7 @@ button { font-family: inherit; }
 .scene-media {
   position: relative;
   flex: 0 0 22%;
-  min-height: 112px;
+  min-height: 104px;
   overflow: hidden;
   background: #060a0c;
 }
@@ -592,15 +599,21 @@ button { font-family: inherit; }
 /* ---------------------------------------------------------- */
 .panel {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 88px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 14px 8px;
+  padding: 12px 13px 6px;
   background:
     radial-gradient(120% 60% at 50% 0%, rgba(20, 40, 44, 0.5), transparent 70%),
     var(--bg);
 }
-.scene-text__body { font-size: 15.5px; line-height: 1.5; }
+.scene-text__body { font-size: 15px; line-height: 1.48; }
+/* текст длиннее панели — мягко гасим нижнюю строку, чтобы было видно, что дальше есть */
+.panel.is-scrollable {
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 20px), rgba(0, 0, 0, 0.25));
+  mask-image: linear-gradient(180deg, #000 calc(100% - 20px), rgba(0, 0, 0, 0.25));
+}
 .scene-text__body b { color: #fff; }
 .scene-npc {
   margin-top: 8px;
@@ -638,8 +651,8 @@ button { font-family: inherit; }
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px calc(10px + var(--safe-bottom));
+  gap: 6px;
+  padding: 8px 12px calc(8px + var(--safe-bottom));
   background: linear-gradient(180deg, rgba(8, 13, 16, 0.85), rgba(6, 10, 12, 0.98));
   border-top: 1px solid var(--line);
 }
@@ -649,8 +662,8 @@ button { font-family: inherit; }
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 8px;
-  min-height: 52px;
+  gap: 7px;
+  min-height: 46px;
   border-style: dashed;
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.015);
@@ -696,8 +709,8 @@ button { font-family: inherit; }
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  padding: 11px 12px;
-  min-height: 50px;
+  padding: 7px 11px;
+  min-height: 44px;   /* палец должен попадать, ниже не опускаемся */
   text-align: left;
   color: var(--text);
   background: linear-gradient(180deg, rgba(28, 42, 47, 0.95), rgba(16, 25, 29, 0.95));
@@ -708,17 +721,25 @@ button { font-family: inherit; }
 }
 .action-btn:active { transform: scale(0.982); border-color: var(--accent); }
 .action-btn[disabled] { opacity: 0.5; }
-.action-btn__text { flex: 1 1 auto; font-size: 14.5px; line-height: 1.32; }
-.action-btn__meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: 0 0 auto; }
+.action-btn__text { flex: 1 1 auto; font-size: 13.5px; line-height: 1.3; }
+.action-btn__meta {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
+  gap: 3px 4px; flex: 0 1 auto; max-width: 52%;
+}
 .tag {
-  font-size: 10.5px;
-  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  padding: 1px 5px;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--c, #7fd4a8) 45%, transparent);
   color: var(--c, #7fd4a8);
   white-space: nowrap;
 }
 .tag--stat { color: #bcd6ff; border-color: rgba(160, 190, 255, 0.3); }
+.tag--pair { display: inline-flex; align-items: baseline; gap: 4px; }
+.tag__sep { opacity: 0.5; }
+.tag__chance { color: var(--muted); }
+.tag__adv { color: #ffe3bd; font-weight: 700; }
 .tag--chance { color: var(--muted); border-color: var(--line); }
 
 /* ---------------------------------------------------------- */
@@ -963,17 +984,27 @@ body[data-screen="game"] .toasts { display: none; }
 /* Мелкие экраны (iPhone SE) и очень узкие                    */
 /* ---------------------------------------------------------- */
 @media (max-height: 700px) {
-  .game-topbar { min-height: 70px; }
+  .game-topbar { min-height: clamp(90px, 17%, 116px); padding-top: calc(var(--safe-top) + 8px); }
+  .game-title { font-size: 16px; }
   .logo { font-size: 30px; }
   .menu-head { margin-top: 4vh; }
   .scenario-card__cover { height: 88px; }
-  .action-btn { min-height: 46px; padding: 9px 11px; }
-  .action-btn__text { font-size: 13.5px; }
+  .action-btn { min-height: 42px; padding: 7px 10px; }
+  .action-btn__text { font-size: 13px; }
+  .actions { gap: 5px; }
   .scene-text__body { font-size: 14.5px; }
+}
+@media (max-width: 360px) {
+  /* очень узкие экраны: варианты держим в две строки, текст сцены чуть мельче */
+  .action-btn__text { font-size: 12.8px; }
+  .action-btn__meta { max-width: 46%; }
+  .tag { font-size: 9.5px; padding: 1px 4px; }
+  .tag--stat { display: none; }          /* на узком экране хватает «сложность · шанс» */
+  .scene-text__body { font-size: 14px; }
+  .ability-btn__desc { font-size: 11px; }
 }
 @media (max-width: 340px) {
   .arch-card__bonus { display: none; }
-  .tag--chance { display: none; }
 }
 
 /* Уважение к «уменьшению движения» */
@@ -1130,10 +1161,10 @@ body[data-screen="game"] .toasts { display: none; }
 .ability-btn {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
-  min-height: 44px;
+  padding: 6px 11px;
+  min-height: 40px;
   text-align: left;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 180, 92, 0.4);
@@ -2442,6 +2473,11 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     'Отвечай сразу, без рассуждений, без пояснений и без markdown — только строками нужного формата.'
   ].join('\n');
 
+  /**
+   * Промпт героя: короткий, но с жёсткой связкой «мир → класс → происхождение → вид».
+   * Маленькая модель выдаёт осмысленный набор только когда видит конфликт истории
+   * и то, как каждый вариант в него встроен.
+   */
   function buildHeroPrompt(config, baseScenario, opts) {
     const c = config || emptyWorldConfig();
     const s = baseScenario || null;
@@ -2450,28 +2486,60 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     const used = Array.isArray(o.used) ? o.used.filter(Boolean).slice(0, 18) : [];
     const game = c.gameName || c.title || (s && s.title) || 'своя игра';
     const genre = c.genre || (s && s.genre) || '';
+    const threat = heroPromptThreat(c, s);
+    const details = [];
+    if (c.place) details.push(`место действия: ${c.place}`);
+    if (c.role) details.push(`роль героя в истории: ${c.role}`);
+    if (Array.isArray(c.ingredients) && c.ingredients.length) details.push(`важные детали мира: ${c.ingredients.slice(0, 6).join(', ')}`);
+    if (c.tone) details.push(`тон: ${c.tone}`);
+    if (c.gameName && c.gameName !== c.title) details.push(`игра игрока: ${c.gameName}`);
     return [
       'Ты придумываешь героя для текстовой RPG.',
       `ИГРА: «${game}»${genre ? ' — ' + genre : ''}.`,
       s && s.systemHint ? `Мир игры: ${s.systemHint}.` : '',
-      'Ответь ТОЛЬКО такими строками, без заголовков, пояснений и JSON.',
+      details.length ? 'Что известно о мире: ' + details.join('; ') + '.' : '',
+      `ГЛАВНОЕ В ЭТОЙ ИСТОРИИ: ${threat}. Все варианты — про это.`,
+      '',
+      'Сначала одна фраза: какая беда у этого мира и что здесь вообще можно делать.',
+      'Потом ответь строками, без заголовков и пояснений.',
+      '',
       'М: метка выбора класса одним словом (Школа, Роль, Путь, Класс, Клан)',
-      'К: класс|подсказка в 3 слова|Сила+2 Ловкость+1|Название приёма :: что он делает',
+      'К: класс|чем занимается ГЕРОЙ и как решает ГЛАВНУЮ задачу Мира|Сила+2 Ловкость+1|Название приёма :: что делает',
       'П: происхождение|предмет|крючок в сюжет (до 7 слов)',
       'Р: вид или раса|врождённая особенность (до 6 слов)',
-      'Формат строк как в примере, а содержимое придумай своё:',
-      'К: Смотритель маяка|терпение и смола|Разум+2 Восприятие+1|Сигнальный огонь :: освещает путь союзникам',
-      'П: Сын рыбачки|сеть с грузилами|ищет брата, пропавшего в тумане',
-      'Р: Полукровка|города принимают неохотно',
+      '',
+      'Правила, без них набор бессвязный:',
+      '- класс — конкретное занятие в ЭТОМ мире (его профессия, фракция, орден), а не «воин» и «маг»;',
+      '- в подсказке класса видно, как он берётся за главную задачу;',
+      '- происхождение даёт предмет, который пригодится именно тут, и крючок, ведущий к главной задаче;',
+      '- вид даёт врождённую особенность, которая либо помогает здесь, либо мешает здесь;',
+      '- характеристики подходят занятию: ловкачу — Ловкость, книжнику — Разум. Не больше +2 к одной,',
+      '  суммарно не больше +4, минус не ниже -2. Названия: Сила, Ловкость, Телосложение,',
+      '  Разум, Восприятие, Воля, Обаяние.',
+      '- приём класса делает что-то наглядное в бою или в проверке: лечение, метка, щит, рывок, чужой голос.',
+      '',
+      'Пример (для другой игры, содержимое придумай своё):',
+      'За беда: ржавый эшелон тридцать лет стоит поперёк трассы, и по нему лезут те, кто ждёт ночи.',
+      'К: Смотритель депо|караулит вагон с водой и знает, кому можно верить|Разум+2 Восприятие+1|Сигнальный огонь :: отмечает цель, союзники бьют точнее',
+      'П: Дочь стрелочника|ключ от служебной двери|помнит, что отец сам открыл ворота',
+      'Р: Пепельный|в темноте видишь больше остальных',
+      '',
       'Нужно 4 строки К, 3 строки П и 3 строки Р.',
       'Если в этой истории нет выбора происхождения — строк П нет. Если нет видов — строк Р нет.',
-      'Характеристики: Сила, Ловкость, Телосложение, Разум, Восприятие, Воля, Обаяние.',
-      'Бонусы: не больше +2 к одной характеристике, суммарно не больше +4, минус не ниже -2.',
-      'Названия придумывай конкретные и в духе этой игры — её профессии, фракции, титулы, лексику;',
-      'с большой буквы, 1-3 слова. Общие слова («воин», «меч», «магия») не подходят.',
       variant > 1 ? `Это ${variant}-й заход: придумай ДРУГИХ героев, не повторяй прошлых вариантов.` : '',
       used.length ? `Уже были: ${used.join(', ')} — их больше не предлагай.` : ''
     ].filter(Boolean).join('\n');
+  }
+
+  /** Главный конфликт истории: короткая строка, которой мастер обязан держаться. */
+  function heroPromptThreat(config, baseScenario) {
+    const c = config || {};
+    const s = baseScenario || null;
+    const goal = String(c.goal || (s && s.goal) || '').trim();
+    if (goal) return goal.replace(/\.$/, '');
+    const opening = String((s && s.opening) || '').trim();
+    if (opening) return opening.split(/[.!?]/)[0].slice(0, 120);
+    return 'угроза, которая вот-вот накроет это место';
   }
 
   /** Первая буква заглавная: мастер часто отвечает строчными. */
@@ -2580,6 +2648,61 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     return raw;
   }
 
+  /** Ключевые слова варианта → характеристика, которой он живёт. */
+  const STAT_HINTS = [
+    [/воин|боец|солдат|ратник|страж|щит|силач|рыцар|паладин|кулак|молот|берсерк|натиск|штурм|гвард|кузнец|мясник/i, 'str'],
+    [/вор|плут|разбой|тень|ловкач|ассасин|скороход|акробат|карманник|луч|стрел|танцор|гимнаст/i, 'agi'],
+    [/следопыт|разведчик|наблюдат|егер|охотник|дозорн|разведк|сыщик|внимательн|звезд|облач|небес|созвезд|навигат/i, 'per'],
+    [/жрец|шаман|стоик|врач|лекарь|целител|монах|выносл|выживш|путник|странник|пилигрим|скитал|караван|закал|дыхан/i, 'con'],
+    [/маг|учён|учен|чародей|инженер|нетраннер|механик|алхимик|книжник|архив|писарь|картограф|изобрет|аналитик|хранитель зна/i, 'int'],
+    [/бард|дипломат|фиксер|торговец|купец|переговор|посол|сказител|лицедей|певец|глашатай/i, 'cha'],
+    [/воля|упрям|несда|фанатик|мечтател|пророк|визионер|аскет|зов|клятв/i, 'wit']
+  ];
+
+  /** Вторая характеристика для пары: чтобы бонусы не сливались в одну строку. */
+  const STAT_SECOND = { str: 'con', agi: 'per', con: 'str', int: 'wit', per: 'agi', wit: 'con', cha: 'wit' };
+
+  /** Характеристика по смыслу варианта: чтобы у класса всегда были числа. */
+  function statForText(text) {
+    const t = String(text || '');
+    for (const [re, stat] of STAT_HINTS) if (re.test(t)) return stat;
+    return 'wit';
+  }
+
+  /**
+   * Досыпаем то, чего мастер не дал: характеристики, особенность вида, предмет
+   * и крючок происхождения. Иначе набор остаётся бессвязным списком названий.
+   */
+  function fillProfileGaps(profile) {
+    if (!profile) return profile;
+    (profile.classes || []).forEach(c => {
+      if (!c.bonus || !Object.keys(c.bonus).length) {
+        const main = statForText(c.title + ' ' + (c.hint || ''));
+        const second = STAT_SECOND[main] || 'wit';
+        c.bonus = {}; c.bonus[main] = 2; c.bonus[second] = 1;
+      }
+      if (!c.ability || !c.ability.name) {
+        c.ability = abilityFromOption((c.hint || '') + ' ' + c.title, c.id);
+      }
+      if (!c.hint) c.hint = c.ability.desc || 'держит удар там, где другие отступают';
+    });
+    (profile.races || []).forEach(r => {
+      if (!r.trait) r.trait = /эльф|лес|тир|ночн/i.test(r.title) ? 'видишь в темноте и читаешь следы'
+        : /дварф|гном|камен|гор/i.test(r.title) ? 'яд, холод и голод переносишь легче'
+        : /орк|ороч|гобл|велик/i.test(r.title) ? 'сила бьёт первой, и это спасало не раз'
+        : /механ|робот|синт|андроид|конструкт/i.test(r.title) ? 'тело чинится, сны — нет'
+        : 'твой вид чувствует опасность раньше остальных';
+    });
+    (profile.origins || []).forEach(o => {
+      if (!o.item) o.item = /мор|порт|рыбак|корабл/i.test(o.hook + ' ' + o.title) ? 'сеть с грузилами'
+        : /город|улиц|трущоб/i.test(o.hook + ' ' + o.title) ? 'спрятанный нож'
+        : /войн|солдат|отряд|фронт/i.test(o.hook + ' ' + o.title) ? 'потёртый жетон'
+        : 'вещь, которую ты не показываешь никому';
+      if (!o.hook) o.hook = 'за тобой тянется долг, о котором лучше не вспоминать';
+    });
+    return profile;
+  }
+
   /**
    * Профиль героя из ответа мастера. null — мастер не справился, вызывающий
    * берёт встроенную таблицу игр, поэтому экран героя не остаётся пустым.
@@ -2593,6 +2716,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     // чем «их нет»: тогда оставляем привычные шаги, чтобы игрок не остался без выбора
     if (!raw.races.length && !raw.origins.length) { raw.races = null; raw.origins = null; }
     const profile = heroProfileFromWorld(raw);
+    fillProfileGaps(profile);
     profile.source = 'ai';
     const fb = fallbackLabels || {};
     if (!raw.classLabel && fb.classLabel) profile.classLabel = fb.classLabel;
@@ -2873,6 +2997,42 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     if (!raw) return '';
     const words = raw.split(' ').slice(0, 4).join('-');
     return (styleOf(game).id + ':' + words).slice(0, 60);
+  }
+
+  /**
+   * Основы слов места. Русские слова короткие, поэтому берём три буквы после
+   * отбрасывания хвостов: «песчаного песка» → «пес пес».
+   */
+  function placeStems(place) {
+    const ENDINGS = /(ого|его|ому|ему|ыми|ими|ыми|ых|их|ий|ый|ой|ая|яя|ое|ее|ые|ие|ами|ями|ах|ях|ов|ев|ам|ям|ом|ем|ы|и|а|я|е|у|ю|ь)$/;
+    return String(place || '').toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9 ]/g, ' ').split(/\s+/)
+      .filter(w => w.length > 2)
+      .map(w => {
+        const cut = w.replace(ENDINGS, '');
+        return (cut.length >= 3 ? cut : w).slice(0, 3);
+      });
+  }
+
+  /**
+   * То же ли это место, что и в прошлой сцене? Мастер каждый ход называет место
+   * своими словами, поэтому сравниваем основы слов и тип местности. Совпали —
+   * фон остаётся прежним, меняется только слой действия.
+   */
+  function isSamePlace(prevPlace, nextPlace) {
+    if (!prevPlace || !nextPlace) return false;
+    const a0 = String(prevPlace).toLowerCase().replace(/ё/g, 'е');
+    const b0 = String(nextPlace).toLowerCase().replace(/ё/g, 'е');
+    if (a0 === b0) return true;
+    const a = placeStems(a0);
+    const b = placeStems(b0);
+    if (!a.length || !b.length) return false;
+    const set = {};
+    a.forEach(w => { set[w] = 1; });
+    const shared = b.filter(w => set[w]).length;
+    if (!shared) return false;
+    // одно общее слово уже о многом говорит; для разных типов местности этого мало
+    if (shared >= Math.ceil(Math.min(a.length, b.length) * 0.5)) return true;
+    return sceneKindFromText(a0) === sceneKindFromText(b0) && shared >= 1;
   }
 
   /** Портрет героя: одна картинка на всю кампанию. */
@@ -3555,6 +3715,26 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     return { hero: { shape: 'human' }, enemies, props };
   }
 
+  /** Английские слова для предметов окружения: чтобы кадр совпадал с описанием. */
+  const PROP_ART = {
+    fire: 'a burning campfire', torch: 'a lone torch', banner: 'torn war banners',
+    cart: 'a broken cart', tent: 'a patched tent', ship: 'a boat by the water',
+    tower: 'a stone tower', statue: 'an old statue', bridge: 'a narrow bridge', door: 'a heavy door'
+  };
+  const ENGLISH_LIGHT_RE = /dawn|dusk|night|morning|evening|sunset|sunrise|noon|moonlight|torchlight|daylight/i;
+
+  /** Свет и время суток из текста сцены — по-английски, для генератора. */
+  function sceneLightFromText(text) {
+    const t = String(text || '').toLowerCase();
+    if (/ноч|лун|звёзд|звезд|темнот.*глубок/.test(t)) return 'at night, moonlight';
+    if (/рассвет|утр|зорь/.test(t)) return 'at dawn, cold morning light';
+    if (/закат|вечер|сумерк/.test(t)) return 'at sunset, warm evening light';
+    if (/полдень|жар|палит/.test(t)) return 'harsh midday light';
+    if (/дожд|гроз|туман|мгл/.test(t)) return 'damp overcast light, fog';
+    if (/снег|мороз|метел/.test(t)) return 'cold winter light';
+    return '';
+  }
+
   const ENEMY_ART = {
     dragon: 'a dragon looming in the background',
     beast: 'a snarling beast closing in',
@@ -3580,6 +3760,14 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     const hadPrompt = !!base;
     if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
     const parts = [base];
+    // свет и время суток из текста сцены: кадр должен совпадать с рассказом
+    const light = sceneLightFromText(sceneText);
+    if (light && !ENGLISH_LIGHT_RE.test(base)) parts.push(light);
+    // предметы окружения, которых ещё нет в промпте: телега, костёр, ворота
+    actors.props.slice(0, 2).forEach(p => {
+      const word = PROP_ART[p];
+      if (word && !new RegExp(word.split(' ')[0], 'i').test(base)) parts.push(word);
+    });
     if (!hadPrompt || !PEOPLE_RE.test(base)) {
       parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
     }
@@ -4970,6 +5158,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     CLASS_ART, RACE_ART, heroArtTag, defaultHeroProfile, heroProfileFromWorld, matchOptions,
     HERO_SYSTEM_PROMPT, buildHeroPrompt, parseHeroReply, heroProfileFromText, parseBonusText, splitAbility,
     KNOWN_GAME_PROFILES, offlineHeroProfile, statsFor, abilityForHero, pickProfileOption,
+    fillProfileGaps, statForText, heroPromptThreat, isSamePlace, placeStems, sceneLightFromText,
     abilityFromOption, cleanBonus, hpBonusFromStats, CUSTOM_ICONS,
     makeStats, maxHpFor, makeAbility,
     difficultyById, difficultyForDc, shiftDc, rollDie, rollD20, successChance, resolveCheck,
@@ -6168,7 +6357,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
   const CONFIG = {
     textTimeoutMs: 22000,
     serverTimeoutMs: 30000,   // сервер сам пытается несколько раз, но не тянет время зря
-    imageTimeoutMs: 30000,
+    imageTimeoutMs: 45000,   // генератор картинок бывает загружен — ждём дольше, фон всё это время уже на экране
     retriesPerProvider: 1,
     textModel: 'openai-fast',
     apiKey: BUILTIN_API_KEY,
@@ -6741,12 +6930,20 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
       catch (e) { imageCache.delete(key); }
     }
 
+    // Замеры: серверный прокси с ключом — 3–4 с холодным кэшем и 0 с тёплым.
+    // Прямой pollinations из браузера блокируется (net::ERR_BLOCKED_BY_ORB),
+    // a0.dev отвечает дольше 30 с. Поэтому: сервер, его повтор, и только потом
+    // дальние источники. Случайные стоковые фото убраны совсем — кадр должен
+    // совпадать со сценой, а не быть «какой-то картинкой»; пока кадр рисуется,
+    // игрок видит процедурный фон по тексту сцены.
     const server = await probeBackend();
     const queue = [];
     if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
-    queue.push({ name: 'a0', url: built.a0, delay: server && server.imageProxy ? 1200 : 0 });
-    queue.push({ name: 'pollinations', url: withImageKey(built.pollinations), delay: 2500 });
-    queue.push({ name: 'stock', url: built.stock, delay: 9000 });
+    // Без своего сервера (например, страница открыта файлом с GitHub Pages)
+    // картинку просим напрямую у генератора — анонимный адрес из браузера работает.
+    else queue.push({ name: 'pollinations', url: built.pollinations, delay: 0 });
+    // Один запрос на место: генератор бывает занят, а второй запрос на ту же
+    // картинку только съедает время. Повтор случится, когда игрок вернётся сюда.
 
     return new Promise(resolve => {
       let settled = false;
@@ -6768,10 +6965,15 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
         const item = { img, url: cand.url, name: cand.name };
         started.push(item);
         img.onload = () => { log('картинка пришла через', cand.name); finish({ ok: true, url: cand.url, source: cand.name, prompt: built.full }); };
-        img.onerror = () => { fails.push(cand.name); };
+        img.onerror = () => {
+          fails.push(cand.name);
+          // все попытки отвалились — не держим игрока: сцена уже нарисована сама
+          if (fails.length >= started.length) finish(null);
+        };
         img.decoding = 'async';
         img.src = cand.url;
       };
+      if (!queue.length) { finish(null); return; }
       queue.forEach((cand, i) => {
         if (!cand.delay) launch(cand);
         else timers.push(setTimeout(() => launch(cand), cand.delay + hedgeFirstMs));
@@ -6992,6 +7194,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     busy: false,
     backdropSeed: 1,
     imageCache: {},          // картинка локации по ключу места: место не перерисовываем
+    imagePending: {},        // запросы картинок в работе: одно место — один запрос
     imageKey: '',            // ключ места, к которому относится текущий фон
     actorProgress: 1,        // появление фигур на слое действия (0 → 1)
     portrait: '',            // портрет героя этой кампании
@@ -7819,6 +8022,8 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
   function openGame(game, isNew, worldPending) {
     State.game = game;
     State.busy = false;
+    State.earlyImageDone = false;   // новая кампания: картинку снова можно начинать заранее
+    State.imagePending = {};
     State.runFinished = !!game.legacyApplied;
     State.epilogueOpen = false;
     applyTheme(game);
@@ -7950,6 +8155,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     const panel = $('#panel');
     if (panel) panel.scrollTop = 0;
     renderChapter(State.game);
+    setTimeout(updatePanelFade, 60);
   }
 
   /**
@@ -7965,10 +8171,12 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     box.appendChild(p);
     $('#panel').scrollTop = 0;
     if (o.streaming) {
-      // мастер печатает ответ: текст растёт на глазах, курсор показывает, что он ещё пишет
+      // мастер печатает ответ: текст растёт на глазах, курсор показывает, что он ещё пишет.
+      // Панель держим в начале: места на телефоне мало, читать надо с первой строки.
       p.classList.add('is-streaming');
       p.onclick = null;
-      $('#panel').scrollTop = $('#panel').scrollHeight;
+      $('#panel').scrollTop = 0;
+      updatePanelFade();
       return;
     }
     // пока открыт пролог, панель не прокручиваем — игрок читает вступление
@@ -7990,17 +8198,35 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
       typingTimer = setInterval(() => {
         i += step;
         p.innerHTML = full.slice(0, i);
-        if (i >= full.length) { finish(); return; }
-        if (!keepTop) $('#panel').scrollTop = $('#panel').scrollHeight;
+        if (i >= full.length) { finish(); updatePanelFade(); return; }
+        updatePanelFade();
       }, tick);
     } else {
       $('#panel').scrollTop = 0;
+      updatePanelFade();
     }
+  }
+
+  /**
+   * Картинку начинаем рисовать, не дожидаясь конца ответа: место и промпт
+   * видны уже в потоке. К моменту, когда сцена допечатана, кадр обычно готов.
+   */
+  function maybeStartImageEarly(full) {
+    const g = State.game;
+    if (!g || State.earlyImageDone) return;
+    const place = E.extractPartialField(full, 'place');
+    const aiPrompt = (/["']imagePrompt["']\s*:\s*["']([^"']{14,})/.exec(full) || [])[1] || '';
+    if (!place && !aiPrompt) return;
+    const key = place ? E.placeKey(g, place) : '';
+    if (key && key === State.imageKey) { State.earlyImageDone = true; return; }
+    State.earlyImageDone = true;
+    loadSceneImage(aiPrompt, null, true, { place: place || '' }).catch(() => {});
   }
 
   /** Пока мастер печатает ответ, сцена показывается по мере появления текста. */
   function previewSceneStream(full) {
     if (!full) { stopScenePreview(); return; }
+    maybeStartImageEarly(full);
     const scene = E.extractPartialField(full, 'scene') || E.extractPartialField(full, 'opening') || E.extractPartialField(full, 'world');
     if (!scene) return;
     State.streamPreview = true;
@@ -8037,6 +8263,11 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
   }
 
   /* --- умение + варианты действий --- */
+  /** Короткая подпись модификатора: «+1», «0», «−1». */
+  function shortStat(stat, mod) {
+    return (mod > 0 ? '+' : '') + mod;
+  }
+
   function renderActions(options, loading) {
     const wrap = clear($('#actions'));
     const g = State.game;
@@ -8072,12 +8303,20 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
       const totalMod = mod + buff;
       const advantage = !!g.hero.advantage;
       const chance = Math.round(E.successChance(totalMod, opt.dc, advantage) * 100);
+      // одна строка вместо трёх: сложность и шанс в одном чипе — кнопки ниже, тексту больше места
       const meta = [
-        h('span', { class: 'tag', style: '--c:' + diff.color, text: diff.label }),
-        h('span', { class: 'tag tag--stat', title: stat.hint, text: stat.icon + ' ' + stat.short + ' +' + mod + (buff ? ' (+' + buff + ')' : '') })
+        h('span', { class: 'tag tag--pair', style: '--c:' + diff.color, title: 'сложность и шанс успеха' }, [
+          h('span', { text: diff.label }),
+          h('span', { class: 'tag__sep', text: '·' }),
+          h('span', { class: 'tag__chance', text: chance + '%' }),
+          advantage ? h('span', { class: 'tag__adv', title: 'преимущество: два d20, берём лучший', text: '↑' }) : null
+        ]),
+        h('span', {
+          class: 'tag tag--stat',
+          title: stat.hint + (buff ? ' +' + buff + ' к броску' : ''),
+          text: stat.icon + ' ' + stat.short + ' ' + shortStat(stat, mod + buff)
+        })
       ];
-      if (advantage) meta.push(h('span', { class: 'tag tag--adv', text: 'преимущество' }));
-      meta.push(h('span', { class: 'tag tag--chance', title: 'шанс успеха', text: chance + '%' }));
       wrap.appendChild(h('button', {
         class: 'action-btn', type: 'button',
         onclick: () => onActionChosen(opt)
@@ -8177,37 +8416,78 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     const g = State.game;
     if (!g) return;
     const o = opts || {};
-    const place = (g.scene && g.scene.place) || E.memoryOf(g).place || g.chapter || '';
+    const place = o.place || (g.scene && g.scene.place) || E.memoryOf(g).place || g.chapter || '';
     const key = place ? E.placeKey(g, place) : E.styleOf(g).id + ':начало';
-    const cached = !o.force && State.imageCache[key];
+    // то же место, названное другими словами: переиспользуем уже нарисованный кадр
+    const nearKey = !o.force && place
+      ? Object.keys(State.imageCache).find(k => k !== key && E.isSamePlace(k.split(':').slice(1).join(':').replace(/-/g, ' '), place))
+      : null;
+    const cached = !o.force && (State.imageCache[key] || (nearKey && State.imageCache[nearKey]));
     if (cached && cached.url) {
       State.imageKey = key;
       if (g.scene) { g.scene.placeKey = key; }
       setSceneImage(cached.url, cached.source || 'кэш места');
       return;
     }
-    const used = E.placePrompt(g, place, prompt || (g.scene && g.scene.imagePrompt), { noStyle: true });
-    if (!silent) setSceneStatus('рисуем место…');
-    $('#scene-badge').textContent = 'фон рисуется';
+    // Мастер дал промпт сцены — рисуем по нему: герой, противники, предметы и свет
+    // из рассказа. Без промпта собираем кадр только про место.
+    const sceneText = (g.scene && g.scene.text) || '';
+    const aiPrompt = prompt || (g.scene && g.scene.imagePrompt) || '';
+    const used = aiPrompt
+      ? E.composeSceneImagePrompt(g, { aiPrompt, sceneText, npc: g.scene && g.scene.npc })
+      : E.placePrompt(g, place, '', { noStyle: true });
+    // строка «рисуем кадр…» живёт недолго: сцена уже нарисована сама,
+    // а кадр подтянется, когда генератор ответит, — ждать его на экране не нужно
+    if (!silent) {
+      setSceneStatus('рисуем кадр…');
+      clearTimeout(State.imageStatusTimer);
+      State.imageStatusTimer = setTimeout(() => { if (!State.imagePending[key]) setSceneStatus(''); }, 5000);
+    }
+    $('#scene-badge').textContent = 'кадр подтягивается';
     $('#scene-badge').hidden = false;
 
+    // Пока кадр для этого места уже рисуется, второй запрос не запускаем:
+    // генератор занят, и дубль только отнимает время.
+    if (!State.imagePending) State.imagePending = {};
+    if (State.imagePending[key] && !o.force) {
+      const waiting = await State.imagePending[key];
+      if (waiting && waiting.ok) {
+        State.imageCache[key] = { url: waiting.url, source: waiting.source, at: Date.now() };
+        State.imageKey = key;
+        if (g.scene) g.scene.placeKey = key;
+        setSceneImage(waiting.url, waiting.source);
+        $('#scene-badge').hidden = true;
+      }
+      return;
+    }
+    const turnAtRequest = g.turn || 0;
     const seed = E.rnd.seed();
     // гонка источников: что ответит быстрее — то и показываем.
     // Как только картинка показана, отставшие попытки больше не меняют подписи.
     let settled = false;
-    const res = await API.generateImage({
+    const request = API.generateImage({
       prompt: used,
       style: E.styleOf(g).imageStyle,
       aspect: '16:9',
       seed,
       onAttempt: name => {
         if (settled) return;
-        const map = { pollinations: 'пробуем другой генератор…', stock: 'подбираем фон…' };
-        setSceneStatus(map[name] || 'рисуем место…');
+        setSceneStatus(name === 'a0' ? 'пробуем другой генератор…' : 'рисуем кадр…');
       }
     });
+    State.imagePending[key] = request;
+    const res = await request;
+    delete State.imagePending[key];
     settled = true;
     if (res.ok) {
+      // кадр показываем, если место всё ещё актуально: или это тот же ход,
+      // или мастер называет место теми же словами другими буквами
+      const nowPlace = (State.game.scene && State.game.scene.place) || '';
+      const stillHere = State.imageKey === key || State.game.turn === turnAtRequest || E.isSamePlace(nowPlace, place);
+      if (!stillHere) {
+        State.imageCache[key] = { url: res.url, source: res.source, at: Date.now() };
+        return;
+      }
       g.usedImagePrompts = (g.usedImagePrompts || []).concat([used]).slice(-12);
       g.lastImagePrompt = used;
       State.imageCache[key] = { url: res.url, source: res.source, at: Date.now() };
@@ -8249,6 +8529,14 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     keys.slice(0, keys.length - 8).forEach(k => { delete State.imageCache[k]; });
   }
 
+  /** Текст длиннее панели — гасим нижнюю строку, чтобы было видно продолжение. */
+  function updatePanelFade() {
+    const panel = $('#panel');
+    if (!panel) return;
+    const more = panel.scrollHeight - panel.scrollTop - panel.clientHeight > 6;
+    panel.classList.toggle('is-scrollable', more);
+  }
+
   /** Строка главы над текстом сцены. */
   function renderChapter(g) {
     const el = $('#scene-chapter');
@@ -8258,6 +8546,34 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     if (!chapter || State.prologueOpen) { el.hidden = true; return; }
     el.textContent = 'Глава: ' + chapter;
     el.hidden = false;
+  }
+
+  /**
+   * Высота приложения = высота видимой области.
+   * Safari и вебвью прячут/показывают панель адреса, из-за чего страница
+   * либо оставляет пустоту снизу, либо прячет текст за краем. Меряем сами.
+   */
+  function syncAppHeight() {
+    const vv = window.visualViewport;
+    const h = Math.round((vv && vv.height) || window.innerHeight || 0);
+    if (h > 200) document.documentElement.style.setProperty('--app-h', h + 'px');
+  }
+
+  function watchAppHeight() {
+    syncAppHeight();
+    let raf = 0;
+    const soon = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; syncAppHeight(); });
+    };
+    window.addEventListener('resize', soon);
+    window.addEventListener('orientationchange', soon);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', soon);
+      window.visualViewport.addEventListener('scroll', soon);
+    }
+    // Safari иногда меняет высоту без событий — подстрахуемся редкой проверкой
+    setInterval(syncAppHeight, 1500);
   }
 
   /* ---------------------------------------------------------- */
@@ -8828,6 +9144,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     if (advantage) extra.push('Герой применил умение и бросал с преимуществом.');
     if (buff) extra.push('К броску добавлен бонус умения +' + buff + '.');
     setActionsLoading('Мастер описывает последствия…');
+    State.earlyImageDone = false;
     slowMasterHint();
     const turn = await API.generateTurn(g, opt, check, {
       onStatus: statusHook(),
@@ -8871,8 +9188,12 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
     // память кампании: мастер помнит место, людей, нити и прошлые зачины
     E.rememberTurn(g, turn, action);
     const place = String(turn.place || E.memoryOf(g).place || turn.chapter || g.chapter || '').trim();
-    const placeKey = place ? E.placeKey(g, place) : '';
-    const samePlace = !!placeKey && placeKey === State.imageKey;   // место то же — фон оставляем
+    const prevPlace = (g.scene && g.scene.place) || '';
+    // место то же, если мастер назвал его теми же словами или пересказал иначе —
+    // тогда фон остаётся прежним, а меняется только слой действия
+    let samePlace = !!place && State.imageKey === E.placeKey(g, place);
+    if (!samePlace && place && prevPlace) samePlace = E.isSamePlace(prevPlace, place);
+    const placeKey = samePlace && g.scene && g.scene.placeKey ? g.scene.placeKey : (place ? E.placeKey(g, place) : '');
     g.scene = {
       text: turn.scene,
       options: turn.options,
@@ -9554,6 +9875,10 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
   }
 
   function boot() {
+    watchAppHeight();
+    const panel = $('#panel');
+    if (panel) panel.addEventListener('scroll', updatePanelFade, { passive: true });
+    window.addEventListener('resize', updatePanelFade);
     State.storage = E.createStorage(pickStorage());
     Settings.init(State.storage);
 

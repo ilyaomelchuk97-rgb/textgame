@@ -295,7 +295,8 @@ async function main() {
     };
   });
   console.log('   метрики:', JSON.stringify(metrics, null, 1));
-  if (Math.abs(metrics.topPct - 14) > 1.7) problems.push('шапка занимает ' + metrics.topPct + '% вместо 14%');
+  // шапку нарочно подняли: название, глава, HP и закрытие должны дышать
+  if (metrics.topPct < 14.5 || metrics.topPct > 21) problems.push('шапка занимает ' + metrics.topPct + '% (нужно 15–20%)');
   if (Math.abs(metrics.mediaPct - 22) > 1.6) problems.push('картинка занимает ' + metrics.mediaPct + '% вместо 22%');
   if (metrics.optionCount !== 3) problems.push('вариантов действий: ' + metrics.optionCount + ' (ожидалось 3)');
   if (!metrics.imgSrc) problems.push('картинка сцены не подставилась');

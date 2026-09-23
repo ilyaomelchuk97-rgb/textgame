@@ -515,6 +515,11 @@
     'Отвечай сразу, без рассуждений, без пояснений и без markdown — только строками нужного формата.'
   ].join('\n');
 
+  /**
+   * Промпт героя: короткий, но с жёсткой связкой «мир → класс → происхождение → вид».
+   * Маленькая модель выдаёт осмысленный набор только когда видит конфликт истории
+   * и то, как каждый вариант в него встроен.
+   */
   function buildHeroPrompt(config, baseScenario, opts) {
     const c = config || emptyWorldConfig();
     const s = baseScenario || null;
@@ -523,28 +528,60 @@
     const used = Array.isArray(o.used) ? o.used.filter(Boolean).slice(0, 18) : [];
     const game = c.gameName || c.title || (s && s.title) || 'своя игра';
     const genre = c.genre || (s && s.genre) || '';
+    const threat = heroPromptThreat(c, s);
+    const details = [];
+    if (c.place) details.push(`место действия: ${c.place}`);
+    if (c.role) details.push(`роль героя в истории: ${c.role}`);
+    if (Array.isArray(c.ingredients) && c.ingredients.length) details.push(`важные детали мира: ${c.ingredients.slice(0, 6).join(', ')}`);
+    if (c.tone) details.push(`тон: ${c.tone}`);
+    if (c.gameName && c.gameName !== c.title) details.push(`игра игрока: ${c.gameName}`);
     return [
       'Ты придумываешь героя для текстовой RPG.',
       `ИГРА: «${game}»${genre ? ' — ' + genre : ''}.`,
       s && s.systemHint ? `Мир игры: ${s.systemHint}.` : '',
-      'Ответь ТОЛЬКО такими строками, без заголовков, пояснений и JSON.',
+      details.length ? 'Что известно о мире: ' + details.join('; ') + '.' : '',
+      `ГЛАВНОЕ В ЭТОЙ ИСТОРИИ: ${threat}. Все варианты — про это.`,
+      '',
+      'Сначала одна фраза: какая беда у этого мира и что здесь вообще можно делать.',
+      'Потом ответь строками, без заголовков и пояснений.',
+      '',
       'М: метка выбора класса одним словом (Школа, Роль, Путь, Класс, Клан)',
-      'К: класс|подсказка в 3 слова|Сила+2 Ловкость+1|Название приёма :: что он делает',
+      'К: класс|чем занимается ГЕРОЙ и как решает ГЛАВНУЮ задачу Мира|Сила+2 Ловкость+1|Название приёма :: что делает',
       'П: происхождение|предмет|крючок в сюжет (до 7 слов)',
       'Р: вид или раса|врождённая особенность (до 6 слов)',
-      'Формат строк как в примере, а содержимое придумай своё:',
-      'К: Смотритель маяка|терпение и смола|Разум+2 Восприятие+1|Сигнальный огонь :: освещает путь союзникам',
-      'П: Сын рыбачки|сеть с грузилами|ищет брата, пропавшего в тумане',
-      'Р: Полукровка|города принимают неохотно',
+      '',
+      'Правила, без них набор бессвязный:',
+      '- класс — конкретное занятие в ЭТОМ мире (его профессия, фракция, орден), а не «воин» и «маг»;',
+      '- в подсказке класса видно, как он берётся за главную задачу;',
+      '- происхождение даёт предмет, который пригодится именно тут, и крючок, ведущий к главной задаче;',
+      '- вид даёт врождённую особенность, которая либо помогает здесь, либо мешает здесь;',
+      '- характеристики подходят занятию: ловкачу — Ловкость, книжнику — Разум. Не больше +2 к одной,',
+      '  суммарно не больше +4, минус не ниже -2. Названия: Сила, Ловкость, Телосложение,',
+      '  Разум, Восприятие, Воля, Обаяние.',
+      '- приём класса делает что-то наглядное в бою или в проверке: лечение, метка, щит, рывок, чужой голос.',
+      '',
+      'Пример (для другой игры, содержимое придумай своё):',
+      'За беда: ржавый эшелон тридцать лет стоит поперёк трассы, и по нему лезут те, кто ждёт ночи.',
+      'К: Смотритель депо|караулит вагон с водой и знает, кому можно верить|Разум+2 Восприятие+1|Сигнальный огонь :: отмечает цель, союзники бьют точнее',
+      'П: Дочь стрелочника|ключ от служебной двери|помнит, что отец сам открыл ворота',
+      'Р: Пепельный|в темноте видишь больше остальных',
+      '',
       'Нужно 4 строки К, 3 строки П и 3 строки Р.',
       'Если в этой истории нет выбора происхождения — строк П нет. Если нет видов — строк Р нет.',
-      'Характеристики: Сила, Ловкость, Телосложение, Разум, Восприятие, Воля, Обаяние.',
-      'Бонусы: не больше +2 к одной характеристике, суммарно не больше +4, минус не ниже -2.',
-      'Названия придумывай конкретные и в духе этой игры — её профессии, фракции, титулы, лексику;',
-      'с большой буквы, 1-3 слова. Общие слова («воин», «меч», «магия») не подходят.',
       variant > 1 ? `Это ${variant}-й заход: придумай ДРУГИХ героев, не повторяй прошлых вариантов.` : '',
       used.length ? `Уже были: ${used.join(', ')} — их больше не предлагай.` : ''
     ].filter(Boolean).join('\n');
+  }
+
+  /** Главный конфликт истории: короткая строка, которой мастер обязан держаться. */
+  function heroPromptThreat(config, baseScenario) {
+    const c = config || {};
+    const s = baseScenario || null;
+    const goal = String(c.goal || (s && s.goal) || '').trim();
+    if (goal) return goal.replace(/\.$/, '');
+    const opening = String((s && s.opening) || '').trim();
+    if (opening) return opening.split(/[.!?]/)[0].slice(0, 120);
+    return 'угроза, которая вот-вот накроет это место';
   }
 
   /** Первая буква заглавная: мастер часто отвечает строчными. */
@@ -653,6 +690,61 @@
     return raw;
   }
 
+  /** Ключевые слова варианта → характеристика, которой он живёт. */
+  const STAT_HINTS = [
+    [/воин|боец|солдат|ратник|страж|щит|силач|рыцар|паладин|кулак|молот|берсерк|натиск|штурм|гвард|кузнец|мясник/i, 'str'],
+    [/вор|плут|разбой|тень|ловкач|ассасин|скороход|акробат|карманник|луч|стрел|танцор|гимнаст/i, 'agi'],
+    [/следопыт|разведчик|наблюдат|егер|охотник|дозорн|разведк|сыщик|внимательн|звезд|облач|небес|созвезд|навигат/i, 'per'],
+    [/жрец|шаман|стоик|врач|лекарь|целител|монах|выносл|выживш|путник|странник|пилигрим|скитал|караван|закал|дыхан/i, 'con'],
+    [/маг|учён|учен|чародей|инженер|нетраннер|механик|алхимик|книжник|архив|писарь|картограф|изобрет|аналитик|хранитель зна/i, 'int'],
+    [/бард|дипломат|фиксер|торговец|купец|переговор|посол|сказител|лицедей|певец|глашатай/i, 'cha'],
+    [/воля|упрям|несда|фанатик|мечтател|пророк|визионер|аскет|зов|клятв/i, 'wit']
+  ];
+
+  /** Вторая характеристика для пары: чтобы бонусы не сливались в одну строку. */
+  const STAT_SECOND = { str: 'con', agi: 'per', con: 'str', int: 'wit', per: 'agi', wit: 'con', cha: 'wit' };
+
+  /** Характеристика по смыслу варианта: чтобы у класса всегда были числа. */
+  function statForText(text) {
+    const t = String(text || '');
+    for (const [re, stat] of STAT_HINTS) if (re.test(t)) return stat;
+    return 'wit';
+  }
+
+  /**
+   * Досыпаем то, чего мастер не дал: характеристики, особенность вида, предмет
+   * и крючок происхождения. Иначе набор остаётся бессвязным списком названий.
+   */
+  function fillProfileGaps(profile) {
+    if (!profile) return profile;
+    (profile.classes || []).forEach(c => {
+      if (!c.bonus || !Object.keys(c.bonus).length) {
+        const main = statForText(c.title + ' ' + (c.hint || ''));
+        const second = STAT_SECOND[main] || 'wit';
+        c.bonus = {}; c.bonus[main] = 2; c.bonus[second] = 1;
+      }
+      if (!c.ability || !c.ability.name) {
+        c.ability = abilityFromOption((c.hint || '') + ' ' + c.title, c.id);
+      }
+      if (!c.hint) c.hint = c.ability.desc || 'держит удар там, где другие отступают';
+    });
+    (profile.races || []).forEach(r => {
+      if (!r.trait) r.trait = /эльф|лес|тир|ночн/i.test(r.title) ? 'видишь в темноте и читаешь следы'
+        : /дварф|гном|камен|гор/i.test(r.title) ? 'яд, холод и голод переносишь легче'
+        : /орк|ороч|гобл|велик/i.test(r.title) ? 'сила бьёт первой, и это спасало не раз'
+        : /механ|робот|синт|андроид|конструкт/i.test(r.title) ? 'тело чинится, сны — нет'
+        : 'твой вид чувствует опасность раньше остальных';
+    });
+    (profile.origins || []).forEach(o => {
+      if (!o.item) o.item = /мор|порт|рыбак|корабл/i.test(o.hook + ' ' + o.title) ? 'сеть с грузилами'
+        : /город|улиц|трущоб/i.test(o.hook + ' ' + o.title) ? 'спрятанный нож'
+        : /войн|солдат|отряд|фронт/i.test(o.hook + ' ' + o.title) ? 'потёртый жетон'
+        : 'вещь, которую ты не показываешь никому';
+      if (!o.hook) o.hook = 'за тобой тянется долг, о котором лучше не вспоминать';
+    });
+    return profile;
+  }
+
   /**
    * Профиль героя из ответа мастера. null — мастер не справился, вызывающий
    * берёт встроенную таблицу игр, поэтому экран героя не остаётся пустым.
@@ -666,6 +758,7 @@
     // чем «их нет»: тогда оставляем привычные шаги, чтобы игрок не остался без выбора
     if (!raw.races.length && !raw.origins.length) { raw.races = null; raw.origins = null; }
     const profile = heroProfileFromWorld(raw);
+    fillProfileGaps(profile);
     profile.source = 'ai';
     const fb = fallbackLabels || {};
     if (!raw.classLabel && fb.classLabel) profile.classLabel = fb.classLabel;
@@ -946,6 +1039,42 @@
     if (!raw) return '';
     const words = raw.split(' ').slice(0, 4).join('-');
     return (styleOf(game).id + ':' + words).slice(0, 60);
+  }
+
+  /**
+   * Основы слов места. Русские слова короткие, поэтому берём три буквы после
+   * отбрасывания хвостов: «песчаного песка» → «пес пес».
+   */
+  function placeStems(place) {
+    const ENDINGS = /(ого|его|ому|ему|ыми|ими|ыми|ых|их|ий|ый|ой|ая|яя|ое|ее|ые|ие|ами|ями|ах|ях|ов|ев|ам|ям|ом|ем|ы|и|а|я|е|у|ю|ь)$/;
+    return String(place || '').toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9 ]/g, ' ').split(/\s+/)
+      .filter(w => w.length > 2)
+      .map(w => {
+        const cut = w.replace(ENDINGS, '');
+        return (cut.length >= 3 ? cut : w).slice(0, 3);
+      });
+  }
+
+  /**
+   * То же ли это место, что и в прошлой сцене? Мастер каждый ход называет место
+   * своими словами, поэтому сравниваем основы слов и тип местности. Совпали —
+   * фон остаётся прежним, меняется только слой действия.
+   */
+  function isSamePlace(prevPlace, nextPlace) {
+    if (!prevPlace || !nextPlace) return false;
+    const a0 = String(prevPlace).toLowerCase().replace(/ё/g, 'е');
+    const b0 = String(nextPlace).toLowerCase().replace(/ё/g, 'е');
+    if (a0 === b0) return true;
+    const a = placeStems(a0);
+    const b = placeStems(b0);
+    if (!a.length || !b.length) return false;
+    const set = {};
+    a.forEach(w => { set[w] = 1; });
+    const shared = b.filter(w => set[w]).length;
+    if (!shared) return false;
+    // одно общее слово уже о многом говорит; для разных типов местности этого мало
+    if (shared >= Math.ceil(Math.min(a.length, b.length) * 0.5)) return true;
+    return sceneKindFromText(a0) === sceneKindFromText(b0) && shared >= 1;
   }
 
   /** Портрет героя: одна картинка на всю кампанию. */
@@ -1628,6 +1757,26 @@
     return { hero: { shape: 'human' }, enemies, props };
   }
 
+  /** Английские слова для предметов окружения: чтобы кадр совпадал с описанием. */
+  const PROP_ART = {
+    fire: 'a burning campfire', torch: 'a lone torch', banner: 'torn war banners',
+    cart: 'a broken cart', tent: 'a patched tent', ship: 'a boat by the water',
+    tower: 'a stone tower', statue: 'an old statue', bridge: 'a narrow bridge', door: 'a heavy door'
+  };
+  const ENGLISH_LIGHT_RE = /dawn|dusk|night|morning|evening|sunset|sunrise|noon|moonlight|torchlight|daylight/i;
+
+  /** Свет и время суток из текста сцены — по-английски, для генератора. */
+  function sceneLightFromText(text) {
+    const t = String(text || '').toLowerCase();
+    if (/ноч|лун|звёзд|звезд|темнот.*глубок/.test(t)) return 'at night, moonlight';
+    if (/рассвет|утр|зорь/.test(t)) return 'at dawn, cold morning light';
+    if (/закат|вечер|сумерк/.test(t)) return 'at sunset, warm evening light';
+    if (/полдень|жар|палит/.test(t)) return 'harsh midday light';
+    if (/дожд|гроз|туман|мгл/.test(t)) return 'damp overcast light, fog';
+    if (/снег|мороз|метел/.test(t)) return 'cold winter light';
+    return '';
+  }
+
   const ENEMY_ART = {
     dragon: 'a dragon looming in the background',
     beast: 'a snarling beast closing in',
@@ -1653,6 +1802,14 @@
     const hadPrompt = !!base;
     if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
     const parts = [base];
+    // свет и время суток из текста сцены: кадр должен совпадать с рассказом
+    const light = sceneLightFromText(sceneText);
+    if (light && !ENGLISH_LIGHT_RE.test(base)) parts.push(light);
+    // предметы окружения, которых ещё нет в промпте: телега, костёр, ворота
+    actors.props.slice(0, 2).forEach(p => {
+      const word = PROP_ART[p];
+      if (word && !new RegExp(word.split(' ')[0], 'i').test(base)) parts.push(word);
+    });
     if (!hadPrompt || !PEOPLE_RE.test(base)) {
       parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
     }
@@ -3043,6 +3200,7 @@
     CLASS_ART, RACE_ART, heroArtTag, defaultHeroProfile, heroProfileFromWorld, matchOptions,
     HERO_SYSTEM_PROMPT, buildHeroPrompt, parseHeroReply, heroProfileFromText, parseBonusText, splitAbility,
     KNOWN_GAME_PROFILES, offlineHeroProfile, statsFor, abilityForHero, pickProfileOption,
+    fillProfileGaps, statForText, heroPromptThreat, isSamePlace, placeStems, sceneLightFromText,
     abilityFromOption, cleanBonus, hpBonusFromStats, CUSTOM_ICONS,
     makeStats, maxHpFor, makeAbility,
     difficultyById, difficultyForDc, shiftDc, rollDie, rollD20, successChance, resolveCheck,

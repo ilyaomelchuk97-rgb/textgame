@@ -65,29 +65,45 @@ const TARGETS = [
       const app = document.getElementById('app').getBoundingClientRect();
       const top = document.querySelector('.game-topbar').getBoundingClientRect();
       const media = document.querySelector('.scene-media').getBoundingClientRect();
+      const panel = document.getElementById('panel');
+      const panelBox = panel.getBoundingClientRect();
       const actions = document.getElementById('actions').getBoundingClientRect();
-      const buttons = Array.from(document.querySelectorAll('.action-btn')).map(b => b.getBoundingClientRect().height);
-      const names = Array.from(document.querySelectorAll('.scenario-card__title')).map(t => t.textContent);
+      const buttons = Array.from(document.querySelectorAll('.action-btn:not(.action-btn--ghost)')).map(b => b.getBoundingClientRect().height);
+      const text = document.querySelector('.scene-text__body').getBoundingClientRect();
       return {
         screen: window.innerWidth + 'x' + window.innerHeight,
+        appH: Math.round(app.height),
+        screenW: window.innerWidth,
+        viewH: Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight),
         topPct: +(top.height / app.height * 100).toFixed(1),
         mediaPct: +(media.height / app.height * 100).toFixed(1),
-        menuButtonsMinH: Math.min.apply(null, buttons),
+        deadSpace: Math.round(app.bottom - actions.bottom),   // пустота внизу экрана
+        panelH: Math.round(panelBox.height),
+        topH: Math.round(top.height),
+        buttonsMaxH: buttons.length ? Math.round(Math.max.apply(null, buttons)) : 0,
+        textInsidePanel: Math.round(text.bottom) <= Math.round(panelBox.bottom) + 2,
+        appVar: getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim(),
         actionsInside: Math.round(actions.bottom) <= Math.round(app.bottom) + 1,
         bodyNoScroll: document.body.scrollHeight <= window.innerHeight + 1,
-        panelScrollable: document.getElementById('panel').scrollHeight >= document.getElementById('panel').clientHeight,
         firstOption: (document.querySelector('.action-btn__text') || document.querySelector('.action-btn') || {}).textContent.slice(0, 40)
       };
     });
     const problems = [];
-    if (Math.abs(m.topPct - 14) > 1.7) problems.push('шапка ' + m.topPct + '%');
+    if (m.topPct < 13 || m.topPct > 21) problems.push('шапка ' + m.topPct + '%');
+    if (m.topH < 90) problems.push('шапка мелкая: ' + m.topH + 'px');
     if (Math.abs(m.mediaPct - 22) > 1.7) problems.push('картинка ' + m.mediaPct + '%');
-    if (m.menuButtonsMinH < 44) problems.push('кнопка <44px');
+    if (m.deadSpace > 2) problems.push('пустота внизу ' + m.deadSpace + 'px');
+    if (Math.abs(m.appH - m.viewH) > 1) problems.push('высота приложения ' + m.appH + ' ≠ видимой ' + m.viewH);
+    // тексту — не меньше четверти экрана: иначе читать нечего
+    const needPanel = Math.max(110, Math.round(m.appH * (m.screenW <= 340 ? 0.18 : 0.23)));
+    if (m.panelH < needPanel) problems.push('тексту мало места: ' + m.panelH + 'px из ' + needPanel);
+    if (m.buttonsMaxH > 46) problems.push('кнопка варианта ' + m.buttonsMaxH + 'px');
+    if (!m.textInsidePanel) problems.push('текст выходит за панель');
     if (!m.actionsInside) problems.push('кнопки выходят за экран');
     if (!m.bodyNoScroll) problems.push('прокручивается вся страница');
     if (problems.length) bad++;
     console.log((problems.length ? '✗ ' : '✓ ') + name.padEnd(20) + m.screen.padEnd(10) +
-      ' шапка ' + m.topPct + '%  картинка ' + m.mediaPct + '%' +
+      ' шапка ' + m.topPct + '%  картинка ' + m.mediaPct + '%  текст ' + m.panelH + 'px  кнопка ' + m.buttonsMaxH + 'px' +
       (problems.length ? '  → ' + problems.join(', ') : ''));
     await ctx.close();
   }

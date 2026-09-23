@@ -194,6 +194,7 @@
     busy: false,
     backdropSeed: 1,
     imageCache: {},          // картинка локации по ключу места: место не перерисовываем
+    imagePending: {},        // запросы картинок в работе: одно место — один запрос
     imageKey: '',            // ключ места, к которому относится текущий фон
     actorProgress: 1,        // появление фигур на слое действия (0 → 1)
     portrait: '',            // портрет героя этой кампании
@@ -1021,6 +1022,8 @@
   function openGame(game, isNew, worldPending) {
     State.game = game;
     State.busy = false;
+    State.earlyImageDone = false;   // новая кампания: картинку снова можно начинать заранее
+    State.imagePending = {};
     State.runFinished = !!game.legacyApplied;
     State.epilogueOpen = false;
     applyTheme(game);
@@ -1152,6 +1155,7 @@
     const panel = $('#panel');
     if (panel) panel.scrollTop = 0;
     renderChapter(State.game);
+    setTimeout(updatePanelFade, 60);
   }
 
   /**
@@ -1167,10 +1171,12 @@
     box.appendChild(p);
     $('#panel').scrollTop = 0;
     if (o.streaming) {
-      // мастер печатает ответ: текст растёт на глазах, курсор показывает, что он ещё пишет
+      // мастер печатает ответ: текст растёт на глазах, курсор показывает, что он ещё пишет.
+      // Панель держим в начале: места на телефоне мало, читать надо с первой строки.
       p.classList.add('is-streaming');
       p.onclick = null;
-      $('#panel').scrollTop = $('#panel').scrollHeight;
+      $('#panel').scrollTop = 0;
+      updatePanelFade();
       return;
     }
     // пока открыт пролог, панель не прокручиваем — игрок читает вступление
@@ -1192,17 +1198,35 @@
       typingTimer = setInterval(() => {
         i += step;
         p.innerHTML = full.slice(0, i);
-        if (i >= full.length) { finish(); return; }
-        if (!keepTop) $('#panel').scrollTop = $('#panel').scrollHeight;
+        if (i >= full.length) { finish(); updatePanelFade(); return; }
+        updatePanelFade();
       }, tick);
     } else {
       $('#panel').scrollTop = 0;
+      updatePanelFade();
     }
+  }
+
+  /**
+   * Картинку начинаем рисовать, не дожидаясь конца ответа: место и промпт
+   * видны уже в потоке. К моменту, когда сцена допечатана, кадр обычно готов.
+   */
+  function maybeStartImageEarly(full) {
+    const g = State.game;
+    if (!g || State.earlyImageDone) return;
+    const place = E.extractPartialField(full, 'place');
+    const aiPrompt = (/["']imagePrompt["']\s*:\s*["']([^"']{14,})/.exec(full) || [])[1] || '';
+    if (!place && !aiPrompt) return;
+    const key = place ? E.placeKey(g, place) : '';
+    if (key && key === State.imageKey) { State.earlyImageDone = true; return; }
+    State.earlyImageDone = true;
+    loadSceneImage(aiPrompt, null, true, { place: place || '' }).catch(() => {});
   }
 
   /** Пока мастер печатает ответ, сцена показывается по мере появления текста. */
   function previewSceneStream(full) {
     if (!full) { stopScenePreview(); return; }
+    maybeStartImageEarly(full);
     const scene = E.extractPartialField(full, 'scene') || E.extractPartialField(full, 'opening') || E.extractPartialField(full, 'world');
     if (!scene) return;
     State.streamPreview = true;
@@ -1239,6 +1263,11 @@
   }
 
   /* --- умение + варианты действий --- */
+  /** Короткая подпись модификатора: «+1», «0», «−1». */
+  function shortStat(stat, mod) {
+    return (mod > 0 ? '+' : '') + mod;
+  }
+
   function renderActions(options, loading) {
     const wrap = clear($('#actions'));
     const g = State.game;
@@ -1274,12 +1303,20 @@
       const totalMod = mod + buff;
       const advantage = !!g.hero.advantage;
       const chance = Math.round(E.successChance(totalMod, opt.dc, advantage) * 100);
+      // одна строка вместо трёх: сложность и шанс в одном чипе — кнопки ниже, тексту больше места
       const meta = [
-        h('span', { class: 'tag', style: '--c:' + diff.color, text: diff.label }),
-        h('span', { class: 'tag tag--stat', title: stat.hint, text: stat.icon + ' ' + stat.short + ' +' + mod + (buff ? ' (+' + buff + ')' : '') })
+        h('span', { class: 'tag tag--pair', style: '--c:' + diff.color, title: 'сложность и шанс успеха' }, [
+          h('span', { text: diff.label }),
+          h('span', { class: 'tag__sep', text: '·' }),
+          h('span', { class: 'tag__chance', text: chance + '%' }),
+          advantage ? h('span', { class: 'tag__adv', title: 'преимущество: два d20, берём лучший', text: '↑' }) : null
+        ]),
+        h('span', {
+          class: 'tag tag--stat',
+          title: stat.hint + (buff ? ' +' + buff + ' к броску' : ''),
+          text: stat.icon + ' ' + stat.short + ' ' + shortStat(stat, mod + buff)
+        })
       ];
-      if (advantage) meta.push(h('span', { class: 'tag tag--adv', text: 'преимущество' }));
-      meta.push(h('span', { class: 'tag tag--chance', title: 'шанс успеха', text: chance + '%' }));
       wrap.appendChild(h('button', {
         class: 'action-btn', type: 'button',
         onclick: () => onActionChosen(opt)
@@ -1379,37 +1416,78 @@
     const g = State.game;
     if (!g) return;
     const o = opts || {};
-    const place = (g.scene && g.scene.place) || E.memoryOf(g).place || g.chapter || '';
+    const place = o.place || (g.scene && g.scene.place) || E.memoryOf(g).place || g.chapter || '';
     const key = place ? E.placeKey(g, place) : E.styleOf(g).id + ':начало';
-    const cached = !o.force && State.imageCache[key];
+    // то же место, названное другими словами: переиспользуем уже нарисованный кадр
+    const nearKey = !o.force && place
+      ? Object.keys(State.imageCache).find(k => k !== key && E.isSamePlace(k.split(':').slice(1).join(':').replace(/-/g, ' '), place))
+      : null;
+    const cached = !o.force && (State.imageCache[key] || (nearKey && State.imageCache[nearKey]));
     if (cached && cached.url) {
       State.imageKey = key;
       if (g.scene) { g.scene.placeKey = key; }
       setSceneImage(cached.url, cached.source || 'кэш места');
       return;
     }
-    const used = E.placePrompt(g, place, prompt || (g.scene && g.scene.imagePrompt), { noStyle: true });
-    if (!silent) setSceneStatus('рисуем место…');
-    $('#scene-badge').textContent = 'фон рисуется';
+    // Мастер дал промпт сцены — рисуем по нему: герой, противники, предметы и свет
+    // из рассказа. Без промпта собираем кадр только про место.
+    const sceneText = (g.scene && g.scene.text) || '';
+    const aiPrompt = prompt || (g.scene && g.scene.imagePrompt) || '';
+    const used = aiPrompt
+      ? E.composeSceneImagePrompt(g, { aiPrompt, sceneText, npc: g.scene && g.scene.npc })
+      : E.placePrompt(g, place, '', { noStyle: true });
+    // строка «рисуем кадр…» живёт недолго: сцена уже нарисована сама,
+    // а кадр подтянется, когда генератор ответит, — ждать его на экране не нужно
+    if (!silent) {
+      setSceneStatus('рисуем кадр…');
+      clearTimeout(State.imageStatusTimer);
+      State.imageStatusTimer = setTimeout(() => { if (!State.imagePending[key]) setSceneStatus(''); }, 5000);
+    }
+    $('#scene-badge').textContent = 'кадр подтягивается';
     $('#scene-badge').hidden = false;
 
+    // Пока кадр для этого места уже рисуется, второй запрос не запускаем:
+    // генератор занят, и дубль только отнимает время.
+    if (!State.imagePending) State.imagePending = {};
+    if (State.imagePending[key] && !o.force) {
+      const waiting = await State.imagePending[key];
+      if (waiting && waiting.ok) {
+        State.imageCache[key] = { url: waiting.url, source: waiting.source, at: Date.now() };
+        State.imageKey = key;
+        if (g.scene) g.scene.placeKey = key;
+        setSceneImage(waiting.url, waiting.source);
+        $('#scene-badge').hidden = true;
+      }
+      return;
+    }
+    const turnAtRequest = g.turn || 0;
     const seed = E.rnd.seed();
     // гонка источников: что ответит быстрее — то и показываем.
     // Как только картинка показана, отставшие попытки больше не меняют подписи.
     let settled = false;
-    const res = await API.generateImage({
+    const request = API.generateImage({
       prompt: used,
       style: E.styleOf(g).imageStyle,
       aspect: '16:9',
       seed,
       onAttempt: name => {
         if (settled) return;
-        const map = { pollinations: 'пробуем другой генератор…', stock: 'подбираем фон…' };
-        setSceneStatus(map[name] || 'рисуем место…');
+        setSceneStatus(name === 'a0' ? 'пробуем другой генератор…' : 'рисуем кадр…');
       }
     });
+    State.imagePending[key] = request;
+    const res = await request;
+    delete State.imagePending[key];
     settled = true;
     if (res.ok) {
+      // кадр показываем, если место всё ещё актуально: или это тот же ход,
+      // или мастер называет место теми же словами другими буквами
+      const nowPlace = (State.game.scene && State.game.scene.place) || '';
+      const stillHere = State.imageKey === key || State.game.turn === turnAtRequest || E.isSamePlace(nowPlace, place);
+      if (!stillHere) {
+        State.imageCache[key] = { url: res.url, source: res.source, at: Date.now() };
+        return;
+      }
       g.usedImagePrompts = (g.usedImagePrompts || []).concat([used]).slice(-12);
       g.lastImagePrompt = used;
       State.imageCache[key] = { url: res.url, source: res.source, at: Date.now() };
@@ -1451,6 +1529,14 @@
     keys.slice(0, keys.length - 8).forEach(k => { delete State.imageCache[k]; });
   }
 
+  /** Текст длиннее панели — гасим нижнюю строку, чтобы было видно продолжение. */
+  function updatePanelFade() {
+    const panel = $('#panel');
+    if (!panel) return;
+    const more = panel.scrollHeight - panel.scrollTop - panel.clientHeight > 6;
+    panel.classList.toggle('is-scrollable', more);
+  }
+
   /** Строка главы над текстом сцены. */
   function renderChapter(g) {
     const el = $('#scene-chapter');
@@ -1460,6 +1546,34 @@
     if (!chapter || State.prologueOpen) { el.hidden = true; return; }
     el.textContent = 'Глава: ' + chapter;
     el.hidden = false;
+  }
+
+  /**
+   * Высота приложения = высота видимой области.
+   * Safari и вебвью прячут/показывают панель адреса, из-за чего страница
+   * либо оставляет пустоту снизу, либо прячет текст за краем. Меряем сами.
+   */
+  function syncAppHeight() {
+    const vv = window.visualViewport;
+    const h = Math.round((vv && vv.height) || window.innerHeight || 0);
+    if (h > 200) document.documentElement.style.setProperty('--app-h', h + 'px');
+  }
+
+  function watchAppHeight() {
+    syncAppHeight();
+    let raf = 0;
+    const soon = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; syncAppHeight(); });
+    };
+    window.addEventListener('resize', soon);
+    window.addEventListener('orientationchange', soon);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', soon);
+      window.visualViewport.addEventListener('scroll', soon);
+    }
+    // Safari иногда меняет высоту без событий — подстрахуемся редкой проверкой
+    setInterval(syncAppHeight, 1500);
   }
 
   /* ---------------------------------------------------------- */
@@ -2030,6 +2144,7 @@
     if (advantage) extra.push('Герой применил умение и бросал с преимуществом.');
     if (buff) extra.push('К броску добавлен бонус умения +' + buff + '.');
     setActionsLoading('Мастер описывает последствия…');
+    State.earlyImageDone = false;
     slowMasterHint();
     const turn = await API.generateTurn(g, opt, check, {
       onStatus: statusHook(),
@@ -2073,8 +2188,12 @@
     // память кампании: мастер помнит место, людей, нити и прошлые зачины
     E.rememberTurn(g, turn, action);
     const place = String(turn.place || E.memoryOf(g).place || turn.chapter || g.chapter || '').trim();
-    const placeKey = place ? E.placeKey(g, place) : '';
-    const samePlace = !!placeKey && placeKey === State.imageKey;   // место то же — фон оставляем
+    const prevPlace = (g.scene && g.scene.place) || '';
+    // место то же, если мастер назвал его теми же словами или пересказал иначе —
+    // тогда фон остаётся прежним, а меняется только слой действия
+    let samePlace = !!place && State.imageKey === E.placeKey(g, place);
+    if (!samePlace && place && prevPlace) samePlace = E.isSamePlace(prevPlace, place);
+    const placeKey = samePlace && g.scene && g.scene.placeKey ? g.scene.placeKey : (place ? E.placeKey(g, place) : '');
     g.scene = {
       text: turn.scene,
       options: turn.options,
@@ -2756,6 +2875,10 @@
   }
 
   function boot() {
+    watchAppHeight();
+    const panel = $('#panel');
+    if (panel) panel.addEventListener('scroll', updatePanelFade, { passive: true });
+    window.addEventListener('resize', updatePanelFade);
     State.storage = E.createStorage(pickStorage());
     Settings.init(State.storage);
 

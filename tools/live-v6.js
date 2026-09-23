@@ -55,6 +55,18 @@ const shot = (page, name) => page.screenshot({ path: 'shots/' + name, fullPage: 
     legacy: (document.querySelector('#hero-legacy') || {}).hidden
   }));
   console.log(stamp(), 'шаги:', JSON.stringify(labels));
+  // связность набора: у каждого класса числа и приём, у вида — черта, у происхождения — предмет и крючок
+  const heroSet = await page.evaluate(() => ({
+    classes: Array.from(document.querySelectorAll('#class-list .arch-card')).slice(0, 4).map(c => ({
+      title: (c.querySelector('.arch-card__title') || {}).textContent,
+      hint: (c.querySelector('.arch-card__blurb') || {}).textContent,
+      bonus: (c.querySelector('.arch-card__bonus') || {}).textContent.replace(/\s+/g, ' ').trim(),
+      ability: (c.querySelector('.arch-card__ability') || {}).textContent.replace(/\s+/g, ' ').trim().slice(0, 70)
+    })),
+    races: Array.from(document.querySelectorAll('#race-list .chip')).slice(0, 3).map(c => c.textContent.replace(/\s+/g, ' ').trim().slice(0, 70)),
+    origins: Array.from(document.querySelectorAll('#origin-list .arch-card')).slice(0, 3).map(o => o.textContent.replace(/\s+/g, ' ').trim().slice(0, 90))
+  }));
+  console.log(stamp(), 'набор героя:', JSON.stringify(heroSet, null, 1));
   await shot(page, 'v6-02-hero-ready.png');
 
   // «Другой набор»: мастер придумывает заново и не повторяет прошлое

@@ -25,7 +25,7 @@
   const CONFIG = {
     textTimeoutMs: 22000,
     serverTimeoutMs: 30000,   // сервер сам пытается несколько раз, но не тянет время зря
-    imageTimeoutMs: 30000,
+    imageTimeoutMs: 45000,   // генератор картинок бывает загружен — ждём дольше, фон всё это время уже на экране
     retriesPerProvider: 1,
     textModel: 'openai-fast',
     apiKey: BUILTIN_API_KEY,
@@ -598,12 +598,20 @@
       catch (e) { imageCache.delete(key); }
     }
 
+    // Замеры: серверный прокси с ключом — 3–4 с холодным кэшем и 0 с тёплым.
+    // Прямой pollinations из браузера блокируется (net::ERR_BLOCKED_BY_ORB),
+    // a0.dev отвечает дольше 30 с. Поэтому: сервер, его повтор, и только потом
+    // дальние источники. Случайные стоковые фото убраны совсем — кадр должен
+    // совпадать со сценой, а не быть «какой-то картинкой»; пока кадр рисуется,
+    // игрок видит процедурный фон по тексту сцены.
     const server = await probeBackend();
     const queue = [];
     if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
-    queue.push({ name: 'a0', url: built.a0, delay: server && server.imageProxy ? 1200 : 0 });
-    queue.push({ name: 'pollinations', url: withImageKey(built.pollinations), delay: 2500 });
-    queue.push({ name: 'stock', url: built.stock, delay: 9000 });
+    // Без своего сервера (например, страница открыта файлом с GitHub Pages)
+    // картинку просим напрямую у генератора — анонимный адрес из браузера работает.
+    else queue.push({ name: 'pollinations', url: built.pollinations, delay: 0 });
+    // Один запрос на место: генератор бывает занят, а второй запрос на ту же
+    // картинку только съедает время. Повтор случится, когда игрок вернётся сюда.
 
     return new Promise(resolve => {
       let settled = false;
@@ -625,10 +633,15 @@
         const item = { img, url: cand.url, name: cand.name };
         started.push(item);
         img.onload = () => { log('картинка пришла через', cand.name); finish({ ok: true, url: cand.url, source: cand.name, prompt: built.full }); };
-        img.onerror = () => { fails.push(cand.name); };
+        img.onerror = () => {
+          fails.push(cand.name);
+          // все попытки отвалились — не держим игрока: сцена уже нарисована сама
+          if (fails.length >= started.length) finish(null);
+        };
         img.decoding = 'async';
         img.src = cand.url;
       };
+      if (!queue.length) { finish(null); return; }
       queue.forEach((cand, i) => {
         if (!cand.delay) launch(cand);
         else timers.push(setTimeout(() => launch(cand), cand.delay + hedgeFirstMs));

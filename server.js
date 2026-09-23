@@ -469,23 +469,28 @@ const IMAGE_CACHE_TTL = 1000 * 60 * 60;
  * Кандидаты на картинку. Первые два запускаются параллельно (гонка),
  * запасной фон идёт последним и срабатывает почти всегда.
  */
+/**
+ * Генераторы картинок. Случайные стоковые фото убраны: они не совпадают
+ * со сценой, а игрок ждёт именно свой кадр. Пока генератор думает, игра
+ * показывает процедурный фон по тексту сцены — он всегда в тему.
+ */
 function imageCandidates(prompt, seed, w, h) {
   const q = encodeURIComponent(prompt);
   const race = [
-    { name: 'a0', ms: 11000, url: 'https://api.a0.dev/assets/image?text=' + q + '&aspect=16:9&seed=' + seed }
+    {
+      name: 'pollinations', ms: 30000,
+      url: 'https://image.pollinations.ai/prompt/' + q + '?width=' + w + '&height=' + h +
+        '&model=sana&nologo=true&seed=' + seed + (POLLINATIONS_KEY ? '&token=' + encodeURIComponent(POLLINATIONS_KEY) : '')
+    }
   ];
   if (POLLINATIONS_KEY) {
     race.push({
-      name: 'pollinations', ms: 11000,
+      name: 'pollinations-anon', ms: 30000,
       url: 'https://image.pollinations.ai/prompt/' + q + '?width=' + w + '&height=' + h +
-        '&model=sana&nologo=true&seed=' + seed + '&token=' + encodeURIComponent(POLLINATIONS_KEY)
+        '&model=sana&nologo=true&seed=' + seed
     });
   }
-  const fallback = [{
-    name: 'picsum', ms: 12000,
-    url: 'https://picsum.photos/seed/' + encodeURIComponent(prompt.slice(0, 24) + seed) + '/' + (w * 2) + '/' + (h * 2)
-  }];
-  return { race, fallback };
+  return { race, fallback: [] };
 }
 
 /** Одна попытка скачать картинку. Возвращает {type, body} или null. */

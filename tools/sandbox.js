@@ -27,7 +27,8 @@ const { chromium } = require('playwright');
     return route.abort();
   });
 
-  await page.goto('http://localhost:3000/game.html', { waitUntil: 'load' });
+  // без сервера игры: только статика, все внешние запросы рвутся
+  await page.goto('http://localhost:8123/game.html', { waitUntil: 'load' });
   await page.waitForTimeout(800);
 
   const menuOk = await page.isVisible('#screen-menu [data-act="new-game"]');
@@ -46,6 +47,14 @@ const { chromium } = require('playwright');
     const src = img && img.getAttribute('src');
     return src && src.length > 10;
   }, { timeout: 45000 }).catch(() => console.log('  ! картинка не появилась'));
+  // текст печатается «волной» — ждём, пока допечатается
+  let prevText = '';
+  for (let i = 0; i < 20; i++) {
+    const now = await page.evaluate(() => (document.getElementById('scene-text') || {}).textContent || '');
+    if (now && now === prevText) break;
+    prevText = now;
+    await page.waitForTimeout(700);
+  }
   await page.waitForTimeout(300);
 
   const state = await page.evaluate(() => ({

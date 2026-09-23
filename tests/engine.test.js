@@ -819,7 +819,13 @@ test('приём, записанный через «|» или без описа
     'К: Следопыт|тихий шаг|Умение :: идёт по следу без ошибок',
     'К: Травница|знает настойки|Умение :: лечит раны травами'
   ].join('\n'));
-  assert.deepStrictEqual(noBonus.classes[0].bonus, {}, 'без бонуса класс остаётся рабочим');
+  // класс без чисел от мастера всё равно получает характеристики по смыслу занятия:
+  // «Следопыт» живёт восприятием, «Травница» — разумом
+  const bonus0 = noBonus.classes[0].bonus;
+  assert.ok(Object.keys(bonus0).length >= 2, 'характеристики досыпались: ' + JSON.stringify(bonus0));
+  assert.ok(bonus0.per === 2, 'следопыт ведёт восприятием: ' + JSON.stringify(bonus0));
+  const sum = Object.keys(bonus0).reduce((acc, k) => acc + bonus0[k], 0);
+  assert.ok(sum <= 4 && Object.keys(bonus0).every(k => bonus0[k] <= 2), 'пределы соблюдены: ' + sum);
   assert.ok(noBonus.classes[0].ability.name, 'название приёма не пустое');
   assert.ok(['heal', 'bless', 'advantage'].includes(noBonus.classes[0].ability.kind));
 });
@@ -1063,4 +1069,37 @@ test('победа: цель взята — финал с ценой, +3 пеп�
   assert.ok(/дошёл до конца/.test(summary), 'прошлая жизнь описана как победа');
   const next = E.legacyNextUnlock(res.legacy);
   assert.ok(next && next.title === 'Носитель наследия', 'после первой кампании ждёт наследник: ' + (next && next.title));
+});
+
+test('набор героя всегда с числами и связкой с миром', () => {
+  // мастер дал только названия — игра сама досыпает характеристики, предметы и крючки
+  const bare = E.heroProfileFromText([
+    'К: Пепельный пилигрим|первое дыхание огня|Умение :: исцеляет жарами',
+    'К: Пульсари Облачный|звездный шквал|Умение :: затмевает врага',
+    'П: Сирота каравана',
+    'Р: Песчаный еретик'
+  ].join('\n'));
+  assert.strictEqual(bare.classes.length, 2, 'оба класса разобраны');
+  bare.classes.forEach(c => {
+    assert.ok(Object.keys(c.bonus).length >= 2, 'у класса есть характеристики: ' + c.title);
+    assert.ok(c.hint, 'у класса есть подсказка');
+    assert.ok(c.ability && c.ability.name, 'у класса есть приём');
+  });
+  assert.ok(bare.origins[0].item, 'происхождение даёт предмет: ' + bare.origins[0].item);
+  assert.ok(bare.origins[0].hook, 'происхождение даёт крючок');
+  assert.ok(bare.races[0].trait, 'вид даёт врождённую особенность: ' + bare.races[0].trait);
+
+  // связь с миром: в промпте героя есть беда истории, роль, место и детали мира
+  const scenario = E.scenarioById('azeroth');
+  const prompt = E.buildHeroPrompt({
+    title: 'Пепел Азерота', gameName: 'World of Warcraft', genre: 'MMO',
+    place: 'плато с осадными стенами', role: 'странник без фракции',
+    ingredients: ['разлом', 'нежить', 'гильдии']
+  }, scenario, {});
+  assert.ok(prompt.includes('Собрать отряд'), 'мастер видит главную задачу мира');
+  assert.ok(/ГЛАВНОЕ В ЭТОЙ ИСТОРИИ/.test(prompt), 'есть блок про беду мира');
+  assert.ok(prompt.includes('плато с осадными стенами'), 'место действия в промпте');
+  assert.ok(prompt.includes('странник без фракции'), 'роль героя в промпте');
+  assert.ok(/характеристики подходят занятию/i.test(prompt), 'мастеру сказано про числа по смыслу');
+  assert.ok(E.heroPromptThreat({}, scenario).includes('нежить'), 'угроза берётся из цели мира');
 });
