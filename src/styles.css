@@ -586,16 +586,19 @@ button { font-family: inherit; }
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 12px 13px 6px;
+  padding: 12px 13px 12px;   /* снизу воздух: последняя строка не режется кнопками */
   background:
     radial-gradient(120% 60% at 50% 0%, rgba(20, 40, 44, 0.5), transparent 70%),
     var(--bg);
 }
-.scene-text__body { font-size: 15px; line-height: 1.48; }
-/* текст длиннее панели — мягко гасим нижнюю строку, чтобы было видно, что дальше есть */
+.scene-text__body { font-size: calc(15px * var(--scale-text, 1)); line-height: 1.48; }
+/*
+   Текст длиннее панели — нижняя строка мягко тает, а не обрывается по буквам:
+   видно, что дальше есть продолжение, и палец сам тянется прокрутить.
+*/
 .panel.is-scrollable {
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 20px), rgba(0, 0, 0, 0.25));
-  mask-image: linear-gradient(180deg, #000 calc(100% - 20px), rgba(0, 0, 0, 0.25));
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 24px), rgba(0, 0, 0, 0.06));
+  mask-image: linear-gradient(180deg, #000 calc(100% - 24px), rgba(0, 0, 0, 0.06));
 }
 .scene-text__body b { color: #fff; }
 .scene-npc {
@@ -704,7 +707,7 @@ button { font-family: inherit; }
 }
 .action-btn:active { transform: scale(0.982); border-color: var(--accent); }
 .action-btn[disabled] { opacity: 0.5; }
-.action-btn__text { flex: 1 1 auto; font-size: 13.5px; line-height: 1.3; }
+.action-btn__text { flex: 1 1 auto; font-size: calc(13.5px * var(--scale-text, 1)); line-height: 1.3; }
 .action-btn__meta {
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
   gap: 3px 4px; flex: 0 1 auto; max-width: 52%;
@@ -973,9 +976,9 @@ body[data-screen="game"] .toasts { display: none; }
   .menu-head { margin-top: 4vh; }
   .scenario-card__cover { height: 88px; }
   .action-btn { min-height: 42px; padding: 7px 10px; }
-  .action-btn__text { font-size: 13px; }
+  .action-btn__text { font-size: calc(13px * var(--scale-text, 1)); }
   .actions { gap: 5px; }
-  .scene-text__body { font-size: 14.5px; }
+  .scene-text__body { font-size: calc(14.5px * var(--scale-text, 1)); }
 }
 @media (max-width: 360px) {
   /* очень узкие экраны: варианты держим в две строки, текст сцены чуть мельче */
@@ -1585,7 +1588,7 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
 
 /* --- строка главы и «открыто» в эпилоге --- */
 .scene-chapter {
-  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  font-size: calc(12px * var(--scale-text, 1)); letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--muted, #9aa6b2); margin: 0 0 6px 2px;
 }
 .epilogue__unlock {
@@ -1609,3 +1612,483 @@ body[data-theme="oled"] { --bg: #000; --bg-2: #050505; }
 #epilogue .prologue__foot .btn { width: 100%; }
 #epilogue .prologue__foot .btn:last-child { grid-column: 1 / -1; }
 #epilogue .prologue__body { padding-bottom: 14px; }
+
+/* ============================================================ */
+/* ЖИВАЯ СЦЕНА: оформление отзывается на то, что происходит      */
+/* ============================================================ */
+/*
+   Настроение приходит из движка (E.sceneMood) в виде data-mood на экране игры.
+   Задача — чтобы игрок почувствовал ход телом, а не только прочитал: страх
+   ползёт и дрожит, рана трясёт, победа вспыхивает. Амплитуды маленькие:
+   текст должен оставаться читаемым, а движение — уместным.
+*/
+#screen-game {
+  --mood-tint: transparent;
+  --mood-motion: 0;
+  --tremor: 0;
+}
+
+/* Подкраска кадра и краёв: цвет настроения проявляется мягко, за секунду */
+.scene-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* настроение проявляется по краям кадра: центр остаётся чистым, как окно в мир */
+  background:
+    radial-gradient(120% 90% at 50% 120%, color-mix(in srgb, var(--mood-tint, transparent) 42%, transparent), transparent 62%),
+    linear-gradient(180deg, transparent 62%, color-mix(in srgb, var(--mood-tint, transparent) 34%, transparent));
+  transition: background 900ms ease;
+  z-index: 3;
+  mix-blend-mode: soft-light;
+}
+.panel {
+  transition: background 700ms ease, box-shadow 700ms ease;
+}
+
+/* --- Движение текста ---------------------------------------------------- */
+.scene-text__body {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/*
+   Страх и мрак: текст медленно «ползёт» и одновременно мелко дрожит.
+   Это два разных свойства — translate и transform: если анимировать оба
+   через transform, побеждает последняя анимация и «ползение» пропадает.
+*/
+#screen-game[data-mood="dread"] .scene-text__body,
+#screen-game[data-mood="dark"] .scene-text__body {
+  animation: mood-crawl calc(18s - var(--tremor) * 4s) ease-in-out infinite,
+             mood-tremor calc(4.6s - var(--tremor) * 0.6s) ease-in-out infinite;
+}
+/* боль: заметная дрожь, будто рука дрожит вместе с героем */
+#screen-game[data-mood="hurt"] .scene-text__body {
+  animation: mood-shake 2.6s ease-in-out infinite;
+}
+/* опасность: короткие толчки, текст подрагивает от напряжения */
+#screen-game[data-mood="tense"] .scene-text__body {
+  animation: mood-tense 3.4s ease-in-out infinite;
+}
+/* победа: текст приподнимается и светится */
+#screen-game[data-mood="triumph"] .scene-text__body {
+  animation: mood-rise 3.6s ease-out 1;
+  text-shadow: 0 0 18px rgba(142, 255, 205, 0.18);
+}
+/* ирония: лёгкое покачивание, как усмешка */
+#screen-game[data-mood="ironic"] .scene-text__body {
+  animation: mood-sway 7s ease-in-out infinite;
+}
+#screen-game[data-mood="book"] .scene-text__body,
+#screen-game[data-mood="soft"] .scene-text__body { animation: none; }
+
+/* игрок выбрал покой — движение выключаем совсем */
+#screen-game[data-motion="off"] .scene-text__body,
+#screen-game[data-motion="off"] .scene-media img { animation: none !important; }
+
+@keyframes mood-crawl {
+  0%, 100% { translate: 0 1.4px; }
+  50%      { translate: 0 -2.2px; }
+}
+@keyframes mood-tremor {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  25%      { transform: translate3d(-0.4px, 0.3px, 0); }
+  50%      { transform: translate3d(0.4px, -0.3px, 0); }
+  75%      { transform: translate3d(0.3px, 0.4px, 0); }
+}
+@keyframes mood-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  10%      { transform: translate3d(-1.1px, 0.5px, 0); }
+  20%      { transform: translate3d(1.1px, -0.5px, 0); }
+  30%      { transform: translate3d(-0.8px, 0.4px, 0); }
+  40%      { transform: translate3d(0.8px, 0.4px, 0); }
+  55%      { transform: translate3d(0, 0, 0); }
+}
+@keyframes mood-tense {
+  0%, 92%, 100% { transform: translate3d(0, 0, 0); }
+  94%           { transform: translate3d(-0.9px, 0, 0); }
+  96%           { transform: translate3d(0.9px, 0, 0); }
+  98%           { transform: translate3d(-0.5px, 0, 0); }
+}
+@keyframes mood-rise {
+  0%   { transform: translate3d(0, 4px, 0); opacity: 0.7; }
+  40%  { transform: translate3d(0, 0, 0); opacity: 1; }
+  100% { transform: translate3d(0, 0, 0); opacity: 1; }
+}
+@keyframes mood-sway {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-0.25deg); }
+}
+
+/* Волна света по тексту, пока он печатается: слова будто набегают */
+.scene-text__body.is-typing,
+.scene-text__body.is-streaming {
+  background-image: linear-gradient(100deg,
+    transparent 34%, rgba(190, 255, 232, 0.10) 46%, rgba(255, 255, 255, 0.06) 52%, transparent 64%);
+  background-size: 240% 100%;
+  background-repeat: no-repeat;
+  animation: wave-sweep 3.1s linear infinite;
+}
+@keyframes wave-sweep {
+  0%   { background-position: 130% 0; }
+  100% { background-position: -40% 0; }
+}
+
+/* Край панели подсказывает состояние: рана — красная кромка, победа — зелёная */
+/*
+   Подкраска панели — тонкой кромкой и лёгким дыханием сверху, а не плитой:
+   текст должен читаться, цвет — только намекать на настроение.
+*/
+.panel {
+  background-image:
+    linear-gradient(180deg, var(--mood-wash, transparent), transparent 42%),
+    radial-gradient(120% 60% at 50% 0%, rgba(20, 40, 44, 0.5), transparent 70%);
+}
+#screen-game[data-mood="hurt"]  .panel { --mood-wash: rgba(255, 90, 90, 0.10);  border-left: 2px solid rgba(255, 107, 107, 0.42); }
+#screen-game[data-mood="dread"] .panel { --mood-wash: rgba(120, 90, 220, 0.10); border-left: 2px solid rgba(150, 120, 255, 0.36); }
+#screen-game[data-mood="triumph"] .panel { --mood-wash: rgba(80, 230, 175, 0.09); border-left: 2px solid rgba(111, 227, 184, 0.45); }
+#screen-game[data-mood="tense"] .panel { --mood-wash: rgba(255, 170, 70, 0.09); border-left: 2px solid rgba(255, 180, 92, 0.4); }
+#screen-game[data-mood="dark"]  .panel { --mood-wash: rgba(90, 130, 190, 0.05); }
+#screen-game[data-mood="ironic"] .panel { --mood-wash: rgba(180, 170, 120, 0.05); }
+
+/* Кадр отзывается: удар — вспышка и толчок, победа — светлая волна */
+.scene-media.is-hit { animation: media-hit 620ms ease-out 1; }
+.scene-media.is-hit::after { background: radial-gradient(60% 70% at 50% 60%, rgba(255, 80, 80, 0.35), transparent 70%); }
+.scene-media.is-win { animation: media-win 1200ms ease-out 1; }
+@keyframes media-hit {
+  0%   { transform: translate3d(0, 0, 0) scale(1); filter: brightness(1); }
+  18%  { transform: translate3d(-3px, 1px, 0) scale(1.012); filter: brightness(1.25) saturate(1.2); }
+  38%  { transform: translate3d(3px, -1px, 0) scale(1.008); filter: brightness(0.92); }
+  60%  { transform: translate3d(-2px, 0, 0) scale(1.004); }
+  100% { transform: translate3d(0, 0, 0) scale(1); filter: brightness(1); }
+}
+@keyframes media-win {
+  0%   { filter: brightness(1) saturate(1); }
+  35%  { filter: brightness(1.22) saturate(1.15); }
+  100% { filter: brightness(1) saturate(1); }
+}
+
+/* ============================================================ */
+/* ПАЛЕЦ И ЭКРАН: всё, что нажимается, ведёт себя как кнопка     */
+/* ============================================================ */
+button, .action-btn, .icon-btn, .log-toggle, .chip, [data-act] {
+  touch-action: manipulation;      /* без задержки двойного тапа и без зума */
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Палец должен попадать, но текст важнее: кнопки держим компактными (на 13 mini
+   место дорогое), а удобство даём откликом и волной, а не высотой. */
+.icon-btn, .log-toggle {
+  min-height: 36px;
+  min-width: 38px;
+}
+.action-btn {
+  min-height: 44px;
+  position: relative;
+  overflow: hidden;
+  -webkit-touch-callout: none;
+}
+.action-btn:active { transform: scale(0.975); }
+.action-btn:focus-visible, .icon-btn:focus-visible, .log-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+/* отклик на касание: световая волна от точки нажатия */
+.tap-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(circle, rgba(150, 245, 214, 0.35), rgba(150, 245, 214, 0) 70%);
+  animation: tap-ripple 520ms ease-out forwards;
+}
+@keyframes tap-ripple {
+  to { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}
+/* Полоса здоровья живёт: урон толкает её, лечение наполняет */
+.hp-track { position: relative; overflow: hidden; }
+.hp-fill { transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+.hp-fill.is-hurt { animation: hp-hurt 620ms ease-out 1; }
+@keyframes hp-hurt {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 90, 90, 0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(255, 90, 90, 0); }
+}
+
+/* Прокрутка пальцем: инерция, никаких «резинок» поверх интерфейса */
+.panel, .scroll, .modal__body { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.actions, #actions { scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+  #screen-game[data-mood] .scene-text__body { animation: none !important; }
+  .scene-text__body.is-typing { animation: none; }
+  .scene-media.is-hit, .scene-media.is-win { animation: none; }
+  .tap-ripple { display: none; }
+}
+
+/* ============================================================ */
+/* БРОСОК КУБИКА: провал трясёт экран, крит вспыхивает            */
+/* ============================================================ */
+#screen-game.is-shake { animation: screen-shake 520ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 1; }
+@keyframes screen-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  12%      { transform: translate3d(-5px, 2px, 0) rotate(-0.2deg); }
+  28%      { transform: translate3d(5px, -2px, 0) rotate(0.2deg); }
+  44%      { transform: translate3d(-4px, 1px, 0); }
+  62%      { transform: translate3d(3px, -1px, 0); }
+  80%      { transform: translate3d(-2px, 1px, 0); }
+}
+#screen-game.is-flash::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: radial-gradient(70% 55% at 50% 45%, rgba(190, 255, 226, 0.42), rgba(120, 255, 200, 0.12) 45%, transparent 75%);
+  animation: crit-flash 720ms ease-out 1;
+}
+@keyframes crit-flash {
+  0%   { opacity: 0; }
+  14%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #screen-game.is-shake { animation: none; }
+  #screen-game.is-flash::before { animation: none; opacity: 0; }
+}
+
+/* Старые iOS (до 16.4) не знают отдельного свойства translate — тогда «ползение»
+   отдаём transform, а дрожь выключаем, чтобы анимации не перебивали друг друга. */
+@supports not (translate: 0 0) {
+  #screen-game[data-mood="dread"] .scene-text__body,
+  #screen-game[data-mood="dark"] .scene-text__body {
+    animation: mood-crawl-legacy 14s ease-in-out infinite;
+  }
+}
+@keyframes mood-crawl-legacy {
+  0%, 100% { transform: translate3d(0, 1.4px, 0); }
+  50%      { transform: translate3d(0, -2.2px, 0); }
+}
+
+/* ============================================================
+   Новые экраны: журнал, карта, забег, книги, облако
+   Всё под палец: строки не ниже 44 px, шрифт читается на 375 px.
+   ============================================================ */
+
+.sub-header__note {
+  font-size: 12px;
+  opacity: .62;
+  margin-left: auto;
+  padding-right: 4px;
+  white-space: nowrap;
+}
+
+/* --- журнал --- */
+.journal-goal {
+  margin: 10px 12px 4px;
+  padding: 12px 13px;
+  border-radius: 14px;
+  background: var(--card, rgba(255,255,255,.06));
+  border: 1px solid rgba(255,255,255,.08);
+}
+.journal-goal__label { font-size: 12px; opacity: .66; letter-spacing: .04em; text-transform: uppercase; }
+.journal-goal__text { font-size: 15px; margin: 4px 0 6px; line-height: 1.35; }
+
+.journal-block { margin: 12px 12px 0; }
+.journal-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 12px 0; }
+.journal-col {
+  padding: 10px 11px;
+  border-radius: 13px;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.07);
+}
+.journal-list { list-style: none; margin: 0; padding: 0; }
+.journal-list li {
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 4px 0 4px 13px;
+  position: relative;
+}
+.journal-list li::before {
+  content: '·';
+  position: absolute;
+  left: 3px;
+  opacity: .55;
+}
+.journal-chronicle { margin: 14px 12px 24px; font-style: italic; }
+
+/* арка кампании: вехи */
+.arc-list { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+.arc-step {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  opacity: .72;
+}
+.arc-step.is-now {
+  opacity: 1;
+  border-color: var(--accent, #9fe6d0);
+  box-shadow: 0 0 0 1px rgba(159,230,208,.22) inset;
+}
+.arc-step.is-done { opacity: .5; }
+.arc-step__dot { font-size: 14px; line-height: 1.3; }
+.arc-step__title { font-size: 14px; }
+.arc-step__body .small { font-size: 12px; line-height: 1.35; }
+
+/* знакомые */
+.npc-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.npc-card {
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.07);
+}
+.npc-card__name { font-size: 14px; }
+
+/* --- карта --- */
+.map-canvas {
+  margin: 10px 12px 0;
+  border-radius: 16px;
+  background: radial-gradient(120% 90% at 50% 20%, rgba(255,255,255,.07), rgba(0,0,0,.28));
+  border: 1px solid rgba(255,255,255,.08);
+  overflow: hidden;
+}
+.map-svg { width: 100%; height: auto; display: block; }
+.map-edge { stroke: rgba(255,255,255,.22); stroke-width: 1; stroke-dasharray: 3 3; }
+.map-node { fill: rgba(255,255,255,.28); stroke: rgba(255,255,255,.5); stroke-width: 1; }
+.map-node.is-now { fill: var(--accent, #9fe6d0); stroke: #fff; }
+.map-label { fill: rgba(255,255,255,.8); font-size: 9px; font-family: inherit; }
+.map-list { padding: 10px 12px 24px; display: flex; flex-direction: column; gap: 6px; }
+.map-row {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+}
+.map-row.is-now { border-color: var(--accent, #9fe6d0); }
+.map-row__title { font-size: 14px; }
+
+/* --- забег --- */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 12px 0; }
+.stat-cell {
+  padding: 10px 6px;
+  border-radius: 13px;
+  text-align: center;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.07);
+}
+.stat-cell__icon { font-size: 15px; }
+.stat-cell__value { font-size: 17px; font-weight: 600; margin-top: 2px; }
+.stat-cell__label { font-size: 10px; opacity: .6; margin-top: 1px; }
+
+/* --- книги --- */
+.book-card {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin: 10px 12px 0;
+  padding: 12px;
+  border-radius: 15px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.book-card__icon { font-size: 26px; line-height: 1; }
+.book-card__body { flex: 1; }
+.book-card__title { font-size: 16px; }
+.book-card__tag { font-size: 11px; opacity: .6; margin: 2px 0 5px; }
+.book-card__actions { align-self: center; }
+.book-end__title { margin: 0 0 6px; font-size: 18px; }
+
+/* --- облако --- */
+.cloud-code {
+  font-size: 30px;
+  letter-spacing: .28em;
+  text-align: center;
+  padding: 14px 6px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.06);
+  border: 1px dashed rgba(255,255,255,.22);
+  font-variant-numeric: tabular-nums;
+}
+.footer-bar--cloud { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* --- настройки: выбор каналов --- */
+.rules-row--tall { flex-wrap: wrap; }
+.rules-btn__title { display: block; font-size: 14px; }
+.rules-btn__hint { display: block; font-size: 11px; opacity: .62; margin-top: 2px; line-height: 1.3; }
+.rules-btn.is-off { opacity: .42; }
+
+@media (max-width: 360px) {
+  .journal-cols, .npc-list { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .cloud-code { font-size: 24px; letter-spacing: .2em; }
+}
+
+/* ============================================================
+   Размер текста: три ступени (пункт 23)
+   Шапка и кадр остаются в рамках 17% / 22% — меняются буквы и отступы.
+   ============================================================ */
+
+body.text-s {
+  --scale-text: .92;
+  --scale-gap: .92;
+}
+body.text-m {
+  --scale-text: 1;
+  --scale-gap: 1;
+}
+body.text-l {
+  --scale-text: 1.14;
+  --scale-gap: 1.06;
+}
+
+body.text-l .panel { padding-left: 12px; padding-right: 12px; }
+body.text-l .action-btn { min-height: 48px; }
+body.text-s .action-btn { min-height: 42px; }
+
+/* ============================================================
+   Галерея кадров и карточка кампании
+   ============================================================ */
+
+.epilogue__tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 6px;
+}
+.frames { margin-top: 10px; }
+.frames__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+  margin-top: 8px;
+}
+.frames__img {
+  width: 100%;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 11px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.04);
+}
+
+/* ============================================================
+   Мягкое появление кадра и отклик на наклон (пункт 16)
+   ============================================================ */
+
+@keyframes imgIn { from { opacity: 0; transform: scale(1.03); filter: brightness(.86); } to { opacity: 1; transform: scale(1); filter: brightness(1); } }
+.scene-media img.is-visible { animation-duration: .45s; }
+
+@supports (translate: 0 0) {
+  .scene-media img,
+  .scene-media canvas {
+    translate: var(--tilt-x, 0) var(--tilt-y, 0);
+    transition: translate .25s ease-out;
+  }
+}

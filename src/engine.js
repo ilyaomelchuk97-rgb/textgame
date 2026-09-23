@@ -722,6 +722,21 @@
         const main = statForText(c.title + ' ' + (c.hint || ''));
         const second = STAT_SECOND[main] || 'wit';
         c.bonus = {}; c.bonus[main] = 2; c.bonus[second] = 1;
+      } else {
+        // Мастер иногда даёт одну характеристику или две по +1: тогда класс
+        // слабее остальных и выбор становится неравным. Досыпаем до правила
+        // «+2 к главной и +1 к подходящей второй».
+        const stats = Object.keys(c.bonus);
+        const total = stats.reduce((sum, k) => sum + (Number(c.bonus[k]) || 0), 0);
+        if (stats.length === 1) {
+          const main = stats[0];
+          if ((Number(c.bonus[main]) || 0) < 2) c.bonus[main] = 2;
+          const second = STAT_SECOND[main] || statForText(c.hint || '') || 'wit';
+          if (second !== main) c.bonus[second] = 1;
+        } else if (total < 3) {
+          const top = stats.slice().sort((a, b) => (Number(c.bonus[b]) || 0) - (Number(c.bonus[a]) || 0))[0];
+          c.bonus[top] = Math.min(2, (Number(c.bonus[top]) || 0) + 1);
+        }
       }
       if (!c.ability || !c.ability.name) {
         c.ability = abilityFromOption((c.hint || '') + ' ' + c.title, c.id);
@@ -798,6 +813,7 @@
     if (!Array.isArray(m.threads)) m.threads = [];
     if (!Array.isArray(m.openings)) m.openings = [];
     if (typeof m.place !== 'string') m.place = '';
+    if (!Array.isArray(m.places)) m.places = [];
     if (!Number.isFinite(m.step)) m.step = 0;
     if (!Number.isFinite(m.idle)) m.idle = 0;
     if (!Number.isFinite(m.setbacks)) m.setbacks = 0;
@@ -844,6 +860,8 @@
     });
     return [
       m.place ? `ГДЕ МЫ: ${m.place}.` : '',
+      arcLine(game),
+      chronicleLine(game),
       step ? `ШАГ ПЛАНА: ${step}${m.idle >= 2 ? ` — ${m.idle} хода без сдвига, пора двигать историю` : ''}` : '',
       m.facts.length ? `ПОМНИ: ${m.facts.slice(-6).join('; ')}.` : '',
       m.deeds.length ? `ЧТО ДЕЛАЛ ГЕРОЙ: ${m.deeds.join('; ')}.` : '',
@@ -866,7 +884,19 @@
   /** Что запомнить после хода: место, NPC, нити, факты, продвижение. */
   function rememberTurn(game, turn, action) {
     const m = memoryOf(game);
-    if (turn && turn.place) m.place = String(turn.place).trim().slice(0, 60);
+    if (turn && turn.place) {
+      const place = String(turn.place).trim().slice(0, 60);
+      const known = m.places.find(pl => pl.title.toLowerCase() === place.toLowerCase());
+      if (known) {
+        known.turns += 1;
+        known.at = game.turn || 0;
+        if (turn.chapter) known.chapter = String(turn.chapter).slice(0, 40);
+      } else {
+        m.places.push({ title: place, turns: 1, at: game.turn || 0, chapter: String(turn.chapter || game.chapter || '').slice(0, 40) });
+        if (m.places.length > 12) m.places.shift();
+      }
+      m.place = place;
+    }
     if (turn && turn.scene) {
       const o = openingOf(turn.scene);
       if (o && m.openings[m.openings.length - 1] !== o) m.openings.push(o);
@@ -894,6 +924,8 @@
         }
       }
     }
+    // Летописец: раз в пять ходов сворачиваем память в несколько строк
+    if ((game.turn || 0) % 5 === 0 || !game.chronicle) compactMemory(game);
     if (turn && turn.thread) {
       const th = String(turn.thread).trim().slice(0, 90);
       if (th && m.threads.indexOf(th) < 0) {
@@ -938,6 +970,160 @@
     return m;
   }
 
+
+  /* ---------------------------------------------------------- */
+  /* Карта мест: узлы из памяти и переходы между ними             */
+  /* ---------------------------------------------------------- */
+
+  /**
+   * Мест в памяти немного, но игрок их не видит. Собираем узлы: где были,
+   * сколько ходов там провели и где находимся сейчас. Порядок — по первому
+   * появлению в летописи ходов, поэтому карта повторяет путь героя.
+   */
+  function placeGraph(game) {
+    const m = memoryOf(game);
+    const nodes = [];
+    const byTitle = {};
+    const add = (title, turns, chapter) => {
+      const clean = String(title || '').replace(/\s+/g, ' ').trim();
+      if (!clean) return null;
+      const key = clean.toLowerCase();
+      if (byTitle[key]) {
+        byTitle[key].turns += turns || 0;
+        if (chapter) byTitle[key].chapter = chapter;
+        return byTitle[key];
+      }
+      const node = { key: placeKey(game, clean) || key, title: clean, turns: turns || 0, chapter: chapter || '', now: false };
+      byTitle[key] = node;
+      nodes.push(node);
+      return node;
+    };
+    // сначала путь из летописи ходов (там место у каждого хода), затем память
+    ((game && game.log) || []).forEach(e => add(e.place, 1, e.chapter));
+    if (!nodes.length) m.places.forEach(pl => add(pl.title, pl.turns, pl.chapter));
+    else m.places.forEach(pl => { if (!byTitle[String(pl.title).toLowerCase()]) add(pl.title, pl.turns, pl.chapter); });
+
+    const here = String((game && game.scene && game.scene.place) || m.place || '').trim();
+    if (here) {
+      const node = add(here, 0, (game && game.scene && game.scene.chapter) || '');
+      if (node) node.now = true;
+    }
+    return nodes.map(n => ({ key: n.key, title: n.title, turns: n.turns, chapter: n.chapter, now: n.now }));
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Подача по абзацам: сцена читается как разговор, а не ровно  */
+  /* ---------------------------------------------------------- */
+
+  /**
+   * Разбор сцены на абзацы с подачей. Описание — тёмным голосом, реплика —
+   * живой, ранение — глухим, победа — светлым. Озвучка получает не одну
+   * интонацию на сцену, а несколько — так слушается заметно живее.
+   */
+  function paragraphMoods(text) {
+    const parts = String(text || '').split(/\n{2,}/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const list = parts.length ? parts : [String(text || '').trim()].filter(Boolean);
+    const hurt = /(кров|боль|ранен|рана|хрип|осколк|удар(?!ы? в)|вывих|жжёт|обжог)/i;
+    const dread = /(тьма|темнот|тишин|страх|жутк|мёртв|мертв|холод|туман|нежить|шепот|шёпот)/i;
+    const joy = /(свет|тепл|улыб|смех|рассвет|надежд|победа|получилось|жив)/i;
+    const tense = /(быстр|рывком|спешн|сейчас же|успей|готовь|опасн|беги)/i;
+    return list.map((piece, i) => {
+      const quoted = /[«"„].+[»"“]/.test(piece);
+      let mood = 'book';
+      if (quoted) mood = 'ironic';
+      else if (hurt.test(piece)) mood = 'hurt';
+      else if (dread.test(piece)) mood = 'dread';
+      else if (tense.test(piece)) mood = 'tense';
+      else if (joy.test(piece)) mood = 'heroic';
+      else if (i === 0) mood = 'dark';
+      return { text: piece, mood, pause: quoted ? 260 : 180 };
+    });
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Кампания текстом: чтобы историю можно было перечитать и отдать */
+  /* ---------------------------------------------------------- */
+
+  function campaignMarkdown(game) {
+    if (!game) return '';
+    const h = game.hero || {};
+    const m = memoryOf(game);
+    const lines = [];
+    lines.push('# ' + (game.title || 'Кампания'));
+    lines.push('');
+    lines.push('**Мир:** ' + (game.scenarioTitle || game.scenarioId));
+    lines.push('**Герой:** ' + [h.name, h.className, h.raceName, h.originName].filter(Boolean).join(' · '));
+    lines.push('**Цель:** ' + (game.goal || '—'));
+    lines.push('**Ходов:** ' + (game.turn || 0) + ' · **Финал:** ' +
+      (game.ending === 'victory' ? 'цель достигнута' : (game.over ? 'герой пал' : 'история в пути')));
+    lines.push('');
+    if (game.intro && game.intro.world) { lines.push('## Мир'); lines.push(''); lines.push(game.intro.world); lines.push(''); }
+    if (game.intro && game.intro.backstory) { lines.push('## Предыстория героя'); lines.push(''); lines.push(game.intro.backstory); lines.push(''); }
+    const arc = arcOf(game);
+    if (arc.done.length) {
+      lines.push('## Пройденные вехи');
+      lines.push('');
+      arc.done.forEach(d => lines.push('- ' + d.title + (d.why ? ' — ' + d.why : '')));
+      lines.push('');
+    }
+    lines.push('## Ход за ходом');
+    lines.push('');
+    let turn = 0;
+    (game.log || []).forEach(e => {
+      if (e.kind === 'action') {
+        turn += 1;
+        lines.push('### Ход ' + turn + (e.chapter ? ' · ' + e.chapter : ''));
+        lines.push('');
+        lines.push('> ' + String(e.text || '').replace(/\n/g, ' '));
+        if (e.meta) lines.push('> *' + e.meta + '*');
+        lines.push('');
+      } else if (e.kind === 'gm') {
+        lines.push(String(e.text || '').replace(/\n{2,}/g, '\n\n'));
+        lines.push('');
+      } else if (e.kind === 'npc') {
+        lines.push('**' + String(e.text || '') + '**');
+        lines.push('');
+      }
+    });
+    if (m.npcs.length) {
+      lines.push('## Кто остался в памяти');
+      lines.push('');
+      m.npcs.forEach(n => lines.push('- ' + [n.name, n.role, n.attitude].filter(Boolean).join(' — ')));
+      lines.push('');
+    }
+    if (m.threads.length) {
+      lines.push('## Открытые нити');
+      lines.push('');
+      m.threads.forEach(t => lines.push('- ' + t));
+      lines.push('');
+    }
+    lines.push('---');
+    lines.push('_Записано игрой «Кости и Судьбы»._');
+    return lines.join('\n');
+  }
+
+  /** Данные итоговой карточки: их рисует canvas и отдаёт картинкой. */
+  function runCard(game, legacyRes) {
+    const m = memoryOf(game);
+    const h = game.hero || {};
+    const wins = (game.log || []).filter(e => e.kind === 'action' && /d20/.test(String(e.meta || ''))).length;
+    const arc = arcOf(game);
+    return {
+      title: game.title || 'Кампания',
+      world: game.scenarioTitle || '',
+      hero: [h.name, h.className, h.raceName].filter(Boolean).join(' · '),
+      verdict: game.ending === 'victory' ? 'Цель достигнута' : (game.over ? 'Герой пал — но история осталась' : 'История не закончена'),
+      mood: (game.hero && game.hero.hp <= 2) ? '🕯' : (game.ending === 'victory' ? '🏆' : '🎲'),
+      turns: game.turn || 0,
+      checks: wins,
+      milestones: arc.done.map(d => d.title).slice(0, 3),
+      facts: (m.facts.length ? m.facts : m.deeds).slice(-3),
+      people: m.npcs.slice(0, 3).map(n => n.name),
+      ashes: (legacyRes && legacyRes.ashes) || 0,
+      place: m.place || '',
+      generatedAt: Date.now()
+    };
+  }
 
   /* ---------------------------------------------------------- */
   /* Арт-направление игры: один стиль на всю кампанию           */
@@ -1015,9 +1201,26 @@
   }
 
   function styleOf(game) {
-    if (!game.style || !game.style.imageStyle) {
-      game.style = artStyleFor(game.worldConfig, scenarioById(game.scenarioId), { gameName: game.title });
+    // Жанровый стиль считаем один раз и держим отдельно: игрок может сколько
+    // угодно переключать пресеты, вернувшись на «как идёт», он получит то же.
+    if (!game.styleBase || !game.styleBase.imageStyle) {
+      game.styleBase = artStyleFor(game.worldConfig, scenarioById(game.scenarioId), { gameName: game.title });
     }
+    const base = game.styleBase;
+    // Выбранный игроком пресет (плёнка, акварель, нуар…) перебивает жанровую
+    // палитру: и локальный фон, и генератор, и оформление живут в одном стиле.
+    const preset = STYLE_PRESETS.find(p => p.id === game.artStyle && p.id !== 'auto');
+    if (!preset) {
+      game.style = base;
+      return game.style;
+    }
+    const pack = preset.palette ? ART_PACKS.find(p => p.id === preset.palette) : null;
+    game.style = pack
+      ? Object.assign({}, base, {
+        id: preset.id, palette: pack.palette, theme: pack.theme,
+        imageStyle: [base.imageStyle, preset.prompt].filter(Boolean).join(', ')
+      })
+      : Object.assign({}, base, { id: preset.id, imageStyle: [base.imageStyle, preset.prompt].filter(Boolean).join(', ') });
     return game.style;
   }
 
@@ -1242,6 +1445,290 @@
       deeds: [],         // яркие дела из прошлых жизней (для мастера)
       unlocked: {}       // id → true
     };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Арка кампании: вехи, к которым идёт история                 */
+  /* ---------------------------------------------------------- */
+
+  /**
+   * У кампании должен быть путь, а не бесконечные «а что дальше». Арка — это
+   * 3–4 вехи от завязки к развязке: их можно достичь и в живой игре, и без канала.
+   * Мастер получает арку в подсказке и ведёт историю к следующей вехе.
+   */
+  function arcSteps(goal) {
+    const g = String(goal || 'разобраться, что здесь происходит').replace(/\s+/g, ' ').trim();
+    const short = g.length > 60 ? g.slice(0, 57).trim() + '…' : g;
+    return [
+      { id: 'thread', title: 'Найти след', hint: 'выйти на того, кто знает про «' + short + '», и не спугнуть его' },
+      { id: 'price', title: 'Заплатить цену', hint: 'добыть то, что нужно: предмет, слово, союзника' },
+      { id: 'enemy', title: 'Лицом к лицу', hint: 'столкнуться с тем, кто этому мешает' },
+      { id: 'choice', title: 'Решить судьбу', hint: 'выбрать, чем всё кончится: ' + short }
+    ];
+  }
+  function emptyArc(goal) {
+    return { goal: String(goal || '').slice(0, 120), steps: arcSteps(goal), at: 0, done: [] };
+  }
+  function arcOf(game) {
+    if (!game.arc || !Array.isArray(game.arc.steps) || !game.arc.steps.length) {
+      game.arc = emptyArc((game.intro && game.intro.plan && game.intro.plan[0]) || game.goal || '');
+    }
+    return game.arc;
+  }
+  /** Следующая веха или null, если арка пройдена. */
+  function arcNow(game) {
+    const arc = arcOf(game);
+    return arc.steps[arc.at] || null;
+  }
+  /** Веха закрыта: сдвигаем арку и говорим, что изменилось. */
+  function arcAdvance(game, why) {
+    const arc = arcOf(game);
+    const step = arc.steps[arc.at];
+    if (!step) return null;
+    arc.done.push({ id: step.id, title: step.title, at: game.turn || 0, why: String(why || '').slice(0, 60) });
+    arc.at++;
+    return step;
+  }
+  function arcLine(game) {
+    const step = arcNow(game);
+    if (!step) return 'АРКА КАМПАНИИ: путь пройден — веди к развязке.';
+    const arc = arcOf(game);
+    const done = arc.done.map(d => d.title).join(' → ');
+    return 'АРКА КАМПАНИИ: ' + (done ? 'пройдено: ' + done + '. ' : '') +
+      'СЕЙЧАС веха «' + step.title + '» — ' + step.hint + '. Веди сцену к ней, не перескакивая.';
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Летописец: память кампании в несколько строк                */
+  /* ---------------------------------------------------------- */
+
+  /**
+   * Сырая память быстро раздувается, а слабая модель тонет в деталях и начинает
+   * путаться. Летописец сворачивает всё в 3–5 живых строк: где мы, кто с нами,
+   * что обещано, чем кончилось. Мастер получает и сжатое, и последние события.
+   */
+  function compactMemory(game) {
+    if (!game || !game.hero) return { lines: [], at: 0 };
+    const m = memoryOf(game);
+    const arc = arcOf(game);
+    const step = arcNow(game);
+    const lines = [];
+    const place = m.place || game.chapter || '';
+    lines.push('Путь: ' + (arc.done.map(d => d.title).join(' → ') || 'начало') +
+      (step ? '; сейчас — ' + step.title : '; путь пройден') + (place ? ' (место: ' + place + ')' : ''));
+    const friends = m.npcs.filter(n => /друж|союз|верн|благодар/i.test(n.attitude || '')).map(n => n.name);
+    const foes = m.npcs.filter(n => /враж|ненав|hostile|мстит/i.test(n.attitude || '')).map(n => n.name);
+    if (m.npcs.length) {
+      lines.push('Люди: ' + m.npcs.slice(-5).map(n => n.name + (n.role ? ' (' + n.role + ')' : '')).join(', ') +
+        (friends.length ? '; друзья: ' + friends.join(', ') : '') + (foes.length ? '; враги: ' + foes.join(', ') : ''));
+    }
+    const threads = m.threads.slice(-4);
+    if (threads.length) lines.push('Обещания и нити: ' + threads.join('; '));
+    const deeds = m.deeds.slice(-4);
+    if (deeds.length) lines.push('Сделано: ' + deeds.join('; '));
+    const hp = game.hero.hp, maxHp = game.hero.maxHp;
+    lines.push('Герой: ' + game.hero.className + (game.hero.raceName ? ', ' + game.hero.raceName : '') +
+      ', здоровье ' + hp + '/' + maxHp + (maxHp && hp <= maxHp * 0.25 ? ' — держится из последних сил' : '') +
+      (game.hero.inventory.length ? ', при себе: ' + game.hero.inventory.slice(-3).join(', ') : ''));
+    game.chronicle = { lines, at: game.turn || 0 };
+    return game.chronicle;
+  }
+  function chronicleLine(game) {
+    const c = (game && game.chronicle) || null;
+    if (!c || !c.lines || !c.lines.length) return '';
+    return 'ЛЕТОПИСЬ КАМПАНИИ (кратко):\n' + c.lines.join('\n');
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Самопроверка хода мастера                                   */
+  /* ---------------------------------------------------------- */
+
+  const LATIN_JUNK_RE = /[A-Za-z]{4,}/;                       // латиница длинными кусками в русском тексте
+  const SELF_PLAY_RE = /(что (ты )?(будешь|станешь) делать|твой ход|что дальше\?)/i;
+
+  /**
+   * Мастер иногда отвечает «почти правильно»: два варианта вместо трёх, сцена
+   * пересказывает действие игрока, латиница вперемешку. Проверяем дешёвыми
+   * правилами и просим один повтор — это дешевле, чем показывать игроку мусор.
+   */
+  function validateTurn(turn, game) {
+    const problems = [];
+    if (!turn || !turn.scene || String(turn.scene).trim().length < 40) problems.push('сцена слишком короткая');
+    const scene = String((turn && turn.scene) || '');
+    if (SELF_PLAY_RE.test(scene)) problems.push('мастер спрашивает игрока, что делать, вместо сцены');
+    if (LATIN_JUNK_RE.test(scene.replace(/[«»"']/g, ''))) problems.push('латиница в тексте');
+    const opts = (turn && turn.options) || [];
+    if (opts.length < 3) problems.push('меньше трёх вариантов');
+    if (opts.length > 3) problems.push('больше трёх вариантов');
+    const texts = opts.map(o => String((o && (o.text || o.title)) || '').trim().toLowerCase());
+    if (new Set(texts).size !== texts.length) problems.push('варианты повторяются');
+    if (opts.some(o => !String((o && (o.text || o.title)) || '').trim())) problems.push('пустой вариант');
+    if (turn && turn.repeated) problems.push('сцена повторяет прошлую');
+    return { ok: problems.length === 0, problems };
+  }
+  /** Подсказка мастеру для повтора: что именно исправить. */
+  function repairHint(problems) {
+    const arr = Array.isArray(problems) ? problems : ((problems && problems.problems) || []);
+    const list = arr.join('; ');
+    return 'ПРЕДЫДУЩИЙ ОТВЕТ НЕ ГОДИТСЯ (' + list + '). Перепиши короче и точнее: '      + '2–4 предложения сцены, конкретные последствия действия игрока и ровно 3 разных варианта.';
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Реплика знакомого: сцена превращается в диалог              */
+  /* ---------------------------------------------------------- */
+
+  const FEMALE_HINT_RE = /(ниц|ица|ка$|ша$|са$|нья|ель|иха|ова|ева|ина|ая$|я$)/i;
+  /**
+   * Голос знакомого — по имени, манере речи и роли. Нужен и озвучке
+   * (другой тембр на реплику), и оформлению (реплика выделяется строкой).
+   */
+  function npcVoiceFor(npc) {
+    const n = npc || {};
+    const name = String(n.name || '');
+    const role = String(n.role || '') + ' ' + String(n.voice || '');
+    // женский род ищем и в роли («караванщица», «жрица»), и в имени («Мара», «Аня»)
+    const female = /(женщ|девуш|ведьм|жрица|старух|мать|сестра|госпож|леди|королев|барменша|торговка)/i.test(role) ||
+      FEMALE_HINT_RE.test(role.trim().split(/[\s,]+/)[0] || '') || FEMALE_HINT_RE.test(name);
+    const deep = /(старик|воин|кузнец|наёмник|наемник|стражник|капитан|жрец|мастер|охотник|солдат|гигант)/i.test(role);
+    return female ? 'female' : (deep ? 'male' : 'andrew');
+  }
+  /** Строка реплики: мастер может вернуть её в поле npc.line или в кавычках в сцене. */
+  function npcLine(turn) {
+    const n = (turn && turn.npcObject) || null;
+    if (n && typeof n.line === 'string' && n.line.trim()) {
+      return { name: String(n.name || '').slice(0, 40), line: n.line.trim().replace(/^[-—–]\s*/, '').slice(0, 220) };
+    }
+    const scene = String((turn && turn.scene) || '');
+    const m = /[«"]([^»"]{12,200})[»"]/.exec(scene);
+    if (!m) return null;
+    const name = (n && n.name) || (turn && turn.npc) || '';
+    if (!name) return null;
+    return { name: String(name).slice(0, 40), line: m[1].trim() };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Второй шанс: разбор развилки после смерти                   */
+  /* ---------------------------------------------------------- */
+
+  /**
+   * Проигрыш не должен читаться как «потратил вечер зря». После смерти игра
+   * показывает развилку: где можно было повернуть и что было бы дальше.
+   */
+  function offlineSecondChance(game) {
+    const m = memoryOf(game);
+    const arc = arcOf(game);
+    const step = arc.steps[arc.at] || arc.steps[arc.steps.length - 1];
+    const place = m.place || game.chapter || 'здешние места';
+    const last = (m.deeds.length ? m.deeds[m.deeds.length - 1] : '') || 'последний шаг';
+    const who = (m.npcs.filter(n => /враж|ненав|мстит/i.test(n.attitude || ''))[0] || {}).name;
+    const lines = [];
+    lines.push('Развилка была здесь: «' + last + '» в ' + place + '.');
+    if (step) lines.push('До вехи «' + step.title + '» оставалось немного: ' + step.hint + '.');
+    lines.push(who
+      ? 'Ошибка — в темпе: ' + who + ' играл на твоей спешке, а не на силе.'
+      : 'Ошибка — в темпе: ты брал всё сразу, а эту историю лучше было растянуть.');
+    lines.push('Что делать иначе: сначала разговор и разведка, потом удар; здоровье — расход, а не счёт.');
+    return lines.join('\n');
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Уточняющий вопрос перед стартом                             */
+  /* ---------------------------------------------------------- */
+
+  /** Один вопрос перед первой сценой: где и как начинаем. Мастер входит в историю точнее. */
+  function openingQuestion(game) {
+    const place = (game && game.worldConfig && game.worldConfig.place) || '';
+    return {
+      question: 'Где начинается история?',
+      options: [
+        { id: 'town', title: 'В людном месте', hint: 'город, рынок, порт' + (place ? ' (' + place + ')' : ''), extra: 'Начни в людном месте: толпа, слухи, первый зацеп.' },
+        { id: 'road', title: 'В дороге', hint: 'тракт, пустошь, перевал', extra: 'Начни в дороге: герой уже в пути, и что-то случается по пути.' },
+        { id: 'home', title: 'Дома или на службе', hint: 'свои стены, привычное дело', extra: 'Начни дома или на службе: спокойный день, который ломается с первой сцены.' }
+      ]
+    };
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Стиль картинок: пресеты, которые видит и генератор, и фон   */
+  /* ---------------------------------------------------------- */
+
+  const STYLE_PRESETS = [
+    { id: 'auto', title: 'Как идёт', hint: 'подбирается по жанру', prompt: '', palette: '' },
+    { id: 'cinema', title: 'Киноплёнка', hint: 'тёплое зерно, глубокие тени', prompt: 'cinematic film still, 35mm grain, dramatic light', palette: 'noir' },
+    { id: 'water', title: 'Акварель', hint: 'мягкие пятна, светлый воздух', prompt: 'watercolor painting, soft washes, visible paper texture', palette: 'parchment' },
+    { id: 'comic', title: 'Комикс', hint: 'жирный контур, плоские тени', prompt: 'comic book art, bold ink lines, flat colors', palette: 'neon' },
+    { id: 'noir', title: 'Нуар', hint: 'чёрное-белое, дождь, контражур', prompt: 'film noir, high contrast black and white, rain, backlight', palette: 'noir' },
+    { id: 'glass', title: 'Стекло', hint: 'холодная ясность, кристаллы', prompt: 'cold crystalline clarity, glass shards, teal and violet', palette: 'cosmos' }
+  ];
+  function styleById(id) { return STYLE_PRESETS.find(x => x.id === id) || STYLE_PRESETS[0]; }
+  function stylePrompt(id) { return styleById(id).prompt; }
+
+  /* ---------------------------------------------------------- */
+  /* Сверка кадра со сценой                                      */
+  /* ---------------------------------------------------------- */
+
+  const STOP_WORDS = /^(и|в|во|на|с|со|а|но|не|что|как|это|ты|вы|он|она|они|мы|я|у|к|по|за|из|от|до|для|же|ли|бы|уже|ещё|еще|всё|все|так|там|тут|где|когда|было|быть|стал|стала|его|её|ее|их|меня|тебя)$/i;
+  /** Значимые слова сцены: по ним проверяем, что кадр действительно «про это». */
+  function sceneKeywords(text, limit) {
+    const words = String(text || '').toLowerCase().replace(/[^а-яёa-z0-9\s-]/g, ' ').split(/\s+/)
+      .filter(w => w.length >= 5 && !STOP_WORDS.test(w));
+    const seen = {};
+    const out = [];
+    words.forEach(w => {
+      const root = w.slice(0, 5);
+      if (seen[root]) return;
+      seen[root] = 1;
+      out.push(w);
+    });
+    return out.slice(0, limit || 6);
+  }
+  /**
+   * Промпт кадра должен быть про текущую сцену. Если значимые слова сцены
+   * в него не попали — дописываем их: дешёвая страховка от «картинка не про то».
+   */
+  function scenePromptCoverage(sceneText, prompt) {
+    const text = String(prompt || '');
+    const hay = text.toLowerCase();
+    // Промпт по-английски (так отвечают почти все генераторы): сравнивать русские
+    // слова сцены с ним бессмысленно, поэтому проверяем строение кадра — место,
+    // участники, свет. Мастер-иностранец на русском тоже бывает, для него — слова.
+    if (!/[а-яё]/i.test(text)) {
+      const words = hay.split(/[^a-z0-9]+/).filter(w => w.length > 2);
+      const hasPlace = words.length >= 6;
+      const hasWho = PEOPLE_RE.test(text) || /(foreground|silhouette|figure|hero|adventurer|crowd|wanderer)/i.test(text);
+      const missing = [];
+      if (!hasPlace) missing.push('место описано слишком коротко');
+      if (!hasWho) missing.push('в кадре нет героя');
+      return { ok: hasPlace && hasWho, keys: words.slice(0, 8), covered: hasWho ? ['hero'] : [], missing };
+    }
+    const keys = sceneKeywords(sceneText, 6);
+    const covered = keys.filter(k => hay.indexOf(k.slice(0, 5)) >= 0);
+    const missing = keys.filter(k => covered.indexOf(k) < 0);
+    return { ok: !keys.length || covered.length >= Math.min(3, keys.length), keys, covered, missing };
+  }
+  /**
+   * Если кадр «не про сцену», дособираем промпт английскими тегами, которые
+   * игра умеет выводить из русского текста (свет, предметы, участники, тип места).
+   * Русские слова в промпт не подмешиваем: генераторы на них отвечают хуже.
+   */
+  function reinforcePrompt(sceneText, prompt, game) {
+    const cov = scenePromptCoverage(sceneText, prompt);
+    if (cov.ok) return prompt || '';
+    const extra = [];
+    // в кадре обязательно должен быть герой: без него картинка «не про нас»
+    if (cov.missing && cov.missing.indexOf('в кадре нет героя') >= 0 && game && game.hero) {
+      extra.push(heroArtTag(game) + ' in the foreground, seen from behind');
+    }
+    const light = sceneLightFromText(sceneText);
+    if (light) extra.push(light);
+    const actors = sceneActors(sceneText);
+    actors.props.slice(0, 2).forEach(p => { if (PROP_ART[p]) extra.push(PROP_ART[p]); });
+    if (actors.enemies.length && ENEMY_ART[actors.enemies[0]]) extra.push(ENEMY_ART[actors.enemies[0]]);
+    const kind = sceneKindFromText(sceneText);
+    const kindArt = { indoor: 'interior, enclosed space', outdoor: 'wide landscape, open sky', night: 'night scene, deep shadows', water: 'water and reflections', fire: 'firelight, warm glow' };
+    if (kindArt[kind]) extra.push(kindArt[kind]);
+    if (!extra.length) return prompt || '';
+    return (String(prompt || '').trim() + ', ' + extra.slice(0, 3).join(', ')).slice(0, 380);
   }
 
   /**
@@ -1637,7 +2124,15 @@
       const src = (item && typeof item === 'object') ? item : { id: item };
       const id = String(src.id || src.name || '').trim().toLowerCase();
       const base = list.find(x => x.id === id);
-      const rawTitle = (typeof src.title === 'string' && src.title.trim()) ? src.title.trim() : '';
+      let rawTitle = (typeof src.title === 'string' && src.title.trim()) ? src.title.trim() : '';
+      // Слабый канал часто присылает не объект, а просто название: «Стеклянный народ».
+      // Если это короткое имя, а не фраза, — берём его как название нового варианта.
+      if (!base && !rawTitle && typeof item === 'string') {
+        const t = item.replace(/\s+/g, ' ').trim();
+        const words = t.split(' ');
+        const looksLikeName = words.length >= 2 || /^[A-ZА-ЯЁ]/.test(t);
+        if (t && t.length <= 40 && words.length <= 4 && looksLikeName && !/[,;:.!?…]/.test(t)) rawTitle = t;
+      }
       if (!base && !rawTitle) return;                  // мусор без названия не берём
       const title = (rawTitle || base.title).slice(0, 40);
       const key = base ? base.id : title.toLowerCase();
@@ -1693,27 +2188,49 @@
    * classes — минимум один вариант (класс нужен всегда ради статов и умения);
    * races/origins пустым массивом ИИ говорит «в этой игре такого выбора нет» — шаг скрываем.
    */
-  function heroProfileFromWorld(profile) {
+  /**
+   * Слабый канал любит ответить не тем, что просили: на месте короткой подписи
+   * («Школа», «Раса») приходит обрывок фразы — «в Нильфгаарде беспокоитс».
+   * Такую подпись нельзя ставить в интерфейс: проверяем, что это правда название
+   * (1–3 слова, без запятых и служебных предлогов) и не обрывок.
+   */
+  function saneLabel(v, fb) {
+    const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+    if (!t) return fb;
+    const words = t.split(' ');
+    if (words.length > 3 || t.length > 22) return fb;
+    if (/[,;:.!?…]/.test(t)) return fb;
+    if (/^(в|во|на|с|со|от|для|из|у|к|по|под|над|про|при|о|об)$/i.test(words[0])) return fb;
+    if (t !== v.trim() && v.trim().length > 22) return fb;     // значение обрезали — был не заголовок
+    return t[0].toUpperCase() + t.slice(1);
+  }
+
+  function heroProfileFromWorld(profile, opts) {
+    const o = opts || {};
     const p = (profile && typeof profile === 'object') ? profile : {};
     if (p.normalized) return p;                        // профиль уже разобран — второй раз не портим
     let classes = matchOptions(CLASSES, p.classes, 'class');
     if (classes && !classes.length) classes = null;    // без класса герой не собирается
     const races = matchOptions(RACES, p.races, 'race');
     const origins = matchOptions(ORIGINS, p.origins, 'origin');
-    const label = (v, fb) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 24) : fb);
+    // в «своей игре» шаги, которых в этом мире нет, скрываем: раса и происхождение
+    // появляются только если мастер прямо назвал их для этого мира
+    const aiRaces = !!(races && races.length);
+    const aiOrigins = !!(origins && origins.length);
+    const known = o.gameName ? offlineHeroProfile({ gameName: o.gameName }) : null;
     return {
       custom: true,
       normalized: true,
       fromAI: !!(p.classes || p.races || p.origins || p.note),
-      classLabel: label(p.classLabel, DEFAULT_LABELS.classLabel),
-      raceLabel: label(p.raceLabel, DEFAULT_LABELS.raceLabel),
-      originLabel: label(p.originLabel, DEFAULT_LABELS.originLabel),
+      classLabel: saneLabel(p.classLabel, (known && known.classLabel) || DEFAULT_LABELS.classLabel),
+      raceLabel: saneLabel(p.raceLabel, (known && known.raceLabel) || DEFAULT_LABELS.raceLabel),
+      originLabel: saneLabel(p.originLabel, (known && known.originLabel) || DEFAULT_LABELS.originLabel),
       showClass: true,
-      showRace: !(races && !races.length),
-      showOrigin: !(origins && !origins.length),
-      classes: classes || CLASSES.slice(),
-      races: (races && races.length) ? races : RACES.slice(),
-      origins: (origins && origins.length) ? origins : ORIGINS.slice(),
+      showRace: o.ownGame ? aiRaces : !(races && !races.length),
+      showOrigin: o.ownGame ? aiOrigins : !(origins && !origins.length),
+      classes: classes || (known && known.classes) || CLASSES.slice(),
+      races: aiRaces ? races : ((known && known.races) || RACES.slice()),
+      origins: aiOrigins ? origins : ((known && known.origins) || ORIGINS.slice()),
       note: typeof p.note === 'string' ? p.note.trim().slice(0, 200) : ''
     };
   }
@@ -1817,7 +2334,13 @@
     if (actors.enemies.length && !ENEMY_WORD_RE.test(base)) {
       parts.push(ENEMY_ART[actors.enemies[0]]);
     }
-    return parts.join(', ').replace(/\s+/g, ' ').trim().slice(0, 380);
+    // выбранный игроком стиль: кадр выглядит как одна книга, а не как набор случайных
+    const style = stylePrompt(game && game.artStyle);
+    if (style && !base.includes(style)) parts.push(style);
+    let out = parts.join(', ').replace(/\s+/g, ' ').trim();
+    // сверка со сценой: если значимые слова сцены не попали в промпт, дописываем их
+    out = reinforcePrompt(sceneText, out, game);
+    return out.slice(0, 380);
   }
 
   /* ---------------------------------------------------------- */
@@ -1834,6 +2357,130 @@
   const pc = (title, hint, bonus, ability) => ({ title, hint, bonus, ability });
   const pr = (title, hint, bonus, trait) => ({ title, hint, bonus, trait });
   const po = (title, hint, bonus, item, hook) => ({ title, hint, bonus, item, hook });
+
+  /**
+   * Миры по мотивам известных игр. Это готовый контент: описание, подсказка
+   * стилю, стартовая сцена, цель и промпты кадров — играть можно без ИИ.
+   */
+  const EXTRA_GAME_WORLDS = [
+    {
+      id: 'stalker', title: 'Зона: чёрный сталкер', tagline: 'Аномалии, артефакты и люди, которые им не верят.',
+      genre: 'постапокалипсис в духе S.T.A.L.K.E.R.', setting: 'waste', icon: '☢️', cover: 'sc-waste',
+      artStyle: 'gritty post-soviet postapocalyptic concept art, rust and fog, muted green and rust palette, overcast light',
+      palette: ['#12140f', '#3b3a24', '#c8d06a'],
+      opening: 'Дозиметр щёлкает чаще с каждым шагом. За «ржавым лесом» — аномалия, а на бревне сидит сталкер с чужим дробовиком и молчит.',
+      goal: 'Дойти до центра Зоны и вынести то, за чем пришёл',
+      systemHint: 'Дух Зоны: выбросы, артефакты, торговцы, группировки, аномалии, болты на тропу. Тон сухой, бытовой, с чёрным юмором.',
+      imagePrompts: [
+        'abandoned rusted factory in the zone, anomaly glow, fog, scavenger silhouette',
+        'campfire at night in a ruined factory yard, stalkers in gas masks',
+        'overgrown abandoned village, radiation fog, crows, postapocalyptic'
+      ]
+    },
+    {
+      id: 'metro', title: 'Метро: последний перегон', tagline: 'Станции вместо городов, тьма вместо неба.',
+      genre: 'постапокалипсис в духе Metro 2033', setting: 'waste', icon: '🚇', cover: 'sc-waste',
+      artStyle: 'dark post-apocalyptic metro concept art, torchlight, tunnels, muted brown and green, oppressive atmosphere',
+      palette: ['#0d0f0c', '#2f3325', '#d8a45a'],
+      opening: 'Патроны считают шёпотом. За гермодверью станции кто-то скребёт по трубе — и это не крысы.',
+      goal: 'Пройти через туннели к станции, которую считают мифом',
+      systemHint: 'Дух Метро: патроны вместо денег, фильтры, мутанты, станции-государства, тьма, вера в чудо. Темнота, воздух и звук важнее чисел.',
+      imagePrompts: [
+        'dark metro tunnel with torchlight, rusted rails, postapocalyptic',
+        'underground station settlement with tents and fires, people in gas masks',
+        'mutant silhouette in a flooded tunnel, horror, harsh torchlight'
+      ]
+    },
+    {
+      id: 'disco', title: 'Пепел Мартинеза: отдел мыслей', tagline: 'Город, где слова важнее оружия.',
+      genre: 'детектив-разговор в духе Disco Elysium', setting: 'modern', icon: '🧠', cover: 'sc-noir',
+      artStyle: 'oil painting noir detective, muted teal and ochre, visible brush strokes, melancholic light',
+      palette: ['#0f1416', '#2c4048', '#e0a458'],
+      opening: 'Ты просыпаешься в номере, который не помнишь. Бутылка, чужие туфли, наручники на батарее — и труп во дворе, о котором говорят все, кроме тебя.',
+      goal: 'Раскрыть дело, не разрушив остатки себя',
+      systemHint: 'Дух этой истории: внутренние голоса героя, социальные провалы, ирония и вина. Каждый вариант — новая реплика героя, а не действие.',
+      imagePrompts: [
+        'noir detective scene in an old courtyard, oil painting, muted teal',
+        'cluttered hotel room with empty bottles, melancholy morning light',
+        'harbor at dusk with cranes and fog, expressionist painting'
+      ]
+    },
+    {
+      id: 'mass_effect', title: 'Ковчег: звёздный коридор', tagline: 'Галактика держится на дипломатии и тяжёлых доспехах.',
+      genre: 'космоопера в духе Mass Effect', setting: 'scifi', icon: '🌌', cover: 'sc-space',
+      artStyle: 'sci-fi space opera concept art, clean ships, blue and orange lighting, cinematic compositions',
+      palette: ['#070b16', '#1d3a5c', '#67d3ff'],
+      opening: 'Шлюз открывается, и станция стонет от перегрузки. Совет требует доклада, датчики — немедленной эвакуации. Ты выбираешь, кому верить.',
+      goal: 'Собрать флот и успеть до прихода угрозы',
+      systemHint: 'Дух космооперы: отряды, дипломатия, репутация, жёсткие моральные выборы и их последствия через несколько сцен.',
+      imagePrompts: [
+        'space station interior with starfield window, sci-fi, blue lighting',
+        'docking bay with warship and crew in armor, cinematic sci-fi',
+        'alien planet surface with ruins and aurora, space opera'
+      ]
+    },
+    {
+      id: 'dark_souls', title: 'Пепельная земля: костёр и тьма', tagline: 'Смерть — часть пути. Костёр помнит твоё имя.',
+      genre: 'тёмное фэнтези в духе Dark Souls', setting: 'fantasy', icon: '🔥', cover: 'sc-forest',
+      artStyle: 'dark fantasy concept art, decaying gothic architecture, ash and ember palette, oppressive mood',
+      palette: ['#100d0b', '#3a2c22', '#e08a4a'],
+      opening: 'Ты приходишь в себя у потухшего костра. Броня чужая, меч тяжелее, чем помнится, а впереди — стена тумана и колокол.',
+      goal: 'Дойти до престола и узнать, кто звонит в колокол',
+      systemHint: 'Дух этой земли: редкие костры, раны не заживают мгновенно, враги возвращаются. Описывай немногословно и веско.',
+      imagePrompts: [
+        'dark gothic ruins with dying bonfire, ash in the air, dark fantasy',
+        'knight in worn armor before a fog gate, cathedral ruins',
+        'giant kneeling in a flooded cathedral, dark fantasy'
+      ]
+    },
+    {
+      id: 'fallout', title: 'Пустошь: последний рейнджер', tagline: 'Ретро-будущее, где закат красив, если есть вода.',
+      genre: 'постапокалипсис в духе Fallout', setting: 'waste', icon: '⚙️', cover: 'sc-waste',
+      artStyle: 'retro-futuristic postapocalyptic concept art, americana ruins, warm dust palette, 1950s technology',
+      palette: ['#151109', '#4a3a1e', '#f0c060'],
+      opening: 'Радио играет джаз, а ты стоишь у ворот убежища, которые больше не откроются. Впереди — города, которые называют «старыми», и они светятся зелёным.',
+      goal: 'Найти чистую воду для тех, кто остался внизу',
+      systemHint: 'Дух пустоши: ретро-техника, крышки вместо денег, мутанты и корпорации, чёрный юмор. Ирония уместна даже в опасности.',
+      imagePrompts: [
+        'retro futuristic wasteland ruins with gas station, dust, 1950s aesthetic',
+        'vault door interior with jazz radio and terminal, warm light',
+        'glowing radioactive city ruins at dusk, retro sci-fi, wasteland'
+      ]
+    },
+    {
+      id: 'dnd', title: 'Королевства: чартер отряда', tagline: 'Подземелья, честные кубики и заказ на дракона.',
+      genre: 'классическое фэнтези в духе D&D', setting: 'fantasy', icon: '🎲', cover: 'sc-forest',
+      artStyle: 'classic fantasy illustration, taverns and dungeons, warm torchlight, heroic staging',
+      palette: ['#141018', '#3d3352', '#f0c060'],
+      opening: 'Гильдейский посыльный кладёт на стол карту и кошель с задатком. «Гоблины у высокого тракта. Оплата по возвращении — если вернётесь».',
+      goal: 'Закрыть заказ гильдии и вернуться с добычей',
+      systemHint: 'Дух классической игры: гильдия, заказы, подземелья, отдых в таверне, зелья и загадки. Рассказывай как бард, но не играй за игрока.',
+      imagePrompts: [
+        'classic fantasy tavern interior with adventurers and map, candlelight',
+        'goblin ambush on a trade road, forest, tabletop fantasy art',
+        'ancient dungeon entrance with runes and torches, adventuring party'
+      ]
+    },
+    {
+      id: 'warhammer', title: 'Сороковой век: осада улья', tagline: 'В далёком будущем только война. И бюрократия.',
+      genre: 'grimdark в духе Warhammer 40,000', setting: 'scifi', icon: '⚔️', cover: 'sc-space',
+      artStyle: 'grimdark gothic sci-fi concept art, cathedral scale, rust and gold, dramatic chiaroscuro',
+      palette: ['#0b0c12', '#2d3142', '#c9a227'],
+      opening: 'Колокола улья звонят тревогу: орда уже в нижних уровнях. Инквизитор смотрит на тебя дольше, чем следовало бы.',
+      goal: 'Удержать улей до подкрепления — или узнать, почему его не будет',
+      systemHint: 'Дух grimdark: масштаб, вера, инквизиция, техножрецы, цена жизни. Тон тяжёлый и пафосный, без слюней.',
+      imagePrompts: [
+        'gothic hive city under siege, immense scale, grimdark, embers',
+        'power armored silhouette in a ruined hive street, grimdark sci-fi',
+        'forge temple with cogitators and red light, grimdark sci-fi'
+      ]
+    }
+  ];
+
+  // Добавляем миры по мотивам известных игр туда же, где живут свои истории
+  EXTRA_GAME_WORLDS.forEach(w => {
+    if (!GAME_WORLDS.some(x => x.id === w.id)) GAME_WORLDS.push(w);
+  });
 
   const KNOWN_GAME_PROFILES = [
     {
@@ -2060,6 +2707,168 @@
         ],
         note: 'в академии раса влияет на стартовые возможности, но факультет важнее'
       }
+    },
+    {
+      match: /s\.?t\.?a\.?l\.?k\.?e\.?r|сталкер|зон[аы]|аномал|артефакт|черноб|припят/i,
+      profile: {
+        classLabel: 'Роль в Зоне',
+        classes: [
+          pc('Вольный сталкер', 'ходишь сам по себе и знаешь тропы', { per: 2, con: 1 }, { name: 'Болт на аномалию', desc: 'Проверка тропы: +3 к броску' }),
+          pc('Охотник за артефактами', 'риск ради хабара', { agi: 2, per: 1 }, { name: 'Знакомый артефакт', desc: 'Сразу +4 здоровья' }),
+          pc('Долговец', 'порядок в Зоне — твоя работа', { str: 2, con: 1 }, { name: 'Плечо напарника', desc: '+3 к следующему бою' }),
+          pc('Проводник', 'водишь через аномалии за долю', { per: 1, cha: 1, wit: 1 }, { name: 'Тихий обход', desc: 'Обойти опасность без потерь' })
+        ],
+        races: [],
+        origins: [
+          po('Из-под обстрела', 'пришёл в Зону не по своей воле', { con: 1, per: 1 }, 'погнутый контейнер', 'Твоя группа не вернулась — и кто-то сдал маршрут'),
+          po('Научный рейд', 'институт обещал премию', { int: 2 }, 'сломанный детектор', 'Институт ждёт отчёт, и он не должен знать правду'),
+          po('Долг на плечах', 'семья ждёт из Зоны денег', { cha: 1, wit: 1 }, 'чужая фотография', 'Семья уже продала квартиру и ждёт тебя')
+        ],
+        note: 'все — люди, шага расы нет'
+      }
+    },
+    {
+      match: /метро|metro|2033|тоннел|туннел/i,
+      profile: {
+        classLabel: 'Навык',
+        classes: [
+          pc('Рейнджер станции', 'держишь периметр', { str: 1, con: 2 }, { name: 'Последний патрон', desc: 'Переломить бой: +4 здоровья' }),
+          pc('Техник', 'чинишь фильтры и оружие', { int: 2, per: 1 }, { name: 'Запасной фильтр', desc: 'Один раз не задохнуться' }),
+          pc('Проводник туннелей', 'карта вместо компаса', { per: 2, agi: 1 }, { name: 'Тёмный путь', desc: 'Пройти мимо опасности' }),
+          pc('Санитар', 'кровь видишь чаще еды', { wit: 2, con: 1 }, { name: 'Перевязка', desc: 'Сразу +4 здоровья' })
+        ],
+        races: [],
+        origins: [
+          po('Рождён под землёй', 'неба не видел никогда', { con: 1, per: 1 }, 'счётчик патронов', 'Ты обещал вернуться к тем, кто ждёт под землёй'),
+          po('Сверху, из мёртвого города', 'помнишь воздух без фильтра', { wit: 1, int: 1 }, 'ржавая ключ-карта', 'Ты знаешь то, что станции не выгодно знать'),
+          po('Спасённый ребёнок', 'тебя вынесли из тьмы', { cha: 1, con: 1 }, 'потёртая иконка', 'Тот, кто тебя понёс, остался снаружи')
+        ],
+        note: 'все — люди; выбор только у навыка и происхождения'
+      }
+    },
+    {
+      match: /disco|мартинез|детектив|мысли/i,
+      profile: {
+        classLabel: 'Кто говорит в твоей голове',
+        classes: [
+          pc('Логика', 'холодный расчёт и связки', { int: 2, per: 1 }, { name: 'Цепочка умозаключений', desc: '+3 к броску на осмотр' }),
+          pc('Внушение', 'входишь в чужие роли', { cha: 2, wit: 1 }, { name: 'Чужой голос', desc: '+3 к разговору' }),
+          pc('Совесть', 'никакой подписи, просто вина', { wit: 2, int: 1 }, { name: 'Приступ прозрения', desc: 'Увидеть то, что скрывают' }),
+          pc('Физформа', 'тело помнит больше тебя', { str: 1, con: 2 }, { name: 'Резкий удар', desc: '+3 к силовому действию' })
+        ],
+        races: [],
+        origins: [
+          po('Выгоревший на работе', 'семнадцать лет в отделе', { int: 1, wit: 1 }, 'потёртый блокнот', 'Ты забыл дело, которое до сих пор не закрыто'),
+          po('После катастрофы', 'жизнь кончилась, дело — выдумка', { wit: 2 }, 'чужая визитка', 'Один старый знакомый ждёт ответа'),
+          po('Из другого города', 'тебя сюда занесло', { cha: 1, per: 1 }, 'билет в один конец', 'В городе живёт тот, кто знает твоё настоящее имя')
+        ],
+        note: 'все — люди: выбор только навыка и прошлого'
+      }
+    },
+    {
+      match: /mass effect|космоопер|флот|галактик|ковчег/i,
+      profile: {
+        classLabel: 'Профиль',
+        classes: [
+          pc('Солдат', 'огонь и броня', { str: 2, con: 1 }, { name: 'Боевой стимулятор', desc: 'Сразу +4 здоровья' }),
+          pc('Инженер', 'дроны и перегрузки', { int: 2, per: 1 }, { name: 'Перегрузка систем', desc: '+3 против техники' }),
+          pc('Оперативник', 'невидимость и первая атака', { agi: 2, wit: 1 }, { name: 'Тактическая маскировка', desc: 'Уйти в тень: +3' }),
+          pc('Оратор', 'слова вместо выстрела', { cha: 2, int: 1 }, { name: 'Взять на себя', desc: '+3 к убеждению' })
+        ],
+        races: [
+          { title: 'Человек', hint: 'новый народ в галактике' },
+          { title: 'Азари', hint: 'живут столетия, чужая память' },
+          { title: 'Кроган', hint: 'толстая шкура и ярость' },
+          { title: 'Турианец', hint: 'инстинкт оружия, дисциплина' }
+        ],
+        origins: [
+          po('Сирота с Земли', 'Земля оставила шрам', { con: 1, wit: 1 }, 'нашивка отряда', 'Твой отряд погиб, а ты — нет'),
+          po('Колония, которую не спасли', 'она в списках потерь', { int: 1, per: 1 }, 'фото колонии', 'Один из виновных служит рядом'),
+          po('Военная семья', 'звание старше тебя', { str: 1, cha: 1 }, 'медаль отца', 'Отец ждёт другого решения, чем ты задумал')
+        ],
+        note: 'расы — виды этой галактики, выбор шире обычного'
+      }
+    },
+    {
+      match: /dark souls|souls|пепельн|костёр|костер|престол/i,
+      profile: {
+        classLabel: 'Начало',
+        classes: [
+          pc('Рыцарь пепла', 'тяжёлый доспех и упрямство', { str: 2, con: 1 }, { name: 'Стойка', desc: 'Выдержать удар: +3' }),
+          pc('Нищий странник', 'ничего нет, есть только путь', { wit: 2, per: 1 }, { name: 'Чутьё', desc: 'Заметить засаду' }),
+          pc('Прокажённый', 'сила вместо кожи', { str: 1, con: 2 }, { name: 'Второе дыхание', desc: 'Сразу +4 здоровья' }),
+          pc('Паломник огня', 'веруешь в костёр', { int: 2, cha: 1 }, { name: 'Благословение', desc: '+3 до конца сцены' })
+        ],
+        races: [],
+        origins: [
+          po('Безымянный', 'имя стёрлось, как и лицо', { con: 1, wit: 1 }, 'пепел у сердца', 'Костёр знает тебя, но не говорит'),
+          po('Последний из ордена', 'остальные уже в пепле', { str: 1, int: 1 }, 'разбитый герб', 'Кто-то носит такой же герб и зовёт себя тобой'),
+          po('Изгнанный за колокол', 'ты звонил не вовремя', { wit: 2 }, 'осколок колокола', 'Колокол звонит снова, и это твоя вина')
+        ],
+        note: 'все — из пепла, выбор только начала и прошлого'
+      }
+    },
+    {
+      match: /fallout|убежищ|рейнджер|крышк/i,
+      profile: {
+        classLabel: 'Класс',
+        classes: [
+          pc('Рейнджер', 'живёшь на границе', { per: 2, con: 1 }, { name: 'Меткий выстрел', desc: '+3 к бою' }),
+          pc('Механик', 'собираешь из хлама', { int: 2, per: 1 }, { name: 'Самодельная зажигалка', desc: 'Свет и огонь' }),
+          pc('Дилер', 'крышки решают всё', { cha: 2, wit: 1 }, { name: 'Двойная цена', desc: '+3 к торговле' }),
+          pc('Синт', 'ты лучше старой модели', { str: 1, con: 2 }, { name: 'Сервоусилитель', desc: 'Сразу +4 здоровья' })
+        ],
+        races: [],
+        origins: [
+          po('Из убежища 42', 'дверь закрылась за спиной', { int: 1, per: 1 }, 'потёртый пип-бой', 'Убежище не отвечает, а в записях — ошибка'),
+          po('Караванщик', 'трассы знаешь лучше карт', { per: 1, cha: 1 }, 'старая карта трасс', 'Караван пропал на твоём маршруте'),
+          po('Выживший при бомбе', 'помнишь свет и тишину', { con: 2 }, 'счётчик Гейгера', 'Голос из радио назвал твоё имя')
+        ],
+        note: 'люди и синты; шага расы нет'
+      }
+    },
+    {
+      match: /d&d|dnd|dungeons|днд|подземел|дракон|классич.*фэнтези|гильд.*заказ/i,
+      profile: {
+        classLabel: 'Класс',
+        classes: [
+          pc('Воин', 'стойкость и клинок', { str: 2, con: 1 }, { name: 'Второе дыхание', desc: 'Сразу +4 здоровья' }),
+          pc('Плут', 'тень и ловкие пальцы', { agi: 2, per: 1 }, { name: 'Скрытая атака', desc: '+3 если действуешь первым' }),
+          pc('Волшебник', 'книга важнее меча', { int: 2, wit: 1 }, { name: 'Магический снаряд', desc: '+3 к броску' }),
+          pc('Жрец', 'слово богини и посох', { wit: 2, cha: 1 }, { name: 'Лечение', desc: 'Сразу +4 здоровья' }),
+          pc('Бард', 'песня открывает двери', { cha: 2, int: 1 }, { name: 'Вдохновляющая песня', desc: '+3 союзникам' })
+        ],
+        origins: [
+          po('Наёмник гильдии', 'контракт важнее имени', { str: 1, cha: 1 }, 'гильдейский жетон', 'Гильдия ждёт долю, а добыча ушла не туда'),
+          po('Ученик мага', 'учитель пропал', { int: 2 }, 'обгоревшая книга заклинаний', 'Учитель жив и занят не тем, чему учил'),
+          po('Пилигрим', 'идёшь к святому месту', { wit: 1, con: 1 }, 'амулет пилигрима', 'Тем же путём идут охотники за твоей головой')
+        ],
+        note: 'расы и происхождения — как в классической игре'
+      }
+    },
+    {
+      match: /warhammer|40k|уль|инквизиц|ересь/i,
+      profile: {
+        classLabel: 'Служение',
+        classes: [
+          pc('Гвардеец', 'много вас, мало вас', { str: 1, con: 2 }, { name: 'Залп отделения', desc: '+3 к бою' }),
+          pc('Аколит инквизиции', 'вера и допрос', { wit: 2, cha: 1 }, { name: 'Печать инквизиции', desc: 'Любые двери открываются' }),
+          pc('Техножрец', 'машина выше плоти', { int: 2, con: 1 }, { name: 'Ритуал починки', desc: 'Восстановить технику' }),
+          pc('Ассасин храма', 'тишина и точность', { agi: 2, per: 1 }, { name: 'Смертельный удар', desc: '+3 если бьёшь первым' })
+        ],
+        races: [
+          { title: 'Человек улья', hint: 'родился в миллиардном городе' },
+          { title: 'Огрин', hint: 'гора мышц, детское сердце' },
+          { title: 'Скитарий', hint: 'тело-механизм Марса' },
+          { title: 'Навигатор', hint: 'третий глаз и страх' }
+        ],
+        origins: [
+          po('Сирота улья', 'низ был домом', { con: 1, per: 1 }, 'жетон рабочего', 'В нижних уровнях живёт тот, кто тебя помнит'),
+          po('Инквизиторский рекрут', 'тебя выбрали за что-то', { wit: 1, int: 1 }, 'личная печать', 'Наставник подозревает тебя в ереси'),
+          po('Выживший в осаде', 'орда видела тебя и ушла', { str: 1, con: 1 }, 'пробитый шлем', 'Кто-то узнаёт твой шлем издалека')
+        ],
+        note: 'расы и происхождения — из этой вселенной'
+      }
     }
   ];
 
@@ -2162,7 +2971,7 @@
     return parts.join('\n');
   }
 
-  function buildTurnPrompt(game, action, check, extra) {
+  function buildTurnPrompt(game, action, check, extra, repair) {
     const recent = game.log.slice(-4).map(e => `- ${e.text}`).join('\n') || '—';
     const checkLine = check
       ? `Игрок выбрал: «${action.text}».\nБросок d20: ${check.roll}${check.advantage ? ' (преимущество: ' + check.rolls.join('/') + ')' : ''} + модификатор ${check.mod} = ${check.total} против сложности ${check.dc}. Итог: ${check.label} (запас ${check.margin >= 0 ? '+' : ''}${check.margin}).`
@@ -2180,6 +2989,7 @@
       `ПРЕДЫДУЩИЕ СОБЫТИЯ:\n${recent}`,
       checkLine,
       extraLine,
+      repair ? String(repair) : '',
       'Опиши результат этого действия (учитывая бросок), задай атмосферу и предложи ровно 3 следующих варианта действий.',
       'Только JSON.'
     ].filter(Boolean).join('\n\n');
@@ -2195,12 +3005,15 @@
   /* ---------------------------------------------------------- */
   /* Ссылки на картинки: быстрый старт + догрузка               */
   /* ---------------------------------------------------------- */
-  function buildImageUrl({ prompt, seed, width, height, aspect, style, serverFirst }) {
+  function buildImageUrl({ prompt, seed, width, height, aspect, style, serverFirst, source }) {
     const clean = String(prompt || '').replace(/\s+/g, ' ').trim().slice(0, 380);
     const full = [clean, style].filter(Boolean).join(', ');
     const w = width || 448, h = height || 252;
+    // source — выбранный игроком генератор картинок (см. настройки). Сервер сам
+    // решает, что это значит: local отдаёт 204, конкретный id — только его.
+    const src = source && source !== 'auto' ? '&source=' + encodeURIComponent(source) : '';
     return {
-      server: 'api/image?prompt=' + encodeURIComponent(full) + '&seed=' + encodeURIComponent(seed || 1) + '&w=' + w + '&h=' + h,
+      server: 'api/image?prompt=' + encodeURIComponent(full) + '&seed=' + encodeURIComponent(seed || 1) + '&w=' + w + '&h=' + h + src,
       a0: `https://api.a0.dev/assets/image?text=${encodeURIComponent(full)}&aspect=${encodeURIComponent(aspect || '16:9')}&seed=${seed || 1}`,
       pollinations: `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=${w}&height=${h}&model=sana&nologo=true&seed=${seed || 1}`,
       stock: `https://picsum.photos/seed/${encodeURIComponent((clean || 'scene').slice(0, 24))}${seed || 1}/${w * 2}/${h * 2}`,
@@ -2932,6 +3745,94 @@
   }
 
 
+  /* ---------------------------------------------------------- */
+  /* Встроенный мастер: имена, места и связки с прошлым          */
+  /* ---------------------------------------------------------- */
+
+  /** Кто выходит на сцену, если ведёт встроенный мастер. */
+  const LOCAL_NAMES = {
+    fantasy: ['Марта-знахарка', 'Косой Ленн', 'старик Ольгерд', 'жрица Ирма', 'Бран-проводник'],
+    scifi: ['техник Сола', 'диспетчер Ким', 'дрон-курьер «Осьминог»', 'врач Ханна', 'смотритель Юр'],
+    modern: ['клерк Пит', 'таксист Марат', 'старуха с собакой', 'патрульный Енс', 'бармен Ольга'],
+    waste: ['сборщик стекла', 'караванщица Мара', 'мальчишка с сифоном', 'старик у колодца', 'бродяга в наморднике'],
+    default: ['человек в плаще', 'мальчишка-посыльный', 'женщина с фонарём', 'старик у огня', 'молчаливый проводник']
+  };
+  /** Куда переносит встроенный мастер — по одной сцене на пару ходов. */
+  const LOCAL_PLACES = {
+    fantasy: ['тропа в мокром лесу', 'заброшенная часовня', 'мост через овраг', 'деревня у переправы'],
+    scifi: ['коридор с мигающим светом', 'машинный зал', 'шлюз с обледеневшим стеклом', 'склад контейнеров'],
+    modern: ['переулок за баром', 'ночной вокзал', 'крыша над вентиляцией', 'подземная парковка'],
+    waste: ['стеклянная пустошь', 'остов каравана', 'колодец у скалы', 'сухое русло под мостом'],
+    default: ['дорога через пустошь', 'старый перекрёсток', 'лагерь у огня', 'каменистый спуск']
+  };
+  const CONNECTORS = [
+    'Получается не сразу.', 'Мир отвечает, но не так, как хотелось.',
+    'Всё занимает больше времени, чем ты рассчитывал.', 'Ты не спешишь — и правильно.',
+    'На этот раз обходится малой ценой.', 'И тут же всплывает новая мелочь.'
+  ];
+  const CONTINUITY = [
+    x => x.npc ? `${x.npc} где-то рядом: об этом говорит то, как замолкают голоса вокруг.` : '',
+    x => x.place ? `Место знакомое — ${x.place} уже видело тебя другим.` : '',
+    x => x.deed ? `Прошлое не отпускает: ${x.deed} — и здесь об этом помнят.` : '',
+    x => x.fact ? `В памяти всплывает: ${x.fact}` : ''
+  ];
+  const localNames = flavor => LOCAL_NAMES[flavor] || LOCAL_NAMES.default;
+  const localPlaces = flavor => LOCAL_PLACES[flavor] || LOCAL_PLACES.default;
+  /**
+   * Какой у мира вкус: от него зависят имена и места встроенного мастера.
+   * Свой мир описывает себя сам — читаем настройки игрока, а не догадки.
+   */
+  function localFlavor(game) {
+    const s = scenarioById(game.scenarioId) || {};
+    const cfg = game.worldConfig || {};
+    const words = [game.title, game.goal, s.genre, cfg.genre, cfg.place, cfg.goal].filter(Boolean).join(' ').toLowerCase();
+    if (/песч|песок|пустош|стекл|ржав|постап|радиац|пустын|бункер|караван|мутант/.test(words)) return 'waste';
+    if (/кибер|неон|имплант|хакер|корпорац|станци|космо|колони|дрон|реактор/.test(words)) return 'scifi';
+    if (/детектив|нуар|полиц|криминал|город|улиц|вокзал|бар/.test(words)) return 'modern';
+    if (/меч|маги|маг |лес|дракон|королев|орк|эльф|замок|фэнтез/.test(words)) return 'fantasy';
+    return s.custom ? 'default' : (s.setting || 'default');
+  }
+
+  /**
+   * Герой делает то, что умеет: приём или вещь из его набора. Такую строку
+   * вставляем нечасто, иначе она превращается в припев.
+   */
+  function localHeroLines(hero) {
+    if (!hero) return [];
+    const out = [];
+    const ability = hero.ability && hero.ability.name;
+    if (ability) {
+      out.push(`Ты делаешь это по-своему: ${ability}.`);
+      out.push(`${ability} — и мир на мгновение подстраивается под тебя.`);
+    }
+    if (hero.inventory && hero.inventory.length) {
+      out.push(`${hero.inventory[0]} снова пригодился.`);
+      if (hero.inventory[1]) out.push(`${hero.inventory[1]} в руке — и дело идёт быстрее.`);
+    }
+    // про обычного человека так не скажешь: «сказывается порода» — только про нелюдей
+    if (hero.raceName && !/^(человек|human|люди|человечество)$/i.test(String(hero.raceName).trim())) {
+      out.push(`Сказывается порода: ${hero.raceName} — это кое-что значит.`);
+    }
+    return out;
+  }
+
+  /**
+   * Слабая модель иногда отвечает той же сценой, что и в прошлый ход — дословно.
+   * Сравниваем значимые слова: если почти все повторились, ход лучше собрать
+   * встроенным мастером, он помнит, где мы, и не повторяется.
+   */
+  function isRepeatedScene(prev, next) {
+    const norm = t => String(t || '').toLowerCase().replace(/[^а-яёa-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim();
+    const a = norm(prev), b = norm(next);
+    if (!a || !b) return false;
+    if (a.slice(0, 60) === b.slice(0, 60)) return true;
+    const seen = new Set(a.split(' ').filter(w => w.length > 4));
+    const words = b.split(' ').filter(w => w.length > 4);
+    if (!seen.size || words.length < 8) return false;
+    const hits = words.filter(w => seen.has(w)).length;
+    return hits / words.length >= 0.85;
+  }
+
   function offlineTurn(game, action, check) {
     const s = scenarioById(game.scenarioId);
     const beats = storyFor(s.id);
@@ -2941,13 +3842,56 @@
     const success = outcome === 'crit' || outcome === 'success';
     const actionText = (action && action.text ? action.text : 'осмотреться').replace(/\.$/, '');
     const atmo = ATMOSPHERE[s.id] || GENERIC_ATMOSPHERE;
+    const m = memoryOf(game);
+    if (!Array.isArray(game.offlineSeen)) game.offlineSeen = [];
+    // одну и ту же связку дважды подряд не повторяем — текст не должен казаться шаблонным
+    const freshLine = pool => {
+      const left = pool.filter(x => game.offlineSeen.indexOf(x) < 0);
+      const pick = rnd.pick(left.length ? left : pool);
+      game.offlineSeen.push(pick);
+      if (game.offlineSeen.length > 8) game.offlineSeen.shift();
+      return pick;
+    };
     const lines = [
       `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
       success ? beat.ok : beat.bad,
       rnd.pick(OUTCOME_FLAVOR[outcome] || OUTCOME_FLAVOR.success)
     ];
+    if (rnd.chance(0.5)) lines.push(freshLine(CONNECTORS));
+    // Связка с прошлым: встроенный мастер тоже помнит, где мы и с кем говорили
+    if (rnd.chance(0.6)) {
+      const memoryLine = rnd.pick(CONTINUITY.map(f => f({
+        npc: m.npcs.length ? m.npcs[m.npcs.length - 1].name : '',
+        place: m.place,
+        deed: m.deeds[m.deeds.length - 1],
+        fact: m.facts[m.facts.length - 1]
+      })).concat(['']));
+      if (memoryLine) lines.push(memoryLine);
+    }
     if (game.hero.hp <= game.hero.maxHp * 0.4) lines.push(`Силы на исходе: ${game.hero.hp} из ${game.hero.maxHp}.`);
+    if (rnd.chance(0.35)) {
+      const heroPool = localHeroLines(game.hero);
+      const fresh = heroPool.filter(x => game.offlineSeen.indexOf(x) < 0);
+      if (fresh.length) lines.push(freshLine(fresh));
+    }
     if (rnd.chance(0.6)) lines.push(rnd.pick(atmo));
+    // Кто вышел на сцену: знакомый из памяти или новый — и он останется в памяти
+    const characterScene = !!beat.npc ||
+      /(фигур|кто-то|человек|голос|тень|страж|торгов|старик|женщин|проводник|жрец|диспетчер|техник|появляется)/i.test(beat.text);
+    const remembered = m.npcs.length ? m.npcs[m.npcs.length - 1].name : '';
+    const flavor = localFlavor(game);
+    const names = localNames(flavor);
+    const npc = characterScene
+      ? (remembered || (typeof beat.npc === 'string' && beat.npc ? beat.npc : names[index % names.length]))
+      : '';
+    // Место меняем не каждый ход: тот же фон — меньше запросов к генератору,
+    // а действие всё равно меняется (для него в игре отдельный слой).
+    // Если игрок сам назвал место своего мира — держимся его.
+    const places = localPlaces(flavor);
+    const worldPlace = (game.worldConfig && game.worldConfig.place) || '';
+    const freshPlace = index === 0 ? true : index % 2 === 0;
+    const place = beat.place || worldPlace ||
+      (freshPlace ? places[(index / 2) % places.length] : (m.place || places[0]));
 
     const danger = game.worldConfig && game.worldConfig.danger;
     const effects = {
@@ -2979,7 +3923,8 @@
       ok: true, offline: true,
       scene,
       chapter: index === 0 ? 'Глава I' : (index === 2 ? 'Глава II' : (beat.final ? 'Финал' : '')),
-      npc: '',
+      npc,
+      place,
       imagePrompt: composeSceneImagePrompt(game, {
         aiPrompt: s.imagePrompts[index % s.imagePrompts.length],
         sceneText: scene
@@ -3025,6 +3970,76 @@
     h.advantage = false;
   }
 
+  /**
+   * Как подать сцену: что происходит в этом ходу и каким голосом это рассказать.
+   * Одна таблица на всех: текст берёт отсюда скорость печати и дрожь, озвучка —
+   * темп и высоту тона, интерфейс — подсветку.
+   *
+   *   mood    — имя настроения (тёмное, страшное, победное…)
+   *   voice   — строка для сервера: какие подачи сложить
+   *   speed   — множитель скорости печати (медленно «ползёт» или торопится)
+   *   motion  — насколько заметно дрожание: 0 нет, 1 лёгкое, 2 сильное
+   *   tint    — цветовая подсветка сцены
+   *   reason  — человеческое объяснение (для отладки и настроек)
+   */
+  const MOODS = {
+    book:    { speed: 0.72, motion: 0, tint: '',        voice: 'book',    note: 'ровное чтение' },
+    dark:    { speed: 0.6,  motion: 1, tint: '#2a2f45', voice: 'dark',    note: 'глухо и медленно' },
+    dread:   { speed: 0.42, motion: 2, tint: '#1b1030', voice: 'dread',   note: 'страшно, почти шёпотом' },
+    hurt:    { speed: 0.55, motion: 2, tint: '#3a1620', voice: 'hurt',    note: 'сбитое дыхание' },
+    tense:   { speed: 0.85, motion: 1, tint: '#33290f', voice: 'tense',   note: 'напряжение' },
+    triumph: { speed: 1.05, motion: 0, tint: '#12301f', voice: 'triumph', note: 'победа' },
+    ironic:  { speed: 0.9,  motion: 1, tint: '#2b2a3a', voice: 'ironic',  note: 'с усмешкой' },
+    soft:    { speed: 0.66, motion: 0, tint: '#232b33', voice: 'soft',    note: 'мягко' },
+    heroic:  { speed: 0.8,  motion: 0, tint: '#2b2412', voice: 'heroic',  note: 'с подъёмом' }
+  };
+  const DREAD_RE = /(страх|ужас|жутк|тьма|темнот|холод|мёртв|мертв|кров|погиб|смерт|проклят|бездн|нежити)/i;
+  const HURT_RE = /(ранен|рана|кровотеч|боль|перелом|ожог|хрип|сбит|ушиб|выдохся)/i;
+  const DANGER_RE = /(опасн|засад|ловушк|погон|клино|нож|оскал|угроз|наперерез|спешат)/i;
+  const WIN_RE = /(удалось|победа|вышло|получилось|одолел|прорвал|спас|раскрыл)/i;
+
+  function sceneMood(turn, opts) {
+    const o = opts || {};
+    const text = String((turn && turn.scene) || o.scene || '');
+    const rules = o.rules || {};
+    const effects = (turn && turn.effects) || {};
+    const hp = Number(effects.hp || 0);
+    const reason = [];
+    let name = (rules.tone === 'ironic') ? 'ironic'
+      : (rules.tone === 'heroic') ? 'heroic'
+      : (rules.rating === 'soft') ? 'soft' : 'dark';
+    if (o.tone) {                       // тон приходит из настроек напрямую
+      name = ({ grim: 'dark', ironic: 'ironic', heroic: 'heroic', soft: 'soft', hard: 'tense', book: 'book' })[o.tone] || name;
+    }
+    if (o.chapterChanged) reason.push('новая глава');
+    // Сначала самое громкое: потеря здоровья и смертельная опасность
+    // Кубок важнее слов: провал слышно и без потерь, крит — это всегда победа
+    const outcome = (o.check && o.check.outcome) || '';
+    if (outcome === 'crit') { name = 'triumph'; reason.push('критический успех'); }
+    else if (hp <= -4 || (o.hpLost && o.hpLost >= 4)) { name = 'dread'; reason.push('тяжёлый удар'); }
+    else if (hp < 0) { name = 'hurt'; reason.push('потеря здоровья'); }
+    else if (DREAD_RE.test(text)) { name = 'dread'; reason.push('мрачные слова'); }
+    else if (HURT_RE.test(text)) { name = 'hurt'; reason.push('герою больно'); }
+    else if (effects.goal || o.goalDone) { name = 'triumph'; reason.push('задача выполнена'); }
+    else if (WIN_RE.test(text) && rules.tone !== 'grim') { name = 'triumph'; reason.push('удача'); }
+    else if (DANGER_RE.test(text) || o.danger >= 3) { name = 'tense'; reason.push('опасность'); }
+    else if (outcome === 'fumble') { name = 'hurt'; reason.push('провал броска'); }
+    if (turn && turn.offline) reason.push('встроенный мастер');
+    if (!reason.length) reason.push('спокойный ход');
+    const m = MOODS[name] || MOODS.book;
+    const voice = [m.voice];
+    if (name !== 'dread' && name !== 'hurt' && o.hpLow) voice.push('hurt');   // герой на последнем дыхании
+    return {
+      mood: name,
+      voice: voice.join('+'),
+      speed: m.speed,
+      motion: m.motion,
+      tint: m.tint,
+      note: m.note,
+      reason: reason.join(', ')
+    };
+  }
+
   function applyEffects(game, effects) {
     const notes = [];
     if (!effects) return notes;
@@ -3046,6 +4061,11 @@
       notes.push({ type: 'goal', icon: '🏁', text: 'Задача выполнена!' });
     }
     if (game.hero.hp <= 0) game.over = true;
+    // Веха арки закрывается по цели или по явному прогрессу в ответе мастера
+    if (effects.goal) {
+      const step = arcAdvance(game, 'цель достигнута');
+      if (step) notes.push({ type: 'goal', icon: '🧭', text: 'Веха пройдена: ' + step.title });
+    }
     return notes;
   }
 
@@ -3209,12 +4229,17 @@
     SYSTEM_PROMPT, buildTurnPrompt, worldDescription, heroDescription, summarizeLog,
     buildImageUrl, fallbackImagePrompt,
     extractJsonObject, parseGmResponse, parseWorldResponse, sanitizeOption,
-    offlineTurn, offlineOpening, offlineScene, offlineWorldIntro, offlineBackstory, offlinePlan,
+    offlineTurn, offlineOpening, offlineScene, offlineWorldIntro, offlineBackstory, offlinePlan, isRepeatedScene,
+    sceneMood, MOODS,
+    emptyArc, arcOf, arcNow, arcAdvance, arcLine, compactMemory, chronicleLine,
+    validateTurn, repairHint, npcVoiceFor, npcLine, offlineSecondChance, openingQuestion,
+    STYLE_PRESETS, styleById, stylePrompt, sceneKeywords, scenePromptCoverage, reinforcePrompt,
     sceneActors, composeSceneImagePrompt, parsePlan, storyOptions, useAbility, tickCooldowns,
     applyEffects, pushLog, createStorage, migrate, probabilityLabel, OUTCOME_LABEL,
     storyFor, storyBeat, ATMOSPHERE, GENERIC_ATMOSPHERE,
     emptyMemory, memoryOf, memoryBlock, rememberTurn, rememberFact, openingOf, rulesOf, defaultRules,
-    rulesLine, TONES, RATINGS, ART_PACKS, artStyleFor, styleOf, stylePrompt, placeKey, placePrompt,
+    rulesLine, TONES, RATINGS, ART_PACKS, artStyleFor, styleOf, stylePrompt, placeKey, placePrompt, placeGraph,
+    paragraphMoods, campaignMarkdown, runCard,
     portraitPrompt, polishSceneText, dedupeOptions, resolveDefeat, epilogueText, buildEpiloguePrompt,
     extractPartialField, salvageWorldResponse, sliceAfterKey, listFromPartialArray,
     LEGACY_KEY, LEGACY_UNLOCKS, emptyLegacy, legacyUnlocked, legacyNextUnlock,

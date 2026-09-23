@@ -24,15 +24,19 @@
 
   const CONFIG = {
     textTimeoutMs: 22000,
-    serverTimeoutMs: 30000,   // сервер сам пытается несколько раз, но не тянет время зря
+    serverTimeoutMs: 42000,   // ход просит у сервера до 32 с + запасной путь: клиент ждёт дольше   // сервер сам пытается несколько раз, но не тянет время зря
     imageTimeoutMs: 45000,   // генератор картинок бывает загружен — ждём дольше, фон всё это время уже на экране
     retriesPerProvider: 1,
     textModel: 'openai-fast',
     apiKey: BUILTIN_API_KEY,
     backend: null,
     backendChecked: false,
+    // Выбор игрока в настройках: кто ведёт игру и кто рисует кадры.
+    // 'auto' — доверяем серверу и его очереди каналов.
+    masterWanted: 'auto',
+    imageSource: 'auto',
     imageWidth: 448,
-    imageHeight: 252,
+    imageHeight: 256,   // генераторы шлюза принимают высоту не меньше 256
     serverBase: ''            // напр. https://dice-tales.onrender.com — для GitHub Pages
   };
 
@@ -184,14 +188,44 @@
     return dropped;
   }
 
-  async function viaServer(messages, timeoutMs, budgetMs) {
+  /** Кого игрок выбрал ведущим: 'auto' — решает сервер. */
+  function wantedMaster() {
+    return CONFIG.masterWanted && CONFIG.masterWanted !== 'auto' ? CONFIG.masterWanted : '';
+  }
+
+  function setMaster(id) {
+    CONFIG.masterWanted = String(id || 'auto');
+    log('ведущий мастер:', CONFIG.masterWanted);
+  }
+
+  function masterWanted() { return CONFIG.masterWanted || 'auto'; }
+
+  function setImageSource(id) {
+    CONFIG.imageSource = String(id || 'auto');
+    log('генератор картинок:', CONFIG.imageSource);
+  }
+
+  function imageSource() { return CONFIG.imageSource || 'auto'; }
+
+  /** Доступные варианты: их присылает сервер в /api/health. */
+  function masterChoices() {
+    const back = CONFIG.backend || {};
+    return Array.isArray(back.masterChoices) ? back.masterChoices : [];
+  }
+
+  function imageChoices() {
+    const back = CONFIG.backend || {};
+    return Array.isArray(back.imageChoices) ? back.imageChoices : [];
+  }
+
+  async function viaServer(messages, timeoutMs, budgetMs, kind) {
     if (!CONFIG.backend) return null;
     const t = withTimeout(timeoutMs || CONFIG.serverTimeoutMs);
     try {
       const res = await fetch(serverUrl('api/gm'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages, budgetMs }),
+        body: JSON.stringify({ messages, budgetMs, kind: kind || '', provider: wantedMaster() }),
         signal: t.signal
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -262,11 +296,12 @@
     const server = await probeBackend();
     if (!server) return { ok: false };
     const t = withTimeout(hooks.timeoutMs || CONFIG.serverTimeoutMs);
+    // поток — основной путь: если канал взялся за дело, ждём столько, сколько нужно
     try {
       const res = await fetch(serverUrl('api/gm/stream'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages, budgetMs: hooks.budgetMs }),
+        body: JSON.stringify({ messages, budgetMs: hooks.budgetMs, kind: hooks.kind || '', provider: wantedMaster() }),
         signal: t.signal
       });
       if (!res.ok || !res.body || typeof res.body.getReader !== 'function') throw new Error('HTTP ' + res.status);
@@ -312,7 +347,7 @@
   async function askGameMaster(messages, hooks = {}) {
     const server = await probeBackend();
     if (server) {
-      const viaSrv = await viaServer(messages, null, hooks.budgetMs);
+      const viaSrv = await viaServer(messages, null, hooks.budgetMs, hooks.kind);
       if (viaSrv) return Object.assign({ ok: true }, viaSrv);
     }
     for (const provider of directProviders()) {
@@ -335,16 +370,17 @@
   async function generateTurn(game, action, check, hooks = {}) {
     const messages = [
       { role: 'system', content: E.SYSTEM_PROMPT },
-      { role: 'user', content: E.buildTurnPrompt(game, action, check) }
+      { role: 'user', content: E.buildTurnPrompt(game, action, check, hooks.extra || '', hooks.repair || '') }
     ];
     const started = Date.now();
     let res = await runQueued('turn', async () => {
       if (hooks.onDelta) {
-        const streamed = await askGameMasterStream(messages, hooks, hooks.onDelta);
+        const streamed = await askGameMasterStream(messages, Object.assign({ kind: 'turn' }, hooks), hooks.onDelta);
         if (streamed.ok) return streamed;
         if (hooks.onPreviewEnd) hooks.onPreviewEnd();
-        // канал молчит: не тянем ход — дальше сцену соберёт локальный мастер
-        if (Date.now() - started > 14000) return { ok: false };
+        // Канал отвечает 20–30 секунд: даём мастеру шанс, но не держим игрока
+        // дольше — иначе ход соберёт локальный мастер.
+        if (Date.now() - started > 28000) return { ok: false };
       }
       return askGameMaster(messages, hooks);
     });
@@ -398,8 +434,10 @@
           '4) "plan" — 3 шага плана отыгрыша (что герою предстоит и в каком порядке);',
           '5) "imagePrompt" — по-английски, с героем в кадре и с теми, кто есть в сцене;',
           '6) ровно 3 первых варианта действий, вытекающих из плана.',
+          hooks.extra ? 'ПОЖЕЛАНИЕ ИГРОКА О НАЧАЛЕ: ' + hooks.extra : '',
+          hooks.repair || '',
           'Только JSON.'
-        ].join('\n\n')
+        ].filter(Boolean).join('\n\n')
       }
     ];
     const res = await askGameMaster(messages, hooks);
@@ -440,14 +478,15 @@
       }
     ];
     const ask = async () => {
-      const opts = Object.assign({ budgetMs: 12000, timeoutMs: 15000 }, hooks);
+      // умные модели думают дольше прежней: даём герою до 26 секунд
+      const opts = Object.assign({ budgetMs: 26000, timeoutMs: 30000, kind: 'hero' }, hooks);
       const started = Date.now();
       if (hooks.onDelta) {
         const streamed = await askGameMasterStream(messages, opts, hooks.onDelta);
         if (streamed.ok) return streamed;
         if (hooks.onPreviewEnd) hooks.onPreviewEnd();
         // канал занят — не тянем: лучше быстро попробовать снова
-        if (Date.now() - started > 8000) return { ok: false };
+        if (Date.now() - started > 14000) return { ok: false };
       }
       return askGameMaster(messages, opts);
     };
@@ -457,7 +496,7 @@
     // но общий кап держим: игрок не должен ждать набор дольше ~20 секунд
     for (const wait of [900, 2600]) {
       if (res.ok) break;
-      if (Date.now() - t0 > 20000) break;
+      if (Date.now() - t0 > 34000) break;   // три попытки, но не дольше ~34 секунд
       if (hooks.onStatus) hooks.onStatus('retry');
       await sleep(wait);
       res = await runQueued('hero', ask);
@@ -586,9 +625,41 @@
     return { ok: true, text: E.epilogueText(game), title: 'Финал', source: 'local' };
   }
 
+  /**
+   * Озвучка сцены. Голос синтезирует сервер (нейросетевой голос, mp3):
+   * браузерный синтез звучит заметно хуже и на разных устройствах по-разному.
+   * Возвращает blob-URL или null — тогда игра читает сцену голосом браузера.
+   */
+  async function speakScene(text, hooks = {}) {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+    if (!clean) return null;
+    const server = await probeBackend();
+    if (!server) return null;
+    const t = withTimeout(hooks.timeoutMs || 30000);
+    try {
+      const q = ['text=' + encodeURIComponent(clean)];
+      if (hooks.mood) q.push('mood=' + encodeURIComponent(hooks.mood));
+      if (hooks.gender) q.push('gender=' + encodeURIComponent(hooks.gender));
+      if (hooks.voice) q.push('voice=' + encodeURIComponent(hooks.voice));
+      const res = await fetch(serverUrl('api/tts') + '?' + q.join('&'), { signal: t.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      if (!blob || blob.size < 1024) throw new Error('пустая озвучка');
+      log('озвучка от сервера:', Math.round(blob.size / 1024), 'КБ',
+        hooks.mood ? '· подача ' + hooks.mood : '');
+      return URL.createObjectURL(blob);
+    } catch (err) {
+      log('озвучка не сложилась:', String(err && err.message || err));
+      return null;
+    } finally {
+      t.done();
+    }
+  }
+
   async function generateImage({ prompt, style, aspect = '16:9', seed, width, height, onAttempt, hedgeFirstMs = 0 }) {
+    const source = CONFIG.imageSource || 'auto';
     const built = E.buildImageUrl({
-      prompt, style, aspect, seed,
+      prompt, style, aspect, seed, source,
       width: width || CONFIG.imageWidth, height: height || CONFIG.imageHeight
     });
     const key = built.full + '|' + (seed || 1) + '|' + aspect;
@@ -606,6 +677,10 @@
     // игрок видит процедурный фон по тексту сцены.
     const server = await probeBackend();
     const queue = [];
+    if (source === 'local') {
+      // «локальный фон»: генераторы не дёргаем вовсе, сцена рисует себя сама
+      return { ok: false, prompt: built.full, local: true };
+    }
     if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
     // Без своего сервера (например, страница открыта файлом с GitHub Pages)
     // картинку просим напрямую у генератора — анонимный адрес из браузера работает.
@@ -651,6 +726,45 @@
     });
   }
 
+  /* ---------------------------------------------------------- */
+  /* Облачные сейвы: короткий код, чтобы продолжить на другом телефоне */
+  /* ---------------------------------------------------------- */
+
+  async function cloudPut(payload) {
+    const server = await probeBackend();
+    if (!server) return { ok: false, reason: 'сервер недоступен' };
+    const t = withTimeout(15000);
+    try {
+      const res = await fetch(serverUrl('api/save'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: t.signal
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status);
+      return { ok: true, code: data.code };
+    } catch (err) {
+      log('выложить сейв не вышло:', String(err && err.message || err));
+      return { ok: false, reason: String(err && err.message || err) };
+    } finally { t.done(); }
+  }
+
+  async function cloudGet(code) {
+    const server = await probeBackend();
+    if (!server) return { ok: false, reason: 'сервер недоступен' };
+    const t = withTimeout(15000);
+    try {
+      const res = await fetch(serverUrl('api/save?code=' + encodeURIComponent(String(code || '').toUpperCase())), { signal: t.signal });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'код не найден');
+      return { ok: true, data: data.data, settings: data.settings, savedAt: data.savedAt };
+    } catch (err) {
+      log('забрать сейв не вышло:', String(err && err.message || err));
+      return { ok: false, reason: String(err && err.message || err) };
+    } finally { t.done(); }
+  }
+
   function prefetch(url) {
     if (!url) return;
     try { const i = new Image(); i.src = url; } catch (e) { /* noop */ }
@@ -659,7 +773,9 @@
   return {
     CONFIG, BUILTIN_API_KEY, setApiKey, getApiKey, isBuiltinKey, probeBackend, mode, serverUrl, setServerBase,
     askGameMaster, askGameMasterStream, runQueued, cancelQueued, queueDepth, queueInfo, PRIORITY,
-    generateTurn, generateOpening, generateWorld, generateHeroProfile, generateEpilogue,
-    generateImage, prefetch, loadImageOnce, looksLikeJunk, sleep
+    generateTurn, generateOpening, generateWorld, generateHeroProfile, generateEpilogue, speakScene,
+    generateImage, prefetch, loadImageOnce, looksLikeJunk, sleep,
+    setMaster, masterWanted, setImageSource, imageSource, masterChoices, imageChoices,
+    cloudPut, cloudGet
   };
 });

@@ -32,6 +32,6 @@ const { chromium } = require('playwright');
   }
   console.log('ответы /api/image:', JSON.stringify(ev));
   console.log('картинка показана:', JSON.stringify(shown));
-  await page.screenshot({ path: 'shots/v7-03-scene-ai.png' });
+  await page.screenshot({ path: 'shots/v8-03-scene-gateway.png' });
   await b.close();
 })();

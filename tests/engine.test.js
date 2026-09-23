@@ -153,15 +153,27 @@ test('подборка сценариев не повторяется и не п
   }
 });
 
-test('режимы-игры оформлены: Азерот, Найт-Сити, Рунитерра и «своя игра»', () => {
-  assert.strictEqual(E.GAME_WORLDS.length, 4);
-  ['azeroth', 'nightcity', 'runeterra', 'mygame'].forEach(id => {
+test('режимы-игры оформлены: Азерот, Найт-Сити, Рунитерра, «своя игра» и восемь новых миров', () => {
+  assert.ok(E.GAME_WORLDS.length >= 12, 'миров должно быть не меньше двенадцати, сейчас ' + E.GAME_WORLDS.length);
+  assert.strictEqual(new Set(E.GAME_WORLDS.map(w => w.id)).size, E.GAME_WORLDS.length, 'id миров не повторяются');
+  ['azeroth', 'nightcity', 'runeterra', 'mygame',
+   'stalker', 'metro', 'disco', 'mass_effect', 'dark_souls', 'fallout', 'dnd', 'warhammer'].forEach(id => {
     const w = E.GAME_WORLDS.find(x => x.id === id);
     assert.ok(w, 'нет режима ' + id);
     assert.ok(w.title && w.cover, 'неполный режим ' + id);
     if (!w.customGame) assert.ok(w.opening && w.goal, 'нет вступления у ' + id);
     assert.ok(w.setting && w.artStyle && Array.isArray(w.palette), 'нет оформления у ' + id);
   });
+  // в каждом новом мире герой собирается кнопками, а не «с нуля»
+  [['S.T.A.L.K.E.R.', 4], ['Metro 2033', 4], ['Disco Elysium', 4], ['Mass Effect', 4],
+   ['Dark Souls', 4], ['Fallout', 3], ['Dungeons & Dragons', 5], ['Warhammer 40k', 4]].forEach(([name, min]) => {
+    const prof = E.offlineHeroProfile({ gameName: name });
+    assert.ok(prof, 'нет профиля героя для ' + name);
+    assert.ok(prof.classes.length >= min, 'мало классов у ' + name);
+    assert.ok(prof.origins.length >= 2, 'мало происхождений у ' + name);
+    assert.ok(prof.classLabel && prof.classes[0].title, 'нет подписи класса у ' + name);
+  });
+
   const mine = E.GAME_WORLDS.find(w => w.id === 'mygame');
   assert.strictEqual(mine.customGame, true, '«своя игра» должна быть кастомной');
   assert.strictEqual(mine.cover, E.CUSTOM_SCENARIO.cover, 'у «своей игры» та же обложка');
@@ -756,6 +768,74 @@ test('придуманный мастером герой играется: ст�
   assert.ok(opened.backstory.includes('Геральт') && opened.world.length > 40, 'вступление учитывает героя');
 });
 
+test('мусорные подписи от слабого канала не попадают в интерфейс', () => {
+  const junk = E.heroProfileFromWorld({
+    classLabel: 'в Нильфгаарде беспокоится', raceLabel: 'Школа', originLabel: 'кто он такой, откуда пришёл'
+  }, { ownGame: true, gameName: 'Ведьмак' });
+  assert.strictEqual(junk.classLabel, 'Школа', 'обрывок фразы заменяем подписью известной игры');
+  assert.strictEqual(junk.classLabel.length <= 22, true);
+  assert.strictEqual(junk.originLabel, 'Происхождение', 'слишком длинную подпись тоже отбрасываем');
+  assert.strictEqual(junk.raceLabel, 'Школа', 'короткая подпись мастера проходит как есть');
+
+  const own = E.heroProfileFromWorld({ classLabel: 'Должность', classes: ['Механик пустошей'] }, { ownGame: true });
+  assert.strictEqual(own.showRace, false, 'в своей игре шаг расы скрыт, если мастер её не назвал');
+  assert.strictEqual(own.showOrigin, false, 'и происхождение тоже');
+  assert.strictEqual(own.classLabel, 'Должность', 'своя подпись шага проходит');
+
+  const known = E.heroProfileFromWorld({}, { ownGame: true, gameName: 'Ведьмак 3' });
+  assert.strictEqual(known.classLabel, 'Школа', 'для известной игры подписи берём из таблицы, а не из мусора');
+  assert.strictEqual(known.showRace, false, 'в этой игре рас нет — шаг скрыт');
+
+  const withRaces = E.heroProfileFromWorld({ races: ['Стеклянный народ'] }, { ownGame: true });
+  assert.strictEqual(withRaces.showRace, true, 'названную мастером расу-строку принимаем');
+  const slug = E.heroProfileFromWorld({ races: ['нет-такой'] }, { ownGame: true });
+  assert.strictEqual(slug.showRace, false, 'строчная «слякоть» — это не название, шаг скрыт');
+});
+
+test('настроение сцены: страх, боль, победа и опасность читаются по-разному', () => {
+  const grim = { tone: 'grim', rating: 'normal' };
+  const calm = E.sceneMood({ scene: 'Ты идёшь по пыльной дороге, солнце садится за холм.' }, { rules: grim });
+  assert.strictEqual(calm.mood, 'dark', 'обычный ход в мрачном тоне — тёмная подача');
+  assert.ok(calm.speed < 1, 'мрачная сцена печатается медленнее обычного');
+
+  const scared = E.sceneMood({ scene: 'Из темноты тянет могильным холодом, и ты слышишь хрип.' }, { rules: grim });
+  assert.strictEqual(scared.mood, 'dread');
+  assert.strictEqual(scared.motion, 2, 'у страха заметная дрожь');
+  assert.ok(scared.speed < calm.speed, 'страшная сцена «ползёт» медленнее обычной');
+
+  const hurt = E.sceneMood({ scene: 'Ты идёшь дальше.', effects: { hp: -2 } }, { rules: grim });
+  assert.strictEqual(hurt.mood, 'hurt', 'потеря здоровья — сбитое дыхание');
+
+  const deadly = E.sceneMood({ scene: 'Ты идёшь дальше.', effects: { hp: -5 } }, { rules: grim });
+  assert.strictEqual(deadly.mood, 'dread', 'тяжёлый удар страшнее обычной раны');
+
+  const win = E.sceneMood({ scene: 'Река наконец осталась позади.', effects: { goal: true } }, { rules: grim });
+  assert.strictEqual(win.mood, 'triumph');
+  assert.ok(!/hurt/.test(win.voice), 'в победе нет подачи боли');
+
+  const ironic = E.sceneMood({ scene: 'Ты идёшь по пыльной дороге.' }, { tone: 'ironic' });
+  assert.strictEqual(ironic.mood, 'ironic', 'тон настроек важнее жанра');
+  assert.strictEqual(ironic.voice, 'ironic', 'голос получает ту же подачу');
+
+  const low = E.sceneMood({ scene: 'Ты идёшь по пыльной дороге.' }, { rules: grim, hpLow: true });
+  assert.strictEqual(low.voice, 'dark+hurt', 'на последнем здоровье голос звучит сбито');
+  const crit = E.sceneMood({ scene: 'Клинок проходит мимо.' }, { rules: grim, check: { outcome: 'crit' } });
+  assert.strictEqual(crit.mood, 'triumph', 'критический успех звучит и выглядит победно');
+  assert.strictEqual(crit.voice, 'triumph');
+  const fumble = E.sceneMood({ scene: 'Ты шагаешь дальше по дороге.' }, { rules: grim, check: { outcome: 'fumble' } });
+  assert.strictEqual(fumble.mood, 'hurt', 'провал броска отдаёт болью даже без потери здоровья');
+  assert.ok(low.reason.length > 0, 'у настроения есть объяснение');
+});
+
+test('повтор прошлой сцены распознаётся, а новая — нет', () => {
+  const same = 'Ты ступаешь по узкой аллее рынка, шум торговцев растворяется в холодном ветре. Руки дрожат.';
+  assert.strictEqual(E.isRepeatedScene(same, same + ' Ещё одна фраза в конце.'), true, 'дословный повтор виден');
+  const other = 'Тропа выводит к сухому руслу, и под мостом кто-то оставил вязанку хвороста и след сапога.';
+  assert.strictEqual(E.isRepeatedScene(same, other), false, 'новую сцену повтором не считаем');
+  assert.strictEqual(E.isRepeatedScene('', other), false, 'пустая сцена — не повтор');
+  assert.strictEqual(E.isRepeatedScene(same, 'Коротко.'), false, 'мало слов — не повод заменять ход');
+});
+
 test('умение придуманного класса получает механику по смыслу', () => {
   const heal = E.heroProfileFromWorld({ classes: [{ title: 'Рипердок', ability: { name: 'Стимпак', desc: 'Восстанавливает здоровье' } }] }).classes[0];
   assert.strictEqual(heal.ability.kind, 'heal');
@@ -806,6 +886,23 @@ test('герой из строкового ответа мастера: клас
   assert.ok(p.origins[0].hook.includes('сжёг'), 'крючок происхождения сохранён');
   assert.strictEqual(p.showRace, true);
   assert.strictEqual(p.races[0].trait, 'видит в темноте');
+});
+
+test('скромные числа мастера досыпаются до общего правила', () => {
+  // умные модели иногда дают одну характеристику или две по +1: тогда класс
+  // слабее соседей и выбор становится неравным — досыпаем до «+2 и +1»
+  const p = E.heroProfileFromText([
+    'К: Торговцы Чёрного Железа|купцы-контрабандисты, знают тропы|Разум +1|Серебряный Язык :: убеждает врагов',
+    'К: Бродячий Целитель|лечит раны и латает снаряжение|Разум +1 Воля +1|Настойка :: снимает усталость'
+  ].join('\n'));
+  const bonuses = p.classes.map(c => c.bonus);
+  bonuses.forEach((b, i) => {
+    const sum = Object.keys(b).reduce((acc, k) => acc + b[k], 0);
+    assert.strictEqual(sum, 3, 'класс ' + i + ' получает ровно +3: ' + JSON.stringify(b));
+    assert.strictEqual(Math.max.apply(null, Object.keys(b).map(k => b[k])), 2, 'главная характеристика +2');
+    assert.ok(Object.keys(b).length >= 2, 'характеристик не меньше двух');
+  });
+  assert.strictEqual(bonuses[0].int, 2, 'торговец ведёт разумом');
 });
 
 test('приём, записанный через «|» или без описания, всё равно читается', () => {
@@ -1102,4 +1199,200 @@ test('набор героя всегда с числами и связкой с 
   assert.ok(prompt.includes('странник без фракции'), 'роль героя в промпте');
   assert.ok(/характеристики подходят занятию/i.test(prompt), 'мастеру сказано про числа по смыслу');
   assert.ok(E.heroPromptThreat({}, scenario).includes('нежить'), 'угроза берётся из цели мира');
+});
+
+/* ------------------------------------------------------------------ */
+/* Мастер: логика по истории, арка, самопроверка                      */
+/* ------------------------------------------------------------------ */
+
+test('арка кампании: вехи идут по порядку, память мастера их видит', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай' });
+  const arc = E.arcOf(game);
+  assert.ok(arc && arc.steps.length >= 3, 'в арке должно быть минимум три вехи');
+  assert.equal(arc.at, 0);
+  assert.ok(/АРКА КАМПАНИИ/.test(E.arcLine(game)), 'строка арки должна идти в подсказку мастеру');
+
+  const first = E.arcNow(game);
+  const closed = E.arcAdvance(game, 'первая веха закрыта');
+  assert.ok(closed && closed.title, 'веха должна закрываться с названием');
+  assert.equal(closed.title, first.title, 'закрывается именно текущая веха');
+  assert.equal(E.arcOf(game).at, 1, 'указатель арки должен сдвинуться');
+  const now = E.arcNow(game);
+  assert.notEqual(now.title, first.title, 'после закрытия вехи идёт следующая');
+  const line = E.arcLine(game);
+  assert.ok(line.includes(now.title), 'мастер должен видеть текущую веху');
+  assert.ok(line.includes(first.title), 'мастер должен видеть пройденный путь');
+});
+
+test('память мастера: место, нити и знакомые попадают в подсказку хода', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  E.rememberTurn(game, {
+    scene: 'Ты выходишь к сухому руслу. Мара ждёт у телеги и молчит.',
+    npc: 'Мара',
+    place: 'Сухое русло',
+    thread: 'долг караванщице',
+    options: [{ text: 'Заговорить' }],
+    effects: {}
+  }, { text: 'Идти к воде' });
+  const block = E.memoryBlock(game);
+  assert.ok(block.includes('Сухое русло'), 'место должно быть в памяти: ' + block.slice(0, 120));
+  assert.ok(/Мара/.test(block), 'знакомый должен остаться в памяти');
+  assert.ok(/долг караванщице/.test(block), 'открытая нить должна быть в памяти');
+  assert.ok(/АРКА КАМПАНИИ/.test(block), 'арка должна идти вместе с памятью');
+});
+
+test('самопроверка хода ловит пустой ответ и мусор, но пропускает хорошую сцену', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай' });
+  const bad = E.validateTurn({ scene: 'Раз.', options: [{ text: 'а' }] }, game);
+  assert.equal(bad.ok, false);
+  assert.ok(bad.problems.length >= 2, 'должно быть минимум две причины: ' + bad.problems.join('; '));
+
+  const good = E.validateTurn({
+    scene: 'Ты входишь в трактир: пахнет дымом и рыбой, за столом спорят трое. Хозяин смотрит на твой меч и молчит.',
+    options: [
+      { text: 'Спросить у хозяина про караван', stat: 'cha', dc: 12 },
+      { text: 'Сесть ближе к спорщикам и слушать', stat: 'per', dc: 11 },
+      { text: 'Выйти и обойти трактир со двора', stat: 'agi', dc: 13 }
+    ],
+    imagePrompt: 'tavern interior with smoky light, hero in foreground'
+  }, game);
+  assert.equal(good.ok, true, 'нормальный ход не должен считаться браком: ' + good.problems.join('; '));
+  assert.ok(E.repairHint(bad).length > 5, 'подсказка принимает и объект проверки, и список причин');
+  assert.ok(E.repairHint(bad.problems).length > 5, 'и список причин тоже');
+});
+
+test('знакомые получают свой голос: женщин, мужчин и нейтральных различаем', () => {
+  assert.equal(E.npcVoiceFor({ name: 'Мара', role: 'караванщица' }), 'female');
+  assert.equal(E.npcVoiceFor({ name: 'Гром', role: 'кузнец' }), 'male');
+  assert.equal(E.npcVoiceFor({ name: 'Сай', role: 'проводник' }), 'andrew');
+  const line = E.npcLine({ npcObject: { name: 'Мара', line: '«Иди за мной, тихо»' } });
+  assert.ok(line && /Иди за мной/.test(line.line), 'реплика должна вытаскиваться из ответа мастера');
+});
+
+test('кадр сверяется со сценой: чего не хватает в промпте, досыпается словами', () => {
+  const scene = 'Ночной рынок у моста: горит костёр, ветер несёт пепел, у ворот стоит телега.';
+  const poor = 'dark fantasy market';
+  const cov = E.scenePromptCoverage(scene, poor);
+  assert.equal(cov.ok, false, 'бедный промпт должен считаться неполным');
+  const fixed = E.reinforcePrompt(scene, poor);
+  assert.ok(fixed.length > poor.length, 'промпт должен дополняться: ' + fixed);
+  assert.ok(!/[а-яё]/i.test(fixed), 'в промпт не должны попадать русские слова: ' + fixed);
+  const rich = 'night market by a narrow bridge, campfire light, ash in the wind, cart at the gate, hero in the foreground, dark fantasy';
+  assert.equal(E.scenePromptCoverage(scene, rich).ok, true, 'полный промпт не трогаем');
+  const noHero = 'night market by a narrow bridge, campfire light, ash in the wind, cart at the gate, dark fantasy';
+  assert.equal(E.scenePromptCoverage(scene, noHero).ok, false, 'кадр без героя считается неполным');
+});
+
+test('стили кадров: пресеты задают промпт и не ломают общий стиль игры', () => {
+  const ids = E.STYLE_PRESETS.map(s => s.id);
+  ['auto', 'cinema', 'water', 'comic', 'noir', 'glass'].forEach(id => {
+    assert.ok(ids.includes(id), 'нет пресета ' + id);
+  });
+  assert.equal(E.styleById('нет-такого').id, 'auto', 'неизвестный стиль не должен ломать игру');
+  assert.ok(E.stylePrompt('noir').length > 5, 'у нуара должен быть свой промпт');
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай', styleId: 'cinema' });
+  game.artStyle = 'cinema';
+  const prompt = E.composeSceneImagePrompt(game, { sceneText: 'степь и ветер', aiPrompt: 'steppe at dawn' });
+  assert.ok(/cinematic|35mm|grain/i.test(prompt), 'стиль должен попадать в промпт картинки: ' + prompt);
+});
+
+test('карта мест: узлы собираются из памяти, текущее место помечено', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  game.log = [
+    { kind: 'gm', text: 'Ты в трактире.', place: 'Трактир у моста', turn: 1 },
+    { kind: 'gm', text: 'Дорога.', place: 'Северный тракт', turn: 2 },
+    { kind: 'gm', text: 'Руины.', place: 'Северный тракт', turn: 3 }
+  ];
+  game.scene = { place: 'Северный тракт' };
+  const nodes = E.placeGraph(game);
+  assert.equal(nodes.length, 2, 'два разных места — два узла: ' + JSON.stringify(nodes));
+  const now = nodes.filter(n => n.now);
+  assert.equal(now.length, 1, 'текущее место должно быть ровно одно');
+  assert.equal(now[0].title, 'Северный тракт');
+  assert.ok(nodes[1].turns >= 2, 'счётчик ходов по месту должен считать повторы');
+});
+
+test('второй шанс без канала объясняет ошибку и не оставляет игрока в тупике', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай' });
+  E.rememberTurn(game, { scene: 'Ты бросился на троих сразу.', place: 'Переправа', options: [] }, { text: 'Атаковать' });
+  const text = E.offlineSecondChance(game);
+  assert.ok(text.includes('Переправа') || text.includes('Развилка'), 'разбор должен быть про конкретное место: ' + text);
+  assert.ok(/иначе/.test(text), 'должен быть совет, как играть иначе');
+});
+
+test('уточняющий вопрос: три понятных варианта начала истории', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай', worldConfig: E.emptyWorldConfig() });
+  const q = E.openingQuestion(game);
+  assert.ok(q.question && q.options.length === 3, 'должно быть три варианта начала');
+  q.options.forEach(o => {
+    assert.ok(o.title && o.extra && o.extra.length > 10, 'вариант должен нести подсказку мастеру: ' + JSON.stringify(o));
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Озвучка по абзацам, экспорт истории, карточка кампании            */
+/* ------------------------------------------------------------------ */
+
+test('подача по абзацам: реплика, ранение и тьма звучат по-разному', () => {
+  const parts = E.paragraphMoods(
+    'Коридор тёмный, пахнет сыростью и страхом.\n\n' +
+    '— Иди за мной, — говорит Мара. «И не свети в окно».\n\n' +
+    'Кровь на стене свежая, рука ноет от удара.'
+  );
+  assert.equal(parts.length, 3, 'сцена должна разбираться на абзацы, а не на строки');
+  assert.equal(parts[0].mood, 'dread', 'страшное описание читается глухим, тревожным голосом');
+  assert.equal(E.paragraphMoods('Утро выдалось ясное, дорога шла по полю.')[0].mood, 'dark',
+    'спокойное первое описание — ровная тёмная подача');
+  assert.equal(parts[1].mood, 'ironic', 'реплика читается живым голосом');
+  assert.equal(parts[2].mood, 'hurt', 'ранение — глухая подача');
+  parts.forEach(part => {
+    assert.ok(part.text && part.pause >= 0, 'у абзаца должен быть текст и пауза');
+  });
+  // пустой текст не должен ничего ломать
+  assert.deepEqual(E.paragraphMoods(''), []);
+});
+
+test('история кампании выгружается текстом: мир, герой, ходы, финал', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  game.title = 'Пепел Астры';
+  game.goal = 'найти караван';
+  game.intro = { world: 'Мир после Катаклизма.', backstory: 'Ирма росла в порту.', plan: ['след', 'караван', 'выбор'] };
+  E.pushLog(game, { kind: 'action', text: 'Идти к воде', meta: 'd20 15 + 2 = 17 против 12 · успех', chapter: 'Глава I' });
+  E.pushLog(game, { kind: 'gm', text: 'Ты выходишь к сухому руслу. Мара ждёт у телеги.', chapter: 'Глава I' });
+  E.pushLog(game, { kind: 'npc', text: '👤 Мара: «Не свети в окно»' });
+  game.turn = 3;
+  const md = E.campaignMarkdown(game);
+  ['# Пепел Астры', '**Герой:** Ирма', 'найти караван', '## Мир', '## Ход за ходом', '### Ход 1', 'd20 15', 'Мара']
+    .forEach(needle => assert.ok(md.includes(needle), 'в тексте истории нет: ' + needle));
+  assert.ok(md.length > 300, 'история не должна быть огрызком: ' + md.length);
+});
+
+test('карточка кампании: вердикт, вехи и факты для шэра', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай' });
+  game.title = 'Тихий порт';
+  game.questDone = true;
+  game.ending = 'victory';
+  game.turn = 9;
+  E.rememberFact(game, 'герой спас караванщицу');
+  E.rememberTurn(game, { scene: 'Ты на пристани, чайки.', place: 'Пристань', options: [] }, { text: 'Ждать' });
+  E.arcAdvance(game, 'первая веха');
+  const card = E.runCard(game, { ashes: 3 });
+  assert.equal(card.title, 'Тихий порт');
+  assert.ok(/достигнута/.test(card.verdict), 'вердикт должен быть понятным: ' + card.verdict);
+  assert.equal(card.turns, 9);
+  assert.equal(card.ashes, 3);
+  assert.ok(card.facts.length, 'в карточке должны быть факты из памяти');
+  assert.ok(card.milestones.length, 'в карточке должны быть вехи');
+  assert.ok(card.mood, 'и настроение тоже');
+});
+
+test('стиль кадров меняет палитру кадра и тему интерфейса', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай' });
+  const before = E.styleOf(game).palette.slice();
+  game.artStyle = 'noir';
+  const after = E.styleOf(game);
+  assert.notDeepEqual(after.palette, before, 'нуар должен принести свою палитру');
+  assert.ok(after.imageStyle && after.imageStyle.length > 10, 'и свой промпт для генератора');
+  game.artStyle = 'auto';
+  assert.deepEqual(E.styleOf(game).palette, before, 'auto возвращает жанровую палитру');
 });
