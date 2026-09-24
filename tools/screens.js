@@ -63,7 +63,53 @@ const TURN = {
     return rows.map(r => Array.from(r.querySelectorAll('.rules-btn__title')).map(t => t.textContent.trim()));
   });
   await shot('v13-settings-channels');
+  // прокрутим список каналов: у Mistral (бесплатный ключ) своя строка и поле для ключа
+  await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll('#modal button')).find(b => /Mistral/.test(b.textContent));
+    if (btn) btn.scrollIntoView({ block: 'center' });
+  }).catch(() => {});
+  await page.waitForTimeout(400);
+  await shot('v15-settings-mistral');
+  // поле для ключа Mistral — выше списка каналов: оно должно быть на месте и пустым
+  const keyField = await page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('#modal input.input'));
+    const field = inputs.find(i => /Mistral/i.test(i.placeholder || ''));
+    if (!field) return null;
+    field.scrollIntoView({ block: 'center' });
+    return { placeholder: field.placeholder, value: field.value };
+  });
+  await page.waitForTimeout(300);
+  await shot('v15-settings-mistral-key');
+  if (!keyField) bad.push('нет поля для бесплатного ключа Mistral');
+  else if (keyField.value) bad.push('поле ключа Mistral не пустует: ' + keyField.value.slice(0, 8));
   if (!channels[0] || channels[0].length < 3) bad.push('выбор мастера пуст: ' + JSON.stringify(channels[0]));
+  if (!channels[0].some(t => /Mistral/.test(t))) bad.push('в выборе мастера нет канала Mistral (бесплатный ключ)');
+  if (!channels[0].some(t => /GLM/.test(t))) bad.push('в выборе мастера нет канала GLM');
+  if (!channels[0].some(t => /Hugging Face/.test(t))) bad.push('в выборе мастера нет канала Hugging Face');
+  // поле для ключа GLM: рядом с ключом Mistral
+  const glmField = await page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('#modal input.input'));
+    const field = inputs.find(i => /GLM/i.test(i.placeholder || ''));
+    if (!field) return null;
+    field.scrollIntoView({ block: 'center' });
+    return { placeholder: field.placeholder, value: field.value };
+  });
+  await page.waitForTimeout(300);
+  await shot('v17-settings-glm-key');
+  if (!glmField) bad.push('нет поля для ключа GLM');
+  else if (glmField.value) bad.push('поле ключа GLM не пустует: ' + glmField.value.slice(0, 8));
+  // ключ Hugging Face: тот же экран, поле рядом
+  const hfField = await page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('#modal input.input'));
+    const field = inputs.find(i => /Hugging Face/i.test(i.placeholder || ''));
+    if (!field) return null;
+    field.scrollIntoView({ block: 'center' });
+    return { placeholder: field.placeholder, value: field.value };
+  });
+  await page.waitForTimeout(300);
+  await shot('v18-settings-hf-key');
+  if (!hfField) bad.push('нет поля для ключа Hugging Face');
+  else if (hfField.value) bad.push('поле ключа Hugging Face не пустует: ' + hfField.value.slice(0, 8));
   if (!channels[1] || channels[1].length < 2) bad.push('выбор генератора пуст: ' + JSON.stringify(channels[1]));
 
   // выбираем конкретный генератор и конкретного мастера — проверяем, что выбор сохранился
