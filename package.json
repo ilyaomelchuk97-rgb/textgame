@@ -1,6 +1,6 @@
 {
   "name": "dice-tales",
-  "version": "7.0.0",
+  "version": "18.0.0",
   "private": true,
   "description": "Кости и Судьбы — мобильная текстовая RPG с ИИ-мастером, генерацией картинок и бросками кубика",
   "main": "server.js",
@@ -21,7 +21,23 @@
     "long": "node tools/long-run.js http://localhost:3000/game.html --turns=30",
     "fonts": "node tools/fonts.js http://localhost:3000/game.html",
     "screens": "node tools/screens.js http://localhost:3000/game.html",
-    "cloud": "node tools/cloud-check.js"
+    "cloud": "node tools/cloud-check.js",
+    "round": "node tools/round.js http://localhost:3000/game.html",
+    "round2": "node tools/round2.js http://localhost:3000/game.html",
+    "offline": "node tools/offline.js http://localhost:3000/game.html",
+    "checkall": "npm run check && npm run smoke && npm run round && npm run round2 && npm run offline && npm run screens && npm run cloud && npm run pack && npm run frame && npm run touch && npm run mistral && npm run glm && npm run hf",
+    "pack": "node tools/pack.js http://localhost:3000/game.html",
+    "frame": "MOCK_PNG_B64=\"$(cat tools/_mock-png.txt)\" node tools/frame.js http://localhost:3000/game.html",
+    "touch": "MOCK_PNG_B64=\"$(cat tools/_mock-png.txt)\" node tools/touch.js http://localhost:3000/game.html",
+    "mistral": "node tools/mistral.js",
+    "glm": "node tools/glm.js",
+    "hf": "node tools/hf.js",
+    "mistral:live": "node tools/master-live.js http://localhost:3000/game.html",
+    "turns:live": "node tools/mistral-live.js http://localhost:3000 --turns=2",
+    "glm:live": "node tools/glm-live.js http://localhost:3000 --turns=2",
+    "hf:live": "node tools/hf-live.js http://localhost:3000",
+    "glm:game": "CHANNEL=glm SHOT=v17-glm node tools/glm-browser.js http://localhost:3000/game.html",
+    "hf:game": "CHANNEL=hf SHOT=v18-hf node tools/glm-browser.js http://localhost:3000/game.html"
   },
   "devDependencies": {
     "playwright": "^1.47.2"

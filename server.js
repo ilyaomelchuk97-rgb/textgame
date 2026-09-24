@@ -471,6 +471,543 @@ async function withQueueRetry(makeCall, budgetMs, label) {
 /* ---------------------------------------------------------- */
 /* Провайдеры текста                                          */
 /* ---------------------------------------------------------- */
+/* ---------------------------------------------------------- */
+/* Mistral: бесплатный ключ (план Experiment)                  */
+/* ---------------------------------------------------------- */
+/**
+ * У Mistral есть бесплатный тариф: ключ выдаётся без карты, лимит примерно
+ * один запрос в секунду. Модель умная, поэтому канал идёт сразу после шлюза.
+ * Ключ можно задать в окружении (MISTRAL_API_KEY) или вставить в настройках
+ * игры — тогда он приходит вместе с запросом и никуда не сохраняется на сервере.
+ */
+const MISTRAL_BASE = (process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1').replace(/\/$/, '');
+const MISTRAL_MODEL = process.env.MISTRAL_MODEL || 'mistral-medium-latest';
+/**
+ * Ключ игры. Порядок такой же, как у Pollinations: свой ключ игрока в настройках →
+ * ключ окружения → вшитый. Вшитый нужен, чтобы мастер был умным «из коробки».
+ * В тестах его можно выключить: MISTRAL_BUILTIN_KEY=''.
+ */
+const MISTRAL_ENV_KEY = String(process.env.MISTRAL_API_KEY || '').trim();
+const MISTRAL_BUILTIN_KEY = process.env.MISTRAL_BUILTIN_KEY === undefined
+  ? 'mstrl_Em8SyFmMCKpx2S0yJ7GGfcxWYCnYcnbA_1bhNM3'
+  : String(process.env.MISTRAL_BUILTIN_KEY || '').trim();
+/** Агент из Mistral Studio (имя «Textgame», модель Mistral Medium): свой системный
+ *  промпт и своя квота — прямой чат на medium нашему ключу не отдаёт. */
+const MISTRAL_AGENT_ID = String(process.env.MISTRAL_AGENT_ID || 'ag_01a0d2eae583767ca848c91910957803').trim();
+const MISTRAL_BASE_KEY = MISTRAL_ENV_KEY || MISTRAL_BUILTIN_KEY;
+/** У бесплатного ключа умные пулы часто отдают 429 — идём по моделям сверху вниз. */
+const MISTRAL_MODEL_CHAIN = String(process.env.MISTRAL_MODEL_CHAIN ||
+  'mistral-medium-latest,mistral-small-latest,ministral-14b-latest,ministral-8b-latest,open-mistral-nemo')
+  .split(',').map(s => s.trim()).filter(Boolean);
+const MISTRAL_LAST_MODEL = { name: '', at: 0 };
+
+/* ---------------------------------------------------------- */
+/**
+ * GLM (Zhipu / Z.ai). Ключ формата «id.secret» выдаётся в консоли
+ * open.bigmodel.cn (или z.ai) бесплатно, без карты. Бесплатно отвечает
+ * модель glm-4.5-flash; умные модели (glm-4.6, glm-5.x) требуют баланса —
+ * если счёт пополнят, они подхватятся сами, потому что идут в цепочке ниже.
+ */
+const GLM_BASE = (process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '');
+const GLM_ENV_KEY = String(process.env.GLM_API_KEY || '').trim();
+const GLM_BUILTIN_KEY = process.env.GLM_BUILTIN_KEY === undefined
+  ? '299abfa0a8334cb68782e93acca01901.2wk65aWEDXtmATCI'
+  : String(process.env.GLM_BUILTIN_KEY || '').trim();
+const GLM_BASE_KEY = GLM_ENV_KEY || GLM_BUILTIN_KEY;
+const GLM_MODEL_CHAIN = String(process.env.GLM_MODEL_CHAIN ||
+  'glm-4.5-flash,glm-4.6,glm-4.5,glm-4.5-air,glm-5.3-flash')
+  .split(',').map(x => x.trim()).filter(Boolean);
+const GLM_LAST_MODEL = { name: '', at: 0 };
+
+/* ---------------------------------------------------------- */
+/**
+ * Hugging Face. Ключ hf_… берётся бесплатно в настройках профиля (Fine-grained →
+ * «Make calls to Inference Providers»). Им можно и вести игру (роутер отдаёт
+ * 137 моделей у 14 провайдеров), и рисовать кадры: те же открытые Space'ы,
+ * но по имени, а не анонимно.
+ *
+ * У бесплатного аккаунта кредиты на Inference Providers крошечные (около десяти
+ * центов в месяц) — когда они кончились, роутер отвечает 402, и канал должен
+ * уступать место, а не держать игрока. Поэтому состояние «кредиты кончились»
+ * запоминается и показывается в health.
+ */
+const HF_BASE = (process.env.HF_BASE_URL || 'https://router.huggingface.co/v1').replace(/\/$/, '');
+const HF_ENV_KEY = String(process.env.HF_API_KEY || process.env.HUGGING_FACE_TOKEN || '').trim();
+const HF_BUILTIN_KEY = process.env.HF_BUILTIN_KEY === undefined
+  ? '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'
+  : String(process.env.HF_BUILTIN_KEY || '').trim();
+const HF_BASE_KEY = HF_ENV_KEY || HF_BUILTIN_KEY;
+/** Быстрые и толковые модели роутера (проверены живыми ходами: 1.5–2.7 с на ход). */
+const HF_MODEL_CHAIN = String(process.env.HF_MODEL_CHAIN ||
+  'zai-org/GLM-5.3-Flash,deepseek-ai/DeepSeek-V4.1-Flash,Qwen/Qwen3.8-27B')
+  .split(',').map(x => x.trim()).filter(Boolean);
+const HF_LAST_MODEL = { name: '', at: 0 };
+/** «Кредиты кончились» (402): держим в памяти, чтобы не ждать впустую каждым ходом. */
+const HF_CREDITS = { at: 0, why: '' };
+
+function cleanHfKey(value) {
+  const key = String(value || '').trim();
+  return /^hf_[A-Za-z0-9]{20,80}$/.test(key) ? key : '';
+}
+
+function hfKeyFor(payload) {
+  return cleanHfKey(payload && payload.hfKey) || HF_BASE_KEY;
+}
+
+/** Свой ключ игрока пробуем всегда: у него могут быть свои кредиты. */
+function hfOwnKey(ctx) {
+  return cleanHfKey(ctx && ctx.hfKey) || '';
+}
+
+function hfKeyReady(ctx) {
+  const own = hfOwnKey(ctx);
+  if (own) return true;
+  if (!HF_BASE_KEY) return false;
+  return !hfCreditsDead();                 // вшитый ключ без кредитов не дёргаем
+}
+
+function hfCreditsDead(err) {
+  return /402|Payment Required|included credits|pre-paid credits/i.test(String(err && err.message || ''));
+}
+
+function hfCreditsFresh() {
+  return HF_CREDITS.at > 0 && (Date.now() - HF_CREDITS.at) < 30 * 60 * 1000;
+}
+
+/** «Ключ принят, но счёт пуст» (код 1113): чтобы экран настроек не врал, что канал готов. */
+const GLM_NO_BALANCE = { at: 0, why: '' };
+
+/** Ключ GLM — это «id.secret»; в настройках игрока проверяем формат. */
+function cleanGlmKey(value) {
+  const key = String(value || '').trim();
+  // формат: «id.secret», две части через точку; пробелы и кириллица отсекаются
+  return /^[A-Za-z0-9_\-]{6,80}\.[A-Za-z0-9_\-]{6,80}$/.test(key) ? key : '';
+}
+
+function glmKeyFor(payload) {
+  return cleanGlmKey(payload && payload.glmKey) || GLM_BASE_KEY;
+}
+
+function glmKeyReady(ctx) {
+  return !!((ctx && ctx.glmKey) || GLM_BASE_KEY);
+}
+
+/** Пустой счёт у ключа: это не лимит, повторять бессмысленно. */
+function glmNoBalance(err) {
+  return /1113|Insufficient balance|余额不足/.test(String(err && err.message || ''));
+}
+
+function glmNoBalanceFresh() {
+  return GLM_NO_BALANCE.at > 0 && (Date.now() - GLM_NO_BALANCE.at) < 30 * 60 * 1000;
+}
+
+/** Ключ из настроек игры: пускаем только похожее на ключ, без пробелов и адресов. */
+function cleanMistralKey(value) {
+  const key = String(value || '').trim();
+  return /^[A-Za-z0-9_\-]{12,80}$/.test(key) ? key : '';
+}
+
+function mistralKeyFor(payload) {
+  return cleanMistralKey(payload && payload.mistralKey) || MISTRAL_BASE_KEY;
+}
+
+function mistralKeyReady(ctx) {
+  return !!((ctx && ctx.mistralKey) || MISTRAL_BASE_KEY);
+}
+
+/** Агент для разговора: из запроса, из окружения или вшитый. */
+function mistralAgentFor(payload) {
+  const own = String((payload && payload.mistralAgent) || '').trim();
+  return /^ag_[A-Za-z0-9]{6,64}$/.test(own) ? own : MISTRAL_AGENT_ID;
+}
+
+function mistralAgentReady(ctx) {
+  return !!(ctx && ctx.mistralAgent) && mistralKeyReady(ctx);
+}
+
+/**
+ * Разговор агента принимает только роли user/assistant, поэтому системную часть
+ * промпта кладём в начало первого сообщения — игра ничего не теряет.
+ */
+function agentInputs(messages) {
+  const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+  const rest = messages.filter(m => m.role !== 'system');
+  const entries = rest.map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: String(m.content || '').slice(0, 20000)
+  }));
+  if (!entries.length) entries.push({ role: 'user', content: (sys || 'Продолжай игру.').slice(0, 20000) });
+  else if (sys) entries[0] = { role: 'user', content: (sys + '\n\n' + entries[0].content).slice(0, 20000) };
+  return entries;
+}
+
+/** Текст из ответа агента: части могут приходить строкой или списком кусков. */
+function outputsText(outputs) {
+  return (outputs || [])
+    .filter(o => o && (o.type === 'message.output' || o.role === 'assistant'))
+    .map(o => {
+      const c = o.content;
+      if (typeof c === 'string') return c;
+      if (Array.isArray(c)) return c.map(p => (p && (p.text || p.content)) || '').join('');
+      return '';
+    }).join('');
+}
+
+async function mistralAgentChat(messages, key, agentId, timeoutMs) {
+  const res = await fetchWithTimeout(MISTRAL_BASE + '/conversations', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Accept': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({ inputs: agentInputs(messages), agent_id: agentId, stream: false })
+  }, timeoutMs || 26000);
+  if (!res.ok) throw new Error('mistral-agent HTTP ' + res.status);
+  const data = await res.json();
+  const text = outputsText(data && data.outputs);
+  if (!text) throw new Error('mistral-agent empty answer');
+  return text;
+}
+
+/** Поток агента: события message.output.delta несут куски текста. */
+async function mistralAgentStream(messages, key, agentId, onDelta, timeoutMs) {
+  const res = await fetchWithTimeout(MISTRAL_BASE + '/conversations', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Accept': 'text/event-stream', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({ inputs: agentInputs(messages), agent_id: agentId, stream: true })
+  }, timeoutMs || 26000);
+  if (!res.ok) throw new Error('mistral-agent HTTP ' + res.status);
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    const data = await res.json();
+    const text = outputsText(data && data.outputs);
+    if (!text) throw new Error('mistral-agent empty answer');
+    onDelta(text);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let piece = '';
+      try {
+        const obj = JSON.parse(payload);
+        if (obj && obj.type === 'message.output.delta') {
+          const c = obj.content;
+          piece = typeof c === 'string' ? c : (Array.isArray(c) ? c.map(p => (p && p.text) || '').join('') : '');
+        }
+      } catch (e) { piece = ''; }
+      if (piece) { full += piece; onDelta(piece); }
+    }
+  }
+  return full;
+}
+
+/** Бесплатный тариф любит отвечать 429: одна вежливая пауза и повтор. */
+function mistralRetryDelay(status) {
+  return status === 429 ? 900 : 0;
+}
+
+async function mistralChatOnce(messages, key, timeoutMs, model) {
+  const url = MISTRAL_BASE + '/chat/completions';
+  const call = () => fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.9,
+      max_tokens: TEXT_MAX_TOKENS,
+      response_format: { type: 'json_object' }
+    })
+  }, timeoutMs || 20000);
+  let res = await call();
+  if (!res.ok && res.status === 429) {
+    await sleep(mistralRetryDelay(res.status));
+    res = await call();
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error('mistral HTTP ' + res.status + (body ? ' ' + body.slice(0, 90) : ''));
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  const text = data && data.choices && data.choices[0] && data.choices[0].message &&
+    data.choices[0].message.content;
+  if (!text) throw new Error('mistral empty completion');
+  return text;
+}
+
+/**
+ * Чат с откатом по моделям: у бесплатного ключа умные пулы часто заняты (429),
+ * поэтому пробуем следующую модель, а не сдаёмся сразу. Удачная модель
+ * запоминается и в следующий раз идёт первой — так игра не тратит время зря.
+ */
+async function mistralChat(messages, key, timeoutMs, model) {
+  const order = (() => {
+    if (model) return [model];
+    const chain = MISTRAL_MODEL_CHAIN.slice();
+    const fresh = MISTRAL_LAST_MODEL.name && (Date.now() - MISTRAL_LAST_MODEL.at < 10 * 60 * 1000) ? MISTRAL_LAST_MODEL.name : '';
+    if (fresh) {
+      const i = chain.indexOf(fresh);
+      if (i > 0) { chain.splice(i, 1); chain.unshift(fresh); }
+    }
+    return chain;
+  })();
+  let lastErr = null;
+  const started = Date.now();
+  for (const name of order) {
+    const left = (timeoutMs || 20000) - (Date.now() - started);
+    if (left < 5000) break;
+    try {
+      const text = await mistralChatOnce(messages, key, left, name);
+      if (name !== MISTRAL_LAST_MODEL.name) MISTRAL_LAST_MODEL.name = name;
+      MISTRAL_LAST_MODEL.at = Date.now();
+      return text;
+    } catch (err) {
+      lastErr = err;
+      const retryable = err && (err.status === 429 || err.status === 404 || err.status === 401);
+      if (!retryable) break;                    // 500-е нет смысла перебирать моделями
+    }
+  }
+  throw lastErr || new Error('mistral: нет доступной модели');
+}
+
+/** Поток от Mistral: тот же SSE, что у остальных OpenAI-совместимых каналов. */
+async function mistralStream(messages, key, onDelta, timeoutMs, model) {
+  return openAiStream({
+    url: MISTRAL_BASE + '/chat/completions',
+    key,
+    model: model || MISTRAL_MODEL,
+    messages,
+    onDelta,
+    timeoutMs: timeoutMs || 26000,
+    responseFormat: { type: 'json_object' }
+  });
+}
+
+/**
+ * Один запрос к GLM. Модель glm-4.5-flash умеет «размышлять» и по умолчанию
+ * тратит на это весь max_tokens — для мастера игры это лишние секунды, поэтому
+ * размышления выключаем. Ответ просим в JSON: контракт хода такой же, как у всех.
+ */
+async function glmChatOnce(messages, key, timeoutMs, model) {
+  const url = GLM_BASE + '/chat/completions';
+  const call = () => fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.9,
+      max_tokens: TEXT_MAX_TOKENS,
+      thinking: { type: 'disabled' },
+      response_format: { type: 'json_object' }
+    })
+  }, timeoutMs || 20000);
+  const res = await call();
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error('glm HTTP ' + res.status + (body ? ' ' + body.slice(0, 120) : ''));
+    err.status = res.status;
+    if (glmNoBalance(err)) {
+      GLM_NO_BALANCE.at = Date.now();
+      GLM_NO_BALANCE.why = 'HTTP ' + res.status + ' ' + body.slice(0, 120);
+    }
+    throw err;
+  }
+  const data = await res.json();
+  const text = data && data.choices && data.choices[0] && data.choices[0].message &&
+    data.choices[0].message.content;
+  if (!text) throw new Error('glm empty completion');
+  return text;
+}
+
+/**
+ * Чат с откатом по моделям: первой идёт бесплатная glm-4.5-flash, за ней —
+ * умные модели (нужен баланс). «Пустой счёт» не повторяем: ждать нечего.
+ */
+async function glmChat(messages, key, timeoutMs, model) {
+  const order = (() => {
+    if (model) return [model];
+    const chain = GLM_MODEL_CHAIN.slice();
+    const fresh = GLM_LAST_MODEL.name && (Date.now() - GLM_LAST_MODEL.at < 10 * 60 * 1000) ? GLM_LAST_MODEL.name : '';
+    if (fresh) {
+      const i = chain.indexOf(fresh);
+      if (i > 0) { chain.splice(i, 1); chain.unshift(fresh); }
+    }
+    return chain;
+  })();
+  let lastErr = null;
+  const started = Date.now();
+  for (const name of order) {
+    const left = (timeoutMs || 20000) - (Date.now() - started);
+    if (left < 5000) break;
+    try {
+      const text = await glmChatOnce(messages, key, left, name);
+      if (name !== GLM_LAST_MODEL.name) GLM_LAST_MODEL.name = name;
+      GLM_LAST_MODEL.at = Date.now();
+      GLM_NO_BALANCE.at = 0;
+      return text;
+    } catch (err) {
+      lastErr = err;
+      if (glmNoBalance(err)) continue;                 // счёт пуст — пробуем следующую модель (flash бесплатна)
+      const retryable = err && (err.status === 429 || err.status === 404 || err.status === 401);
+      if (!retryable) break;
+    }
+  }
+  throw lastErr || new Error('glm: нет доступной модели');
+}
+
+/** Поток от GLM: обычный OpenAI SSE, отличается только выключенными размышлениями. */
+async function glmStream(messages, key, onDelta, timeoutMs, model) {
+  return openAiStream({
+    url: GLM_BASE + '/chat/completions',
+    key,
+    model: model || GLM_LAST_MODEL.name || GLM_MODEL_CHAIN[0],
+    messages,
+    onDelta,
+    timeoutMs: timeoutMs || 26000,
+    responseFormat: { type: 'json_object' },
+    extra: { thinking: { type: 'disabled' } }
+  });
+}
+
+/**
+ * Один запрос к роутеру Hugging Face. Формат — обычный OpenAI, поэтому вся
+ * обвязка та же, что у остальных каналов: отличается только адрес и то, что
+ * 402 («кредиты кончились») мы запоминаем и больше не ждём.
+ */
+async function hfChatOnce(messages, key, timeoutMs, model) {
+  const res = await fetchWithTimeout(HF_BASE + '/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.9,
+      max_tokens: TEXT_MAX_TOKENS
+    })
+  }, timeoutMs || 20000);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error('hf HTTP ' + res.status + (body ? ' ' + body.slice(0, 120) : ''));
+    err.status = res.status;
+    if (hfCreditsDead(err)) {
+      HF_CREDITS.at = Date.now();
+      HF_CREDITS.why = 'HTTP ' + res.status + ' ' + body.slice(0, 120);
+    }
+    throw err;
+  }
+  const data = await res.json();
+  const text = data && data.choices && data.choices[0] && data.choices[0].message &&
+    data.choices[0].message.content;
+  if (!text) throw new Error('hf empty completion');
+  return text;
+}
+
+/** Чат с откатом по моделям: у каждой свой провайдер, поэтому отказы разные. */
+async function hfChat(messages, key, timeoutMs, model) {
+  const order = (() => {
+    if (model) return [model];
+    const chain = HF_MODEL_CHAIN.slice();
+    const fresh = HF_LAST_MODEL.name && (Date.now() - HF_LAST_MODEL.at < 10 * 60 * 1000) ? HF_LAST_MODEL.name : '';
+    if (fresh) {
+      const i = chain.indexOf(fresh);
+      if (i > 0) { chain.splice(i, 1); chain.unshift(fresh); }
+    }
+    return chain;
+  })();
+  let lastErr = null;
+  const started = Date.now();
+  for (const name of order) {
+    const left = (timeoutMs || 20000) - (Date.now() - started);
+    if (left < 5000) break;
+    try {
+      const text = await hfChatOnce(messages, key, left, name);
+      HF_LAST_MODEL.name = name;
+      HF_LAST_MODEL.at = Date.now();
+      HF_CREDITS.at = 0;
+      return text;
+    } catch (err) {
+      lastErr = err;
+      if (hfCreditsDead(err)) break;                   // общий счёт аккаунта — другие модели не помогут
+      const retryable = err && (err.status === 429 || err.status === 404 || err.status === 403);
+      if (!retryable) break;
+    }
+  }
+  throw lastErr || new Error('hf: нет доступной модели');
+}
+
+/** Поток от HF-роутера (обычный OpenAI SSE). */
+async function hfStream(messages, key, onDelta, timeoutMs, model) {
+  return openAiStream({
+    url: HF_BASE + '/chat/completions',
+    key,
+    model: model || HF_LAST_MODEL.name || HF_MODEL_CHAIN[0],
+    messages,
+    onDelta,
+    timeoutMs: timeoutMs || 26000
+  });
+}
+
+/**
+ * Общий поток для OpenAI-совместимых сервисов (Mistral и «свои каналы»):
+ * строки SSE «data: {…}» → куски текста. Одна реализация на всех, чтобы
+ * новый канал не пришлось учить стриму отдельно.
+ */
+async function openAiStream({ url, key, model, messages, onDelta, timeoutMs, responseFormat, extra }) {
+  const res = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: Object.assign({ 'content-type': 'application/json' }, key ? { 'Authorization': 'Bearer ' + key } : {}),
+    body: JSON.stringify(Object.assign({
+      model, messages, temperature: 0.9, stream: true, max_tokens: TEXT_MAX_TOKENS
+    }, responseFormat ? { response_format: responseFormat } : {}, extra || {}))
+  }, timeoutMs || 26000);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    const data = await res.json();
+    const text = data && data.choices && data.choices[0] && data.choices[0].message &&
+      data.choices[0].message.content;
+    if (!text) throw new Error('empty completion');
+    onDelta(text);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let piece = '';
+      try {
+        const obj = JSON.parse(payload);
+        const choice = obj && obj.choices && obj.choices[0];
+        piece = (choice && ((choice.delta && choice.delta.content) || (choice.message && choice.message.content))) || '';
+      } catch (e) { piece = ''; }
+      if (piece) { full += piece; onDelta(piece); }
+    }
+  }
+  return full;
+}
+
 const JUNK_RE = /(top up|insufficient balance|not enough credit|payment required|valid api key|missing turnstile|unauthorized)/i;
 
 function isJunk(text) {
@@ -496,6 +1033,40 @@ function masterChoices() {
       detail: genReady() ? 'готов' : (genKeyDeadFresh() ? 'у ключа нет баланса' : 'ключ отдыхает')
     });
   }
+  out.push({
+    id: 'mistral-agent',
+    title: 'Mistral-агент «Textgame»',
+    hint: 'Mistral Medium: самый умный из доступных, ответ идёт потоком',
+    available: true,
+    detail: MISTRAL_AGENT_ID ? 'агент из Studio' : 'нужен id агента'
+  });
+  out.push({
+    id: 'mistral',
+    title: 'Mistral (модели по очереди)',
+    hint: 'Medium → Small → Ministral: если умная занята, отвечает младшая',
+    available: true,
+    detail: MISTRAL_ENV_KEY ? 'ключ задан на сервере' : (MISTRAL_BUILTIN_KEY ? 'ключ вшит в игру' : 'нужен свой ключ (поле ниже)')
+  });
+  out.push({
+    id: 'glm',
+    title: 'GLM (Zhipu, бесплатная flash)',
+    hint: 'glm-4.5-flash: китайская модель Zhipu, отвечает без ключа и без баланса',
+    available: !glmNoBalanceFresh() || GLM_LAST_MODEL.name === 'glm-4.5-flash',
+    detail: glmNoBalanceFresh() && !GLM_LAST_MODEL.name
+      ? 'у ключа пустой счёт — ждём пополнения'
+      : (GLM_ENV_KEY ? 'ключ задан на сервере'
+        : (GLM_BUILTIN_KEY ? 'ключ вшит в игру' : 'нужен свой ключ (поле ниже)'))
+  });
+  out.push({
+    id: 'hf',
+    title: 'Hugging Face (137 моделей)',
+    hint: 'GLM-5.3-Flash и DeepSeek отвечают за 1.5–3 с; у бесплатного ключа кредиты крошечные',
+    available: hfKeyReady({}),
+    detail: hfCreditsFresh()
+      ? 'кредиты бесплатного ключа кончились — вставьте свой ключ (поле ниже)'
+      : (HF_ENV_KEY ? 'ключ задан на сервере'
+        : (HF_BUILTIN_KEY ? 'ключ вшит в игру' : 'нужен свой ключ (поле ниже)'))
+  });
   if (process.env.GROQ_API_KEY) out.push({ id: 'groq', title: 'Groq', hint: 'Llama 3.3 70B, очень быстрый', available: true, detail: 'ключ задан' });
   if (process.env.GEMINI_API_KEY) out.push({ id: 'gemini', title: 'Gemini', hint: 'Google, щедрая бесплатная квота', available: true, detail: 'ключ задан' });
   if (process.env.OPENROUTER_API_KEY) out.push({ id: 'openrouter', title: 'OpenRouter', hint: 'бесплатные маршруты :free', available: true, detail: 'ключ задан' });
@@ -536,6 +1107,11 @@ function textProvidersSummary() {
   const out = [];
   if (genReady()) out.push(genKeyDeadFresh() ? 'gen:без баланса, пробуем' : 'gen:' + GEN_TEXT_MODELS.length + 'моделей');
   else if (GEN_KEY_ACTIVE) out.push(genKeyDeadFresh() ? 'gen:без баланса (ключ отдыхает)' : 'gen:ключ отдыхает');
+  if (MISTRAL_AGENT_ID && mistralKeyReady({ mistralKey: MISTRAL_BASE_KEY })) out.push('mistral-agent');
+  if (mistralKeyReady({ mistralKey: MISTRAL_BASE_KEY })) out.push('mistral:' + (MISTRAL_LAST_MODEL.name || MISTRAL_MODEL_CHAIN[0]));
+  if (glmKeyReady({ glmKey: GLM_BASE_KEY })) out.push('glm:' + (GLM_LAST_MODEL.name || GLM_MODEL_CHAIN[0]));
+  if (hfKeyReady({})) out.push('hf:' + (HF_LAST_MODEL.name || HF_MODEL_CHAIN[0]));
+  else if (HF_BASE_KEY && hfCreditsFresh()) out.push('hf:кредиты кончились');
   if (process.env.GROQ_API_KEY) out.push('groq');
   if (process.env.GEMINI_API_KEY) out.push('gemini');
   if (process.env.OPENROUTER_API_KEY) out.push('openrouter');
@@ -611,6 +1187,53 @@ const PROVIDERS = [
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages
       });
+    }
+  },
+  {
+    // Агент Mistral — ведёт игру по умолчанию: умная модель (Medium) через Agents API,
+    // свой системный промпт и своя квота, ответ идёт потоком.
+    name: 'mistral-agent',
+    enabled: ctx => mistralAgentReady(ctx),
+    async run(messages, budgetMs, kind, ctx) {
+      const budget = Math.max(6000, Math.min(26000, budgetMs || 20000));
+      return mistralAgentChat(messages, ctx.mistralKey || MISTRAL_BASE_KEY, ctx.mistralAgent, budget);
+    }
+  },
+  {
+    // Mistral с бесплатным ключом: умная модель без квот и без баланса.
+    // Идёт сразу после шлюза — если у шлюза кончился баланс, ведёт она.
+    name: 'mistral',
+    label: () => 'mistral:' + (MISTRAL_LAST_MODEL.name || MISTRAL_MODEL_CHAIN[0]),
+    enabled: ctx => mistralKeyReady(ctx),
+    async run(messages, budgetMs, kind, ctx) {
+      const key = (ctx && ctx.mistralKey) || MISTRAL_BASE_KEY;
+      const budget = Math.max(6000, Math.min(26000, budgetMs || 20000));
+      return mistralChat(messages, key, budget);
+    }
+  },
+  {
+    // GLM (Zhipu): бесплатная glm-4.5-flash ведёт игру, если у шлюза и агента
+    // Mistral не вышло. Ключ вшит, поэтому канал работает «из коробки».
+    name: 'glm',
+    label: () => 'glm:' + (GLM_LAST_MODEL.name || GLM_MODEL_CHAIN[0]),
+    enabled: ctx => glmKeyReady(ctx),
+    async run(messages, budgetMs, kind, ctx) {
+      const key = (ctx && ctx.glmKey) || GLM_BASE_KEY;
+      const budget = Math.max(6000, Math.min(30000, budgetMs || 24000));
+      return glmChat(messages, key, budget);
+    }
+  },
+  {
+    // Hugging Face: один ключ — 137 моделей у 14 провайдеров. Ходы короткие
+    // и по-русски, но у бесплатного аккаунта кредиты крошечные, поэтому канал
+    // уступает место сразу, как только роутер сказал «402».
+    name: 'hf',
+    label: () => 'hf:' + (HF_LAST_MODEL.name || HF_MODEL_CHAIN[0]),
+    enabled: ctx => hfKeyReady(ctx),
+    async run(messages, budgetMs, kind, ctx) {
+      const key = hfOwnKey(ctx) || HF_BASE_KEY;
+      const budget = Math.max(6000, Math.min(30000, budgetMs || 24000));
+      return hfChat(messages, key, budget);
     }
   },
   {
@@ -817,8 +1440,14 @@ function firstGood(promises) {
  * Прогон по всем провайдерам: возвращает первый осмысленный ответ.
  * Бюджет времени ограничен, чтобы клиент не ждал дольше своего таймаута.
  */
-function providerList(want) {
+function providerList(want, ctx) {
   // Выбор игрока: 'auto' — обычный порядок, иначе только выбранный канал.
+  if (want === 'mistral') {
+    return mistralKeyReady(ctx) ? PROVIDERS.filter(p => p.name === 'mistral') : [];
+  }
+  if (want === 'mistral-agent') {
+    return mistralAgentReady(ctx) ? PROVIDERS.filter(p => p.name === 'mistral-agent') : [];
+  }
   if (!want || want === 'auto') return PROVIDERS;
   if (want === 'pollinations-anon') {
     return PROVIDERS.filter(p => p.name === 'pollinations').map(p => Object.assign({}, p, {
@@ -843,16 +1472,19 @@ function providerList(want) {
   return PROVIDERS.filter(p => p.name === want);
 }
 
-async function askMaster(messages, budgetMs, kind, want) {
+async function askMaster(messages, budgetMs, kind, want, ctx) {
   const tried = [];
   const deadline = Date.now() + (budgetMs || 24000);
-  for (const p of providerList(want)) {
-    if (!p.enabled()) continue;
+  for (const p of providerList(want, ctx)) {
+    if (!p.enabled(ctx)) continue;
     if (Date.now() > deadline) { tried.push({ provider: p.name, ok: false, reason: 'budget' }); continue; }
     try {
-      const text = await p.run(messages, budgetMs, kind);
+      const text = await p.run(messages, budgetMs, kind, ctx);
       if (isJunk(text)) { tried.push({ provider: p.name, ok: false, reason: 'junk' }); continue; }
-      return { ok: true, text, provider: p.name, tried };
+      // канал может уточнить своё имя после ответа — например, добавить модель,
+      // которая реально сработала: игроку и логам это полезно видеть
+      const label = typeof p.label === 'function' ? p.label() : p.name;
+      return { ok: true, text, provider: label || p.name, tried };
     } catch (err) {
       tried.push({ provider: p.name, ok: false, reason: String(err && err.message || err) });
     }
@@ -1173,7 +1805,7 @@ function imageRestTick(ok) {
  * со сценой, а игрок ждёт именно свой кадр. Пока генератор думает, игра
  * показывает процедурный фон по тексту сцены — он всегда в тему.
  */
-function imageCandidates(prompt, seed, w, h, want) {
+function imageCandidates(prompt, seed, w, h, want, hfToken) {
   const q = encodeURIComponent(prompt);
   const race = [];
   // Модели шлюза: у каждой свой upstream, поэтому запускаем их гонкой —
@@ -1199,7 +1831,7 @@ function imageCandidates(prompt, seed, w, h, want) {
     race.push({
       name: space.name,
       ms: space.ms,
-      run: () => fetchGradioSpace(space, prompt, seed, w, h)
+      run: () => fetchGradioSpace(space, prompt, seed, w, h, hfToken)
     });
   });
   // Старый генератор (sana) — быстрый (2–3 с), но с водяным знаком и общим лимитом на IP.
@@ -1239,9 +1871,11 @@ const HF_SPACES = [
     build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 3.5, 4]
   },
   {
-    name: 'hf:flux-1-schnell',
-    base: 'https://black-forest-labs-flux-1-schnell.hf.space/gradio_api',
-    build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 4]
+    // Бывший тут FLUX.1-schnell отдаёт 404 изнутри Space — кадр не выйдет никогда,
+    // поэтому вместо него FLUX.1-dev (тот же интерфейс, модель живая).
+    name: 'hf:flux-1-dev',
+    base: 'https://black-forest-labs-flux-1-dev.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 3.5, 4]
   },
   {
     name: 'hf:sd-3.5-large',
@@ -1249,14 +1883,19 @@ const HF_SPACES = [
     build: (prompt, seed, w, h) => [prompt, 'blurry, text, watermark', seed, false,
       Math.max(512, w), Math.max(512, h), 4.5, 12]
   }
-].map(x => Object.assign(x, { ms: 45000 }));
+].map(x => Object.assign(x, { ms: 45000 },
+  // адрес Space'ов можно подменить целиком: так их проверяет тест без сети
+  process.env.HF_SPACES_BASE ? { base: process.env.HF_SPACES_BASE.replace(/\/$/, '') } : {}));
 
 /** Анонимный вызов Space: create → опрос события → скачивание картинки. */
-async function fetchGradioSpace(space, prompt, seed, w, h) {
+async function fetchGradioSpace(space, prompt, seed, w, h, token) {
+  // Ключ HF здесь по делу: у открытых Space'ов есть анонимная квота, и по имени
+  // они отвечают охотнее, чем без него. Токен не обязателен — без него тоже работает.
+  const auth = token ? { 'Authorization': 'Bearer ' + token } : {};
   try {
     const start = await fetchWithTimeout(space.base + '/call/infer', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: Object.assign({ 'content-type': 'application/json' }, auth),
       body: JSON.stringify({ data: space.build(String(prompt).replace(/\s+/g, ' ').slice(0, 380), seed, w, h) })
     }, 20000);
     if (!start.ok) return null;
@@ -1264,7 +1903,7 @@ async function fetchGradioSpace(space, prompt, seed, w, h) {
     if (!id) return null;
     const deadline = Date.now() + (space.ms || 45000) - 8000;
     while (Date.now() < deadline) {
-      const step = await fetchWithTimeout(space.base + '/call/infer/' + id, {}, 12000);
+      const step = await fetchWithTimeout(space.base + '/call/infer/' + id, { headers: auth }, 12000);
       const text = await step.text().catch(() => '');
       const url = (text.match(/"(https?:\/\/[^"]+?\.(?:webp|png|jpe?g)[^"]*)"/) || [])[1];
       if (url) {
@@ -1363,7 +2002,7 @@ function raceImage(candidates, hedgeMs) {
   });
 }
 
-async function proxyImage(res, prompt, seed, w, h, source) {
+async function proxyImage(res, prompt, seed, w, h, source, hfToken) {
   const report = [];
   const key = prompt + '|' + seed + '|' + w + 'x' + h;
   const hit = IMAGE_CACHE.get(key);
@@ -1388,7 +2027,9 @@ async function proxyImage(res, prompt, seed, w, h, source) {
     return;
   }
 
-  const { race, fallback } = imageCandidates(prompt, seed, w, h, source);
+  // Ключ HF: свой у игрока, иначе вшитый — Space'ы отвечают по имени охотнее
+  const spaceToken = cleanHfKey(hfToken) || HF_BASE_KEY;
+  const { race, fallback } = imageCandidates(prompt, seed, w, h, source, spaceToken);
   const started = Date.now();
   const track = list => list.map(c => Object.assign({}, c, {
     ms: c.ms,
@@ -1491,6 +2132,28 @@ async function handleRequest(req, res) {
       version: VERSION,
       textProviders: textProvidersSummary(),
       hasKeyedProvider: textProvidersSummary().some(p => p !== 'pollinations-anon'),
+      mistral: {
+        agent: MISTRAL_AGENT_ID ? MISTRAL_AGENT_ID.slice(0, 12) + '…' : null,
+        models: MISTRAL_MODEL_CHAIN,
+        lastModel: MISTRAL_LAST_MODEL.name || null,
+        key: MISTRAL_ENV_KEY ? 'окружение' : (MISTRAL_BUILTIN_KEY ? 'вшит' : 'нет'),
+        base: MISTRAL_BASE
+      },
+      glm: {
+        models: GLM_MODEL_CHAIN,
+        lastModel: GLM_LAST_MODEL.name || null,
+        key: GLM_ENV_KEY ? 'окружение' : (GLM_BUILTIN_KEY ? 'вшит' : 'нет'),
+        base: GLM_BASE,
+        balance: glmNoBalanceFresh() ? { at: GLM_NO_BALANCE.at, why: GLM_NO_BALANCE.why } : null
+      },
+      hf: {
+        models: HF_MODEL_CHAIN,
+        lastModel: HF_LAST_MODEL.name || null,
+        key: HF_ENV_KEY ? 'окружение' : (HF_BUILTIN_KEY ? 'вшит' : 'нет'),
+        base: HF_BASE,
+        credits: hfCreditsFresh() ? { at: HF_CREDITS.at, why: HF_CREDITS.why } : null,
+        spaces: HF_SPACES.map(x => x.name)
+      },
       genKeyDead: genKeyDeadFresh() ? { at: GEN_KEY_DEAD.at, why: GEN_KEY_DEAD.why } : null,
       imageRestMs: imageRestLeft(),
       masterChoices: masterChoices(),
@@ -1573,6 +2236,94 @@ async function handleRequest(req, res) {
         }
       }
 
+      // 1.5) Mistral: агент — ведущий мастер игры. Умная модель, своя квота, поток.
+      const streamMistralKey = mistralKeyFor(payload);
+      const streamAgentId = mistralAgentFor(payload);
+      if (streamMistralKey && streamAgentId && allow('mistral-agent')) {
+        try {
+          const r = await mistralAgentStream(messages, streamMistralKey, streamAgentId,
+            piece => { sentAny = true; send({ delta: piece }); },
+            Math.min(budget, 30000));
+          if (r) return finish(r, 'mistral-agent');
+          send({ note: 'mistral-agent-empty' });
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'mistral-agent-failed', reason });
+          if (sentAny) return finish('', 'mistral-agent-partial', { partial: true });
+        }
+      }
+
+      // 1.6) Mistral по моделям: если агент недоступен, идём цепочкой моделей.
+      if (streamMistralKey && allow('mistral')) {
+        try {
+          const model = (MISTRAL_LAST_MODEL.name && Date.now() - MISTRAL_LAST_MODEL.at < 10 * 60 * 1000)
+            ? MISTRAL_LAST_MODEL.name : MISTRAL_MODEL_CHAIN[0];
+          const r = await mistralStream(messages, streamMistralKey,
+            piece => { sentAny = true; send({ delta: piece }); },
+            Math.min(budget, 26000), model);
+          if (r) {
+            MISTRAL_LAST_MODEL.name = model;
+            MISTRAL_LAST_MODEL.at = Date.now();
+            send({ model });
+            return finish(r, 'mistral:' + model);
+          }
+          send({ note: 'mistral-empty' });
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'mistral-stream-failed', reason });
+          if (sentAny) return finish('', 'mistral-partial', { partial: true });
+        }
+      }
+
+      // 1.7) GLM (Zhipu): бесплатная glm-4.5-flash. Идёт после Mistral —
+      // отвечает чуть медленнее, зато ключ вшит и квота своя.
+      const streamGlmKey = glmKeyFor(payload);
+      if (streamGlmKey && allow('glm')) {
+        try {
+          const model = (GLM_LAST_MODEL.name && Date.now() - GLM_LAST_MODEL.at < 10 * 60 * 1000)
+            ? GLM_LAST_MODEL.name : GLM_MODEL_CHAIN[0];
+          const r = await glmStream(messages, streamGlmKey,
+            piece => { sentAny = true; send({ delta: piece }); },
+            Math.min(budget, 26000), model);
+          if (r) {
+            GLM_LAST_MODEL.name = model;
+            GLM_LAST_MODEL.at = Date.now();
+            send({ model });
+            return finish(r, 'glm:' + model);
+          }
+          send({ note: 'glm-empty' });
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'glm-stream-failed', reason });
+          if (sentAny) return finish('', 'glm-partial', { partial: true });
+        }
+      }
+
+      // 1.8) Hugging Face: роутер с сотней моделей. Ключ может быть свой —
+      // тогда кредиты игрока, и канал не уступает место.
+      const streamHfOwn = cleanHfKey(payload && payload.hfKey);
+      const streamHfKey = streamHfOwn || (hfKeyReady({}) ? HF_BASE_KEY : '');
+      if (streamHfKey && allow('hf')) {
+        try {
+          const model = (HF_LAST_MODEL.name && Date.now() - HF_LAST_MODEL.at < 10 * 60 * 1000)
+            ? HF_LAST_MODEL.name : HF_MODEL_CHAIN[0];
+          const r = await hfStream(messages, streamHfKey,
+            piece => { sentAny = true; send({ delta: piece }); },
+            Math.min(budget, 26000), model);
+          if (r) {
+            HF_LAST_MODEL.name = model;
+            HF_LAST_MODEL.at = Date.now();
+            send({ model });
+            return finish(r, 'hf:' + model);
+          }
+          send({ note: 'hf-empty' });
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'hf-stream-failed', reason });
+          if (sentAny) return finish('', 'hf-partial', { partial: true });
+        }
+      }
+
       // 2) Старый канал Pollinations — запасной. Поток идёт в очереди текста:
       // бюджет отсчитывается внутри слота, ожидание в очереди время не тратит.
       const streamKeys = want === 'pollinations-anon' ? [null]
@@ -1644,7 +2395,9 @@ async function handleRequest(req, res) {
         return sendJson(res, 200, { ok: true, text: cached.text, provider: cached.provider, cached: true });
       }
       const want = typeof payload.provider === 'string' ? payload.provider.slice(0, 24) : '';
-      const result = await askMaster(clean, budget, kind, want);
+      const result = await askMaster(clean, budget, kind, want,
+        { mistralKey: mistralKeyFor(payload), mistralAgent: mistralAgentFor(payload),
+          glmKey: glmKeyFor(payload), hfKey: cleanHfKey(payload.hfKey) });
       if (res.writableEnded) return;
       if (!result.ok) {
         console.warn('[gm] все провайдеры не ответили:', JSON.stringify(result.tried));
@@ -1720,7 +2473,8 @@ async function handleRequest(req, res) {
     const w = Math.min(1024, Math.max(128, parseInt(url.searchParams.get('w') || '512', 10) || 512));
     const h = Math.min(1024, Math.max(128, parseInt(url.searchParams.get('h') || '288', 10) || 288));
     const source = (url.searchParams.get('source') || '').slice(0, 24);   // выбор генератора в настройках
-    return proxyImage(res, prompt, seed, w, h, source);
+    const hfTokenParam = url.searchParams.get('hfKey') || '';
+    return proxyImage(res, prompt, seed, w, h, source, hfTokenParam);
   }
 
   /* --- Статика --- */
