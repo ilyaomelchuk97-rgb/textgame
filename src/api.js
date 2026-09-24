@@ -29,6 +29,9 @@
     retriesPerProvider: 1,
     textModel: 'openai-fast',
     apiKey: BUILTIN_API_KEY,
+    mistralKey: '',           // бесплатный ключ Mistral от игрока (не хранится на сервере)
+    glmKey: '',               // ключ GLM (Zhipu) от игрока: id.secret, тоже только в телефоне
+    hfKey: '',                // ключ Hugging Face (hf_…): ведёт игру и рисует кадры по имени
     backend: null,
     backendChecked: false,
     // Выбор игрока в настройках: кто ведёт игру и кто рисует кадры.
@@ -75,6 +78,12 @@
   }
 
   function setApiKey(key) { CONFIG.apiKey = (key || '').trim() || BUILTIN_API_KEY; }
+  function setMistralKey(key) { CONFIG.mistralKey = String(key || '').trim(); }
+  function getMistralKey() { return CONFIG.mistralKey; }
+  function setGlmKey(key) { CONFIG.glmKey = String(key || '').trim(); }
+  function getGlmKey() { return CONFIG.glmKey; }
+  function setHfKey(key) { CONFIG.hfKey = String(key || '').trim(); }
+  function getHfKey() { return CONFIG.hfKey; }
   function getApiKey() { return CONFIG.apiKey; }
   function isBuiltinKey() { return CONFIG.apiKey === BUILTIN_API_KEY; }
 
@@ -225,7 +234,8 @@
       const res = await fetch(serverUrl('api/gm'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages, budgetMs, kind: kind || '', provider: wantedMaster() }),
+        body: JSON.stringify({ messages, budgetMs, kind: kind || '', provider: wantedMaster(),
+          mistralKey: CONFIG.mistralKey, glmKey: CONFIG.glmKey, hfKey: CONFIG.hfKey }),
         signal: t.signal
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -301,7 +311,8 @@
       const res = await fetch(serverUrl('api/gm/stream'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages, budgetMs: hooks.budgetMs, kind: hooks.kind || '', provider: wantedMaster() }),
+        body: JSON.stringify({ messages, budgetMs: hooks.budgetMs, kind: hooks.kind || '', provider: wantedMaster(),
+          mistralKey: CONFIG.mistralKey, glmKey: CONFIG.glmKey, hfKey: CONFIG.hfKey }),
         signal: t.signal
       });
       if (!res.ok || !res.body || typeof res.body.getReader !== 'function') throw new Error('HTTP ' + res.status);
@@ -660,7 +671,8 @@
     const source = CONFIG.imageSource || 'auto';
     const built = E.buildImageUrl({
       prompt, style, aspect, seed, source,
-      width: width || CONFIG.imageWidth, height: height || CONFIG.imageHeight
+      width: width || CONFIG.imageWidth, height: height || CONFIG.imageHeight,
+      hfKey: CONFIG.hfKey
     });
     const key = built.full + '|' + (seed || 1) + '|' + aspect;
     if (imageCache.has(key)) {
@@ -776,6 +788,9 @@
     generateTurn, generateOpening, generateWorld, generateHeroProfile, generateEpilogue, speakScene,
     generateImage, prefetch, loadImageOnce, looksLikeJunk, sleep,
     setMaster, masterWanted, setImageSource, imageSource, masterChoices, imageChoices,
+    setMistralKey, getMistralKey,
+    setGlmKey, getGlmKey,
+    setHfKey, getHfKey,
     cloudPut, cloudGet
   };
 });

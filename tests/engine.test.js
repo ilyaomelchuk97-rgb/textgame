@@ -215,6 +215,46 @@ test('настройки своего мира: пустой шаблон, пр�
   assert.strictEqual(E.parseWorldResponse('{}').ok, false);
 });
 
+/** Сохранение без сложности не должно превращать шанс в «NaN%». */
+test('шанс успеха без сложности — число, а не NaN', () => {
+  assert.strictEqual(E.probabilityLabel(2, undefined, false), '60%');
+  assert.strictEqual(E.probabilityLabel(2, 13, false), '50%');
+  assert.ok(!/NaN/.test(E.probabilityLabel(0, null, true)));
+});
+
+/** Ключ Hugging Face уходит в адрес кадра, а без него адрес не меняется. */
+test('адрес кадра: ключ HF дописывается, когда он есть', () => {
+  const plain = E.buildImageUrl({ prompt: 'мост ночью', width: 448, height: 252, source: 'hf:flux-merged' });
+  assert.ok(plain.server.indexOf('source=hf%3Aflux-merged') >= 0, plain.server);
+  assert.strictEqual(plain.server.indexOf('hfKey'), -1);
+  const keyed = E.buildImageUrl({ prompt: 'мост ночью', width: 448, height: 252, source: 'hf:flux-merged', hfKey: 'hf_abcdefghijklmnopqrstuvwxyz0123456789' });
+  assert.ok(/[?&]hfKey=hf_/.test(keyed.server), keyed.server);
+  assert.ok(keyed.server.indexOf('prompt=') > 0 && keyed.server.indexOf('&seed=') > 0);
+});
+
+/** Самопроверка хода ловит не только короткую сцену, но и латиницу в кнопках. */
+test('самопроверка: английское слово в варианте — это ошибка мастера', () => {
+  const g = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  const scene = 'Ты стоишь в тёмном лесу, ветер шумит в ветвях, и где-то далеко слышен колокол. ' +
+    'Тропа уходит в темноту между стволами, а за спиной остаётся мост.';
+  const make = first => ({
+    scene,
+    options: [
+      { text: first, stat: 'cha', difficulty: 'easy' },
+      { text: 'ждать у двери', stat: 'per', difficulty: 'medium' },
+      { text: 'отступить к реке', stat: 'str', difficulty: 'hard' }
+    ],
+    repeated: false
+  });
+  const bad = E.validateTurn(make('Follow Маре к фургону'), g);
+  assert.strictEqual(bad.ok, false);
+  assert.ok(bad.problems.indexOf('латиница в варианте') >= 0, bad.problems.join('; '));
+  assert.ok(/замени русскими/.test(E.repairHint(bad)), 'подсказка мастеру должна просить перевод');
+  const good = E.validateTurn(make('идти за Марой к фургону'), g);
+  assert.deepStrictEqual(good.problems, []);
+  assert.ok(/только по-русски/.test(E.SYSTEM_PROMPT), 'мастеру сказано писать по-русски с самого начала');
+});
+
 test('тип фона определяется по тексту сцены', () => {
   const cases = [
     ['Ты входишь в заброшенную станцию, шлюз шипит', 'space'],
@@ -225,7 +265,8 @@ test('тип фона определяется по тексту сцены', ()
     ['Пустыня и песчаные дюны до горизонта', 'desert'],
     ['Чаща леса, стволы в тумане', 'forest'],
     ['Снег и лёд скрипят под сапогами', 'snow'],
-    ['Тесный трактир, огонь в очаге', 'interior']
+    ['Тесный трактир, огонь в очаге', 'tavern'],
+    ['Комната в бункере, коридор в темноту', 'interior']
   ];
   cases.forEach(([text, kind]) => assert.strictEqual(E.sceneKindFromText(text), kind, text));
   assert.strictEqual(E.sceneKindFromText(''), 'forest');
@@ -317,6 +358,8 @@ test('эффекты зажимаются в безопасные границы
   const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'warrior' });
   g.hero.hp = 3;
   E.applyEffects(g, { hp: -99, item: 'я'.repeat(80), goal: true });
+  assert.strictEqual(g.hero.hp, 0, 'здоровье не уходит в минус');
+  assert.strictEqual(g.over, false, 'решение о смерти принимает ход игры, а не эффекты');
   assert.strictEqual(g.hero.hp, 0);
   assert.ok(g.hero.inventory[g.hero.inventory.length - 1].length <= 40, 'предмет обрезан');
   assert.strictEqual(g.questDone, true);
@@ -1069,7 +1112,9 @@ test('поражение с ценой: герой теряет вещь и ча
   assert.strictEqual(E.memoryOf(g).setbacks, 1);
   assert.strictEqual(E.resolveDefeat(g).kind, 'setback', 'второй провал тоже переживаем');
   assert.strictEqual(E.resolveDefeat(g).kind, 'setback', 'третий — последняя передышка');
-  assert.strictEqual(E.resolveDefeat(g).kind, 'downfall', 'четвёртое падение заканчивает историю');
+  const stop = E.resolveDefeat(g);
+  assert.strictEqual(stop.kind, 'over', 'четвёртое падение заканчивает историю');
+  assert.strictEqual(stop.legacyKind, 'downfall', 'в летописи это по-прежнему падение');
   assert.strictEqual(g.over, true);
 });
 

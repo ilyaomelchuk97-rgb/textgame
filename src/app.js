@@ -170,6 +170,75 @@
   })();
 
   /* ---------------------------------------------------------- */
+  /* Наклон кадра: телефон в руке — картинка чуть отзывается      */
+  /* ---------------------------------------------------------- */
+
+  /**
+   * Пункт 16: кадр «живёт» на 2–3 пикселя от наклона телефона. Больше не надо:
+   * цель — ощущение объёма, а не аттракцион. iOS спрашивает разрешение на
+   * датчики только по жесту игрока, поэтому подписываемся на первый тап.
+   */
+  const Tilt = (function () {
+    const MAX = 3;
+    let bound = false;
+    let enabled = false;
+    function apply(gamma, beta) {
+      const media = document.querySelector('.scene-media');
+      if (!media) return;
+      const x = clampNum((gamma || 0) / 12, -1, 1) * MAX;
+      const y = clampNum(((beta || 0) - 45) / 18, -1, 1) * MAX;
+      media.style.setProperty('--tilt-x', x.toFixed(2) + 'px');
+      media.style.setProperty('--tilt-y', y.toFixed(2) + 'px');
+    }
+    function clampNum(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function onOrientation(ev) { apply(ev.gamma, ev.beta); }
+    function bind() {
+      if (bound) return;
+      bound = true;
+      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+    }
+    function unbind() {
+      if (!bound) return;
+      bound = false;
+      window.removeEventListener('deviceorientation', onOrientation);
+      const media = document.querySelector('.scene-media');
+      if (media) {
+        media.style.removeProperty('--tilt-x');
+        media.style.removeProperty('--tilt-y');
+      }
+    }
+    function supported() {
+      return typeof window.DeviceOrientationEvent !== 'undefined';
+    }
+    function needsPermission() {
+      const D = window.DeviceOrientationEvent;
+      return !!(D && typeof D.requestPermission === 'function');
+    }
+    function start() {
+      if (!Settings.data.motion || !supported()) return;
+      if (needsPermission()) {
+        // ждём жеста: без него iOS не отдаст датчики
+        if (enabled) return;
+        const ask = () => {
+          window.removeEventListener('touchend', ask);
+          window.removeEventListener('click', ask);
+          window.DeviceOrientationEvent.requestPermission().then(res => {
+            enabled = res === 'granted';
+            if (enabled) bind();
+          }).catch(() => { /* отказ — просто живём без наклона */ });
+        };
+        window.addEventListener('touchend', ask, { once: true });
+        window.addEventListener('click', ask, { once: true });
+        return;
+      }
+      enabled = true;
+      bind();
+    }
+    function stop() { enabled = false; unbind(); }
+    return { start, stop, supported, needsPermission };
+  })();
+
+  /* ---------------------------------------------------------- */
   /* Настройки                                                  */
   /* ---------------------------------------------------------- */
   const Settings = (function () {
@@ -180,9 +249,13 @@
       voice: false, ambient: true,         // озвучка сцены и фоновый звук (можно выключить)
       motion: true,                        // сцена дышит и дрожит по настроению
       haptics: true,                       // отклик вибрацией там, где телефон умеет
+      handOne: false,                      // режим «одной рукой»: кнопки ниже и выше
       voiceGender: 'female',               // голос рассказчика
       theme: 'auto',                       // оформление интерфейса
       master: 'auto',                      // кто ведёт игру (канал из /api/health)
+      mistralKey: '',                      // бесплатный ключ Mistral: свой ведущий ИИ
+      glmKey: '',                          // ключ GLM (Zhipu): ещё один ведущий ИИ
+      hfKey: '',                           // ключ Hugging Face: ведущий и очередь картинок
       imageSource: 'auto',                 // какой генератор рисует кадры
       imageStyle: 'auto',                  // стиль кадров на всю кампанию
       npcVoices: true,                     // знакомые говорят своим голосом
@@ -196,6 +269,9 @@
         store = storage;
         data = Object.assign(data, store.settings());
         if (data.apiKey) API.setApiKey(data.apiKey);
+        if (typeof data.mistralKey === 'string') API.setMistralKey(data.mistralKey);
+        if (typeof data.glmKey === 'string') API.setGlmKey(data.glmKey);
+        if (typeof data.hfKey === 'string') API.setHfKey(data.hfKey);
         API.setMaster(data.master);
         API.setImageSource(data.imageSource);
       },
@@ -203,6 +279,9 @@
       set(patch) {
         Object.assign(data, patch);
         if (typeof data.apiKey === 'string') API.setApiKey(data.apiKey);
+        if (typeof data.mistralKey === 'string') API.setMistralKey(data.mistralKey);
+        if (typeof data.glmKey === 'string') API.setGlmKey(data.glmKey);
+        if (typeof data.hfKey === 'string') API.setHfKey(data.hfKey);
         if (typeof data.master === 'string') API.setMaster(data.master);
         if (typeof data.imageSource === 'string') API.setImageSource(data.imageSource);
         if (store) store.saveSettings(data);
@@ -288,8 +367,8 @@
     if (screenId === 'run') renderRun();
     if (screenId === 'game') State.bookMode = !!State.book;
     // живой фон и тихий звук живут только на игровом экране — батарею берегут
-    if (screenId === 'game') { Living.start(); Ambient.sync(); Music.start(State.game); }
-    else { Living.stop(); Ambient.stop(); Voice.stop(); Music.stop(); }
+    if (screenId === 'game') { Living.start(); Tilt.start(); Ambient.sync(); Music.start(State.game); }
+    else { Living.stop(); Tilt.stop(); Ambient.stop(); Voice.stop(); Music.stop(); }
     // рыцарь с дракошей бегают только на главном экране — не тратим батарею зря
     Critters.sync(screenId === 'menu');
   }
@@ -1137,7 +1216,7 @@
     } else if (isNew) {
       startOpeningTurn();
     } else if (game.scene && game.scene.image) {
-      setSceneImage(game.scene.image, game.scene.imageSource);
+      restoreStoredFrame(game, game.scene.image, game.scene.imageSource);
     } else if (game.scene) {
       loadSceneImage(game.scene.imagePrompt || game.lastImagePrompt, null, true);
     }
@@ -1220,8 +1299,13 @@
       if (scene.image) { img.src = scene.image; img.hidden = false; img.classList.add('is-on'); }
       else if (Backdrop) {
         try {
-          const kind = E.sceneKindFromText([scene.text, g.title, g.goal].filter(Boolean).join(' '));
-          const url = Backdrop.toDataUrl({ kind, palette: paletteFor(g, E.scenarioById(g.scenarioId)), seed: State.backdropSeed || 7 });
+          const ptext = [scene.text, g.title, g.goal].filter(Boolean).join(' ');
+          const kind = E.sceneKindFromText(ptext);
+          const players = E.sceneLayersFromText(ptext);
+          const url = Backdrop.toDataUrl({
+            kind, palette: paletteFor(g, E.scenarioById(g.scenarioId)), seed: State.backdropSeed || 7,
+            daypart: players.daypart, weather: players.weather, fire: players.fire
+          });
           if (url) { img.src = url; img.hidden = false; img.classList.add('is-on'); }
         } catch (e) { /* без картинки — не беда */ }
       }
@@ -1469,7 +1553,8 @@
       const buff = g.hero.buff || 0;
       const totalMod = mod + buff;
       const advantage = !!g.hero.advantage;
-      const chance = Math.round(E.successChance(totalMod, opt.dc, advantage) * 100);
+      const dc = opt.dc || diff.dc;   // та же сложность, что уйдёт в бросок и в подпись кнопки
+      const chance = Math.round(E.successChance(totalMod, dc, advantage) * 100);
       // одна строка вместо трёх: сложность и шанс в одном чипе — кнопки ниже, тексту больше места
       const meta = [
         h('span', { class: 'tag tag--pair', style: '--c:' + diff.color, title: 'сложность и шанс успеха' }, [
@@ -1484,13 +1569,144 @@
           text: stat.icon + ' ' + stat.short + ' ' + shortStat(stat, mod + buff)
         })
       ];
-      wrap.appendChild(h('button', {
+      const btn = h('button', {
         class: 'action-btn', type: 'button',
-        onclick: () => onActionChosen(opt)
+        'aria-label': opt.text + '. ' + diff.label + ', шанс ' + chance + ' процентов',
+        onclick: () => {
+          if (opt.__held) { opt.__held = false; return; }   // долгое нажатие — это вопрос, а не выбор
+          onActionChosen(opt);
+        }
       }, [
         h('span', { class: 'action-btn__text', text: opt.text }),
         h('span', { class: 'action-btn__meta' }, meta)
-      ]));
+      ]);
+      attachLongPress(btn, opt, { stat, diff, mod: totalMod, chance, dc, advantage });
+      wrap.appendChild(btn);
+    });
+  }
+
+  /**
+   * Долгое нажатие на вариант — объяснение шанса словами (п.24).
+   * Пальцем по телефону это быстрее, чем разбирать чипы.
+   */
+  function attachLongPress(btn, opt, info) {
+    let timer = null;
+    const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    btn.addEventListener('touchstart', () => {
+      clear();
+      timer = setTimeout(() => {
+        opt.__held = true;
+        clear();
+        Sound.tap();
+        const src = info.advantage
+          ? 'преимущество: два d20, берём лучший'
+          : (info.mod >= 0 ? '+' + info.mod : String(info.mod)) + ' к броску';
+        notify('Почему ' + info.chance + '%: ' + info.stat.short + ' ' + info.mod +
+          ' против сложности ' + info.dc + ' (' + info.diff.label + '), ' + src + '.', { timeout: 5200 });
+      }, 550);
+    }, { passive: true });
+    // Отпустили палец — снимаем метку чуть позже: так гасится «щелчок» от самого
+    // долгого нажатия, но следующий осознанный тап по этому же варианту работает.
+    const release = () => {
+      clear();
+      if (opt.__held) setTimeout(() => { opt.__held = false; }, 400);
+    };
+    btn.addEventListener('touchmove', clear, { passive: true });
+    btn.addEventListener('touchend', release, { passive: true });
+    btn.addEventListener('touchcancel', release, { passive: true });
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+  }
+
+  /**
+   * Жесты, которых ждёт палец (п.24): свайп влево по кадру — перерисовать,
+   * свайп вверх по панели — история. Всё дополнительно к кнопкам.
+   * Здесь же — клавиатура и фокус-ловушка (п.26).
+   */
+  function attachGestures() {
+    const media = $('#scene-media');
+    if (media) {
+      let sx = 0, sy = 0;
+      media.addEventListener('touchstart', e => {
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        sx = t.clientX; sy = t.clientY;
+      }, { passive: true });
+      media.addEventListener('touchend', e => {
+        const t = (e.changedTouches && e.changedTouches[0]) || null;
+        if (!t) return;
+        const dx = t.clientX - sx, dy = t.clientY - sy;
+        if (dx > -46 || Math.abs(dy) > 60) return;               // нужен именно свайп влево
+        if (State.book) {
+          const cur = bookCurrent();
+          State.backdropSeed = E.rnd.seed();
+          if (cur) paintBackdrop(cur.node.art || cur.node.chapter, cur.node.text.join(' '));
+          toast('Кадр перерисован', { timeout: 1400 });
+          return;
+        }
+        Sound.tap();
+        toast('Рисуем кадр заново', { timeout: 1500 });
+        loadSceneImage(State.game && State.game.scene && State.game.scene.imagePrompt, null, false, { force: true });
+      }, { passive: true });
+    }
+
+    const panel = $('#panel');
+    if (panel) {
+      let py = 0;
+      panel.addEventListener('touchstart', e => {
+        const t = e.touches && e.touches[0];
+        if (t) py = t.clientY;
+      }, { passive: true });
+      panel.addEventListener('touchend', e => {
+        const t = (e.changedTouches && e.changedTouches[0]) || null;
+        if (!t) return;
+        const dy = t.clientY - py;
+        const wrap = $('#log-wrap');
+        const toggle = $('#log-toggle');
+        if (!wrap || !toggle || toggle.hidden) return;
+        if (dy < -46 && wrap.hidden) {
+          wrap.hidden = false;
+          toggle.textContent = 'Скрыть историю';
+          Sound.tap();
+        } else if (dy > 46 && !wrap.hidden) {
+          wrap.hidden = true;
+          toggle.textContent = 'История';
+        }
+      }, { passive: true });
+    }
+
+    // клавиатура: цифры выбирают вариант, Esc — назад, Tab не уходит из модалки
+    document.addEventListener('keydown', e => {
+      const modalOpen = !$('#modal').hidden;
+      if (e.key === 'Tab' && modalOpen) {
+        const items = $$('#modal button, #modal [href], #modal input, #modal [tabindex]:not([tabindex="-1"])')
+          .filter(el => !el.disabled && el.offsetParent !== null);
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (modalOpen) { closeModal(); return; }
+        if (document.body.dataset.screen === 'game' && $('#prologue') && !$('#prologue').hidden) {
+          $('#prologue').hidden = true;
+          return;
+        }
+        if (document.body.dataset.screen === 'game') {
+          const close = $('[data-act="close-game"]');
+          if (close) close.click();
+        } else if (document.body.dataset.screen !== 'menu') {
+          const back = $('[data-act="back"]');
+          if (back) back.click();
+        }
+        return;
+      }
+      if (document.body.dataset.screen !== 'game' || modalOpen) return;
+      if (/^[1-9]$/.test(e.key)) {
+        const btns = $$('#actions .action-btn:not(.action-btn--ghost)');
+        const btn = btns[Number(e.key) - 1];
+        if (btn) { e.preventDefault(); btn.click(); }
+      }
     });
   }
 
@@ -1507,14 +1723,21 @@
     const s = E.scenarioById(g.scenarioId);
     const narration = [sceneText, prompt, g.scene && g.scene.npc, g.goal].filter(Boolean).join(' ');
     const kind = E.sceneKindFromText(narration);
+    const layers = E.sceneLayersFromText(narration);
     const actors = E.sceneActors(narration);
     if (!o.keepSeed || !State.backdropSeed) State.backdropSeed = E.rnd.seed();
+    State.sceneLayers = layers;
     try {
       // нижний слой: место и свет. Фигуры и погода живут на отдельном холсте,
       // поэтому фон можно оставить, а происходящее — сменить.
-      Backdrop.draw($('#scene-canvas'), { kind, palette: paletteFor(g, s), seed: State.backdropSeed });
+      Backdrop.draw($('#scene-canvas'), {
+        kind, palette: paletteFor(g, s), seed: State.backdropSeed,
+        daypart: layers.daypart, weather: layers.weather, fire: layers.fire
+      });
       const canvas = $('#scene-canvas');
       canvas.dataset.kind = kind;
+      canvas.dataset.daypart = layers.daypart;
+      canvas.dataset.weather = layers.weather;
       canvas.dataset.enemies = actors.enemies.join(',');
     } catch (e) { /* canvas может быть недоступен — не критично */ }
     animateActorsIn();
@@ -1525,6 +1748,129 @@
     const byClass = { warrior: 'sword', rogue: 'shield', scholar: 'staff', mage: 'staff', wanderer: 'bow', diplomat: 'sword' };
     return byClass[g.hero.classId] || 'sword';
   }
+
+  /**
+   * Честный прогресс кадра (п.42): видно, сколько уже ждём и что происходит.
+   * Локальный фон к этому моменту уже на экране — его и называем вслух.
+   */
+  function startFrameProgress() {
+    stopFrameProgress();
+    const started = Date.now();
+    const tick = () => {
+      if (!State.game || document.body.dataset.screen !== 'game') return;
+      const sec = Math.round((Date.now() - started) / 1000);
+      if (sec < 3) {
+        setSceneStatus('кадр: ищем генератор…');
+        return;
+      }
+      if (sec < 8) setSceneStatus('кадр ' + sec + ' с — генераторы молчат, рисуем локально');
+      else setSceneStatus('кадр ' + sec + ' с — генераторы молчат, локальный фон уже в кадре');
+      const badge = $('#scene-badge');
+      if (badge && !(State.imagePending && State.imagePending.late)) {
+        badge.textContent = 'локальный фон';
+        badge.hidden = false;
+      }
+    };
+    tick();
+    State.frameProgress = setInterval(tick, 1000);
+  }
+
+  function stopFrameProgress() {
+    if (State.frameProgress) { clearInterval(State.frameProgress); State.frameProgress = null; }
+    clearTimeout(State.imageStatusTimer);
+  }
+
+  /**
+   * Кадры живут в IndexedDB (п.17): вернулись в знакомое место — картинка
+   * встаёт мгновенно, без сети. В памяти держим только последние восемь.
+   */
+  const FrameStore = (function () {
+    const DB = 'dt2-frames-db', STORE = 'frames', LIMIT = 24, TTL = 21 * 24 * 3600 * 1000;
+    let dbp = null;
+    function open() {
+      if (dbp) return dbp;
+      dbp = new Promise(resolve => {
+        if (typeof indexedDB === 'undefined') return resolve(null);
+        try {
+          const req = indexedDB.open(DB, 1);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+      });
+      return dbp;
+    }
+    function write(db, fn) {
+      try {
+        const tx = db.transaction(STORE, 'readwrite');
+        fn(tx.objectStore(STORE));
+        return tx;
+      } catch (e) { return null; }
+    }
+    return {
+      async get(key) {
+        const db = await open();
+        if (!db) return null;
+        return new Promise(resolve => {
+          try {
+            const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+            req.onsuccess = () => {
+              const rec = req.result;
+              if (!rec || !rec.blob) return resolve(null);
+              if (Date.now() - (rec.at || 0) > TTL) return resolve(null);
+              let url = '';
+              try { url = URL.createObjectURL(rec.blob); } catch (e) { return resolve(null); }
+              resolve({ url, source: rec.source || 'кэш кадра', at: rec.at });
+            };
+            req.onerror = () => resolve(null);
+          } catch (e) { resolve(null); }
+        });
+      },
+      async put(key, url, source, place) {
+        if (!key || !url || /^data:/.test(url)) return false;
+        const db = await open();
+        if (!db) return false;
+        let blob = null;
+        try {
+          const res = await fetch(url, { cache: 'force-cache' });
+          if (res && res.ok) blob = await res.blob();
+        } catch (e) { return false; }
+        if (!blob || !blob.size || blob.size > 1.6e6) return false;
+        const tx = write(db, store => store.put({ key, blob, source: source || '', place: place || '', at: Date.now() }, key));
+        if (!tx) return false;
+        tx.oncomplete = () => {
+          // подрезаем хранилище: оставляем самые свежие кадры
+          try {
+            const all = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+            all.onsuccess = () => {
+              const rows = (all.result || []).sort((a, b) => (b.at || 0) - (a.at || 0));
+              rows.slice(LIMIT).forEach(r => write(db, store => store.delete(r.key)));
+            };
+          } catch (e) { /* подрезка не критична */ }
+        };
+        return true;
+      },
+      async count() {
+        const db = await open();
+        if (!db) return 0;
+        return new Promise(resolve => {
+          try {
+            const req = db.transaction(STORE, 'readonly').objectStore(STORE).count();
+            req.onsuccess = () => resolve(req.result || 0);
+            req.onerror = () => resolve(0);
+          } catch (e) { resolve(0); }
+        });
+      },
+      async clear() {
+        const db = await open();
+        if (!db) return;
+        write(db, store => store.clear());
+      }
+    };
+  })();
 
   function setSceneStatus(text, done) {
     const el = $('#scene-status');
@@ -1542,9 +1888,11 @@
     const current = layers.find(el => el.classList.contains('is-visible')) || null;
     const next = layers.find(el => el !== current) || current;
     $('#scene-badge').hidden = true;
+    stopFrameProgress();
     setSceneStatus('');
     if (State.game && State.game.scene) {
-      State.game.scene.image = url;
+      // blob: живёт до перезагрузки — в сейв уходит только «долгая» ссылка
+      if (!/^blob:/.test(String(url || ''))) State.game.scene.image = url;
       State.game.scene.imageSource = source || '';
     }
     const reveal = () => {
@@ -1576,6 +1924,31 @@
   }
 
   /**
+   * Кадр, нарисованный раньше, лежит в IndexedDB. Ссылка из сейва может не
+   * открыться (сеть пропала, серверный кэш остыл), а копия в телефоне — нет.
+   */
+  function restoreStoredFrame(game, fallbackUrl, fallbackSource) {
+    const g = game || State.game;
+    const place = (g && g.scene && g.scene.place) || '';
+    const fromLink = () => {
+      if (!fallbackUrl || State.game !== g) return;
+      setSceneImage(fallbackUrl, fallbackSource);
+      $('#scene-badge').hidden = true;
+    };
+    if (!place) return fromLink();
+    const key = E.placeKey(g, place);
+    FrameStore.get(key).then(stored => {
+      if (State.game !== g) return;
+      if (!stored || !stored.url) return fromLink();
+      State.imageCache[key] = { url: stored.url, source: stored.source, at: stored.at || Date.now() };
+      State.imageKey = key;
+      if (g.scene) g.scene.placeKey = key;
+      setSceneImage(stored.url, stored.source);
+      $('#scene-badge').hidden = true;
+    }).catch(fromLink);
+  }
+
+  /**
    * Картинка места: рисуется один раз и переиспользуется. Вернулись в знакомое
    * место — фон остаётся, меняется только слой действия.
    */
@@ -1595,6 +1968,17 @@
       if (g.scene) { g.scene.placeKey = key; }
       setSceneImage(cached.url, cached.source || 'кэш места');
       return;
+    }
+    // Кадр этого места уже рисовали раньше: показываем сразу и без сети (п.17).
+    if (!o.force) {
+      const stored = await FrameStore.get(key);
+      if (stored && stored.url) {
+        State.imageCache[key] = { url: stored.url, source: stored.source, at: stored.at || Date.now() };
+        State.imageKey = key;
+        if (g.scene) g.scene.placeKey = key;
+        if (g === State.game) { setSceneImage(stored.url, stored.source); $('#scene-badge').hidden = true; }
+        return;
+      }
     }
     // Кадр, начатый по первым строкам сцены: место тогда называлось иначе —
     // не запускаем второй запрос, а дожидаемся того, что уже рисуется.
@@ -1628,11 +2012,7 @@
         : E.placePrompt(g, place, '', { noStyle: true }));
     // строка «рисуем кадр…» живёт недолго: сцена уже нарисована сама,
     // а кадр подтянется, когда генератор ответит, — ждать его на экране не нужно
-    if (!silent) {
-      setSceneStatus('рисуем кадр…');
-      clearTimeout(State.imageStatusTimer);
-      State.imageStatusTimer = setTimeout(() => { if (!State.imagePending[key]) setSceneStatus(''); }, 5000);
-    }
+    if (!silent) startFrameProgress();
     $('#scene-badge').textContent = 'кадр подтягивается';
     $('#scene-badge').hidden = false;
 
@@ -1693,15 +2073,19 @@
       trimImageCache();
       State.imageKey = key;
       if (g.scene) g.scene.placeKey = key;
+      stopFrameProgress();
       setSceneImage(res.url, res.source);
       $('#scene-badge').hidden = true;
+      FrameStore.put(key, res.url, res.source, place);
       if (res.source === 'stock') {
         $('#scene-badge').textContent = 'запасной фон';
         $('#scene-badge').hidden = false;
       }
     } else {
+      stopFrameProgress();
       setSceneStatus('');
-      $('#scene-badge').hidden = true;
+      $('#scene-badge').hidden = false;
+      $('#scene-badge').textContent = 'локальный фон — генераторы молчат';
       const local = localSceneImage();
       if (local) setSceneImage(local, 'локальный фон');
       else drawActorLayer(0, 1);
@@ -1743,7 +2127,9 @@
       State.imageCache[key] = { url: cached.url, source: cached.source, at: Date.now() };
       State.imageKey = key;
       if (g.scene) g.scene.placeKey = key;
+      stopFrameProgress();
       setSceneImage(cached.url, cached.source);
+      FrameStore.put(key, cached.url, cached.source, place);
       $('#scene-badge').hidden = true;
       Frames.remember(g, cached.url, cached.source, place);
     }, 32000);
@@ -1755,8 +2141,13 @@
     if (!g || !Backdrop) return '';
     try {
       const canvas = $('#scene-canvas');
-      const kind = (canvas && canvas.dataset.kind) || E.sceneKindFromText([g.scene && g.scene.text, g.title, g.goal].filter(Boolean).join(' '));
-      return Backdrop.toDataUrl({ kind, palette: paletteFor(g, E.scenarioById(g.scenarioId)), seed: State.backdropSeed || 7 });
+      const text = [g.scene && g.scene.text, g.title, g.goal].filter(Boolean).join(' ');
+      const kind = (canvas && canvas.dataset.kind) || E.sceneKindFromText(text);
+      const layers = State.sceneLayers || E.sceneLayersFromText(text);
+      return Backdrop.toDataUrl({
+        kind, palette: paletteFor(g, E.scenarioById(g.scenarioId)), seed: State.backdropSeed || 7,
+        daypart: layers.daypart, weather: layers.weather, fire: layers.fire
+      });
     } catch (e) { return ''; }
   }
 
@@ -2271,9 +2662,11 @@
       hero: { shape: 'human', weapon: heroBackdropWeapon(g), shield: ['warrior', 'lg-heir'].indexOf(g.hero.classId) >= 0 }
     });
     try {
+      const layers = State.sceneLayers || E.sceneLayersFromText(narration);
       Backdrop.drawOver(canvas, {
         kind, seed: State.backdropSeed, actors, palette: paletteFor(g, s),
         over: hasImage, time: time || 0,
+        daypart: layers.daypart, weather: layers.weather, fire: layers.fire,
         progress: progress === undefined ? State.actorProgress : progress
       });
     } catch (e) { /* canvas может быть недоступен — не критично */ }
@@ -2651,7 +3044,14 @@
     renderSceneText(turn.scene, { typewriter: !streamed, mood: State.mood });
     renderChapter(g);
     const npcEl = $('#scene-npc');
-    if (turn.npc) {
+    const said = E.npcLine(turn);
+    if (said && said.line) {
+      // реплика знакомого — отдельной строкой: её видно, её же читает свой голос
+      npcEl.textContent = '🗣 ' + (said.name ? said.name + ': ' : '') + '«' + said.line + '»';
+      npcEl.hidden = false;
+      npcEl.dataset.npc = said.name || 'знакомый';
+      npcEl.dataset.say = said.line;
+    } else if (turn.npc) {
       npcEl.textContent = '👤 ' + turn.npc;
       npcEl.hidden = false;
       npcEl.dataset.npc = turn.npc;
@@ -2725,7 +3125,9 @@
     // случайностью. Даём второй шанс: герой встаёт, а мастер объясняет ошибку.
     if (turn && turn.offline && g.hero.hp <= 0 && !g.usedSecondChance) {
       const e = E.resolveDefeat(g);
-      if (e.kind === 'over') {
+      // движок называет «история закончена» словом downfall — раньше здесь ждали
+      // kind === 'over', и второй шанс не выдавался никогда
+      if (e.kind === 'over' || e.kind === 'downfall') {
         g.usedSecondChance = true;
         const r = offerSecondChance(g, notes);
         if (Settings.data.voice) Voice.say('История не закончилась: у героя есть второй шанс.', 'dread');
@@ -2849,6 +3251,59 @@
       const left = Math.max(1, next.need - Legacy.get().runs);
       body.appendChild(h('p', { class: 'muted small', text: 'Следующее открытие: «' + next.title + '» — ' + next.desc + ' Осталось кампаний: ' + left + '.' }));
     }
+
+    // Чем поделиться: карточка кампании картинкой и вся история текстом.
+    // Обе кнопки работают без сети — данные уже в памяти браузера.
+    const tools = h('div', { class: 'epilogue__tools' });
+    tools.appendChild(h('button', {
+      class: 'btn btn--primary btn--sm', type: 'button', text: '🎴 Карточка кампании',
+      title: 'картинка с героем, миром и вехами',
+      onclick: () => {
+        const card = E.runCard(g, Object.assign({ ashes: 0 }, legacyRes || {}));
+        saveRunCard(card, paletteFor(g, E.scenarioById(g.scenarioId)));
+      }
+    }));
+    tools.appendChild(h('button', {
+      class: 'btn btn--ghost btn--sm', type: 'button', text: '📄 История текстом',
+      title: 'вся кампания ход за ходом в файл',
+      onclick: () => {
+        download('campaign-' + (g.id || 'run') + '.md', E.campaignMarkdown(g), 'text/markdown');
+        toast('История сохранена текстом', { kind: 'good' });
+      }
+    }));
+    body.appendChild(tools);
+
+    // Галерея кадров: только те, что нарисовали в этой кампании.
+    renderFrames(body);
+  }
+
+  /**
+   * Галерея кадров в финале. Кадр последнего хода сохраняется в базу чуть позже
+   * страницы, поэтому пробуем несколько раз, а не один.
+   */
+  function renderFrames(body, attempt) {
+    const tryNo = attempt || 0;
+    Frames.all().then(frames => {
+      const mine = (frames || []).filter(f => f && f.url);
+      const stale = document.getElementById('epilogue-frames');
+      if (stale) stale.remove();
+      if (!mine.length) {
+        if (tryNo < 2 && body.isConnected) setTimeout(() => renderFrames(body, tryNo + 1), 2500);
+        return;
+      }
+      if (!body.isConnected) return;
+      const grid = h('div', { class: 'frames__grid' });
+      mine.slice(-8).forEach(f => {
+        grid.appendChild(h('img', {
+          class: 'frames__img', src: f.url, alt: f.place || 'кадр истории',
+          title: f.place || '', loading: 'lazy'
+        }));
+      });
+      body.appendChild(h('div', { class: 'frames', id: 'epilogue-frames' }, [
+        h('div', { class: 'frames__title', text: '🖼 Кадры этой истории' }),
+        grid
+      ]));
+    }).catch(() => { /**/ });
   }
 
   function closeEpilogue() {
@@ -3076,13 +3531,20 @@
   /* ---------------------------------------------------------- */
   /* Экспорт / импорт                                           */
   /* ---------------------------------------------------------- */
-  function download(filename, text) {
-    const blob = new Blob([text], { type: 'application/json' });
+  function download(filename, text, mime) {
+    downloadBlob(filename, new Blob([text], { type: mime || 'application/json' }));
+  }
+
+  /**
+   * Скачивание готового файла. Именно blob-адрес, а не data-URL: на data-URL
+   * браузер часто игнорирует имя файла, и игрок получает «download» без расширения.
+   */
+  function downloadBlob(filename, blob) {
     const url = URL.createObjectURL(blob);
     const a = h('a', { href: url, download: filename });
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 800);
   }
   function exportGame(game) {
     download('dice-tales-' + (game.id || 'save') + '.json',
@@ -3197,8 +3659,50 @@
     const keyInput = h('input', {
       class: 'input', type: 'text',
       value: Settings.data.apiKey || API.getApiKey(), autocomplete: 'off',
-      placeholder: 'ключ уже встроен в игру — можно заменить своим'
+      placeholder: 'ключ Pollinations уже встроен — можно заменить своим'
     });
+    const mistralInput = h('input', {
+      class: 'input', type: 'text',
+      value: Settings.data.mistralKey || '',
+      autocomplete: 'off', spellcheck: 'false',
+      placeholder: 'ключ Mistral (sk-…)'
+    });
+    const saveMistral = () => {
+      const key = mistralInput.value.trim();
+      Settings.set({ mistralKey: key });
+      API.setMistralKey(key);
+      toast(key ? 'Ключ Mistral сохранён: ведущий — Mistral' : 'Ключ Mistral убран', { kind: key ? 'good' : undefined, timeout: 2600 });
+    };
+    mistralInput.addEventListener('change', saveMistral);
+    mistralInput.addEventListener('blur', saveMistral);
+    const glmInput = h('input', {
+      class: 'input', type: 'text',
+      value: Settings.data.glmKey || '',
+      autocomplete: 'off', spellcheck: 'false',
+      placeholder: 'ключ GLM (id.secret)'
+    });
+    const saveGlm = () => {
+      const key = glmInput.value.trim();
+      Settings.set({ glmKey: key });
+      API.setGlmKey(key);
+      toast(key ? 'Ключ GLM сохранён: ведущий — GLM' : 'Ключ GLM убран', { kind: key ? 'good' : undefined, timeout: 2600 });
+    };
+    glmInput.addEventListener('change', saveGlm);
+    glmInput.addEventListener('blur', saveGlm);
+    const hfInput = h('input', {
+      class: 'input', type: 'text',
+      value: Settings.data.hfKey || '',
+      autocomplete: 'off', spellcheck: 'false',
+      placeholder: 'ключ Hugging Face (hf_…)'
+    });
+    const saveHf = () => {
+      const key = hfInput.value.trim();
+      Settings.set({ hfKey: key });
+      API.setHfKey(key);
+      toast(key ? 'Ключ Hugging Face сохранён' : 'Ключ Hugging Face убран', { kind: key ? 'good' : undefined, timeout: 2600 });
+    };
+    hfInput.addEventListener('change', saveHf);
+    hfInput.addEventListener('blur', saveHf);
     const masterLive = choiceRowLive(API.masterChoices, Settings.data.master || 'auto', id => {
       Settings.set({ master: id });
       const item = (API.masterChoices() || []).find(x => x.id === id);
@@ -3330,6 +3834,17 @@
         closeModal(); openSettings();
       }),
 
+      h('div', { class: 'section-title', text: 'Как держу телефон' }),
+      h('p', { class: 'muted small', text: 'Режим «одной рукой» поднимает кнопки вариантов выше и делает их крупнее — удобно в транспорте.' }),
+      choiceRow([
+        { id: 'hand-two', title: '🖐 Как обычно', hint: 'кнопки на своих местах' },
+        { id: 'hand-one', title: '👍 Одной рукой', hint: 'крупнее и ниже, ближе к пальцу' }
+      ], Settings.data.handOne ? 'hand-one' : 'hand-two', id => {
+        Settings.set({ handOne: id === 'hand-one' });
+        applyHandOne();
+        closeModal(); openSettings();
+      }),
+
       h('div', { class: 'section-title', text: 'Оформление' }),
       choiceRow(THEMES, Settings.data.theme || 'auto', id => {
         Settings.set({ theme: id });
@@ -3339,11 +3854,13 @@
       h('div', { class: 'section-title', text: 'Живость экрана' }),
       h('p', { class: 'muted small', text: 'Сцена дышит и дрожит по настроению: страх — медленно и с дрожью, победа — светлеет. Текст печатается волной.' }),
       choiceRow([
-        { id: 'motion-on', title: '🌊 Живая сцена', hint: 'текст ползёт и дрожит, кадр отзывается' },
+        { id: 'motion-on', title: '🌊 Живая сцена', hint: 'текст ползёт, кадр дрожит и отзывается на наклон телефона' },
         { id: 'motion-off', title: '🪨 Строгий покой', hint: 'текст стоит ровно, как в книге' }
       ], Settings.data.motion !== false ? 'motion-on' : 'motion-off', id => {
         Settings.set({ motion: id === 'motion-on' });
         applyMoodToUI(State.mood, []);
+        // вместе с живостью включается и наклон кадра: это одна и та же настройка
+        if (Settings.data.motion) Tilt.start(); else Tilt.stop();
         closeModal(); openSettings();
       }),
       choiceRow([
@@ -3356,6 +3873,13 @@
 
       h('div', { class: 'section-title', text: 'Канал ИИ' }),
       h('p', { class: 'muted small', text: 'Текущий режим: ' + API.mode() }),
+      h('p', { class: 'muted small', text: 'У Mistral (Франция) есть бесплатный ключ: без карты, нужен только номер телефона. Ключ делается на console.mistral.ai → API Keys, лимит примерно запрос в секунду — для этой игры хватает с запасом.' }),
+      mistralInput,
+      h('p', { class: 'muted small', text: 'У GLM (Zhipu, Китай) бесплатно отвечает модель glm-4.5-flash: ключ формата «id.secret» делается на open.bigmodel.cn → API Keys, карта не нужна. Ключ уже вшит в игру, поле — для своего.' }),
+      glmInput,
+      h('p', { class: 'muted small', text: 'У Hugging Face один ключ hf_… открывает и ведущего (137 моделей через роутер), и очередь картинок: кадры рисуют открытые Space, а по имени они отвечают охотнее, чем анонимно. Ключ делается в настройках профиля, право «Make calls to Inference Providers».' }),
+      hfInput,
+      h('p', { class: 'muted small', text: 'Ключи остаются в телефоне и уходят только вместе с запросом к мастеру — на сервере они не хранятся.' }),
       h('div', { class: 'section-title', text: 'Микрофон у мастера' }),
       choiceRow([
         { id: 'ask-on', title: '🎬 Спросить, где начнём', hint: 'три варианта перед первой сценой' },
@@ -4282,7 +4806,6 @@
 
   function saveRunCard(data, palette) {
     const cv = drawRunCard(data, { palette });
-    const url = cv.toDataURL('image/png');
     const name = 'campaign-' + (data.title || 'run').replace(/[^\wа-яё\-]+/gi, '-').slice(0, 30) + '.png';
     try {
       cv.toBlob(async blob => {
@@ -4294,10 +4817,11 @@
             return;
           } catch (e) { /* игрок передумал — просто скачаем */ }
         }
-        downloadFromUrl(name, url);
+        downloadBlob(name, blob);
+        toast('Карточка кампании сохранена: ' + name, { kind: 'good' });
       }, 'image/png');
     } catch (e) {
-      downloadFromUrl(name, url);
+      toast('Карточку не получилось собрать', { kind: 'warn' });
     }
   }
 
@@ -4378,6 +4902,11 @@
     { id: 'm', title: 'Обычный', hint: 'как сейчас' },
     { id: 'l', title: 'Крупный', hint: 'крупнее буквы, шапка и кадр чуть ниже' }
   ];
+
+  /** Режим «одной рукой»: варианты прижимаются к низу и становятся выше. */
+  function applyHandOne() {
+    document.body.classList.toggle('hand-one', !!Settings.data.handOne);
+  }
 
   function applyTextSize() {
     const id = Settings.data.textSize || 'm';
@@ -4497,6 +5026,12 @@
         case 'epilogue-saves': closeEpilogue(); show('saves'); break;
         case 'continue-death': Sound.tap(); continueAfterDeath(); break;
         case 'retry-turn': retryLastTurn(); break;
+        case 'run-card': {
+          const g = State.game || (State.storage.list()[0] && State.storage.load(State.storage.list()[0].id));
+          if (!g) { notify('Кампании пока нет', { kind: 'warn' }); break; }
+          saveRunCard(E.runCard(g, {}), paletteFor(g, E.scenarioById(g.scenarioId)));
+          break;
+        }
         case 'export-story': {
           const g = State.game || (State.storage.list()[0] && State.storage.load(State.storage.list()[0].id));
           if (!g) { notify('Истории пока нет', { kind: 'warn' }); break; }
@@ -4547,6 +5082,7 @@
     document.addEventListener('visibilitychange', () => { if (document.hidden) autosave(); });
     window.addEventListener('beforeunload', autosave);
     $('#scene-media').addEventListener('dblclick', () => loadSceneImage(State.game && State.game.scene && State.game.scene.imagePrompt, null, false));
+    attachGestures();
 
     // при смене размера перерисовываем локальный фон
     let rt = null;
@@ -4617,6 +5153,7 @@
     registerWorker().then(ok => { if (ok) console.log('[офлайн] service worker готов'); });
     applyTheme(null);
     applyTextSize();
+    applyHandOne();
     Voice.syncButton();
     if (Voice.supported) {
       try { window.speechSynthesis.addEventListener('voiceschanged', () => Voice.syncButton()); } catch (e) { /* noop */ }

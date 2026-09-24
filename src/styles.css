@@ -2092,3 +2092,16 @@ body.text-s .action-btn { min-height: 42px; }
     transition: translate .25s ease-out;
   }
 }
+
+/* ------------------------------------------------------------ */
+/* Режим «одной рукой» (п.27): варианты ниже и крупнее — */
+/* большой палец достаёт до них, не перехватывая телефон. */
+/* ------------------------------------------------------------ */
+body.hand-one .actions {
+  gap: 7px;
+  padding-bottom: calc(12px + var(--safe-bottom));
+}
+body.hand-one .action-btn { min-height: 54px; padding: 9px 12px; }
+body.hand-one .action-btn__text { font-size: calc(14px * var(--scale-text, 1)); }
+body.hand-one .action-btn--ghost { min-height: 54px; }
+body.hand-one .panel { padding-bottom: 4px; }
