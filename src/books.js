@@ -24,6 +24,7 @@
     title: 'Пепел и свет',
     tagline: 'У тебя в фонаре последний огонь мира. Донеси его — или согрейся сам.',
     genre: 'тёмное фэнтези',
+    group: 'fantasy',
     icon: '🏮',
     cover: 'sc-forest',
     world: 'Города выгорели три года назад. Огонь остался только в фонарях Хранителей — и в твоём. Если маяк на Острой скале не зажжётся до новолуния, тепло уйдёт из мира совсем.',
@@ -224,6 +225,7 @@
     title: 'Последний перегон',
     tagline: 'Станция «Заря» отвечает. Один перегон отделяет тебя от людей.',
     genre: 'постапокалипсис',
+    group: 'future',
     icon: '🚇',
     cover: 'sc-waste',
     world: 'Восемнадцать лет назад наверху всё закончилось. Люди живут в туннелях: у кого фильтр — тот дышит, у кого патрон — тот идёт. Станция «Заря» вышла на связь впервые за годы.',
@@ -370,7 +372,28 @@
     }
   };
 
-  const BOOKS = [ASH, LINE];
+  /* Группы: по ним истории раскладываются в списке — так их проще выбрать. */
+  const BOOK_GROUPS = [
+    { id: 'all', title: 'Все' },
+    { id: 'fantasy', title: 'Фэнтези' },
+    { id: 'future', title: 'Будущее' },
+    { id: 'past', title: 'Прошлое' }
+  ];
+
+  /* Шесть историй написаны отдельными файлами (src/stories.js) — так их удобнее
+     править, не задевая движок. В браузере они приходят через window.DTStories,
+     в тестах — обычным require. Нет файла — играем тем, что есть. */
+  const EXTRA = (function () {
+    try {
+      if (typeof module === 'object' && module.exports && typeof require === 'function') {
+        return require('./stories.js');
+      }
+      if (typeof self !== 'undefined' && self.DTStories) return self.DTStories;
+    } catch (e) { /* без дополнения тоже играется */ }
+    return [];
+  })();
+
+  const BOOKS = [ASH, LINE].concat(EXTRA);
 
   /* ---------------------------------------------------------------- */
   /* Движок                                                            */
@@ -381,17 +404,43 @@
     return BOOKS.find(b => b.id === key) || null;
   }
 
+  /** Сколько слов в истории — по ним считается примерное время чтения. */
+  function bookWords(b) {
+    let words = 0;
+    Object.keys(b.nodes).forEach(id => {
+      const node = b.nodes[id] || {};
+      (node.text || []).forEach(p => { words += String(p).split(/\s+/).length; });
+      (node.choices || []).forEach(c => { words += String(c.text || '').split(/\s+/).length; });
+    });
+    return words;
+  }
+
   function listBooks() {
-    return BOOKS.map(b => ({
-      id: b.id, title: b.title, tagline: b.tagline, genre: b.genre,
-      icon: b.icon, cover: b.cover, chapters: Object.keys(b.nodes).length
-    }));
+    return BOOKS.map(b => {
+      const nodes = Object.keys(b.nodes).length;
+      const endings = Object.keys(b.nodes).filter(id => b.nodes[id].ending).length;
+      // один ход — это выбор плюс глава: считаем примерно 130 слов в минуту
+      const minutes = Math.max(3, Math.round(bookWords(b) / 130 + nodes * 0.4));
+      return {
+        id: b.id, title: b.title, tagline: b.tagline, genre: b.genre,
+        group: b.group || 'fantasy', icon: b.icon, cover: b.cover,
+        world: b.world || '',
+        chapters: nodes, endings: endings, minutes: minutes
+      };
+    });
   }
 
   function bookNode(state) {
     const b = bookById(state && state.bookId);
     if (!b) return null;
     return b.nodes[state.node] || null;
+  }
+
+  /** Истории одной группы: «фэнтези», «будущее», «прошлое». */
+  function booksByGroup(group) {
+    const all = listBooks();
+    if (!group || group === 'all') return all;
+    return all.filter(b => b.group === group);
   }
 
   /** Новая книга: герой передаёт только имя и настройки, механика — книжная. */
@@ -414,9 +463,17 @@
     };
   }
 
-  /** Вариант доступен, если герой не пуст: здоровье и предметы — это ресурс. */
+  /**
+   * Вариант доступен, если герой не пуст и знает то, на чём этот вариант стоит.
+   * Здоровье и предметы — ресурс, а флаги — знание: улика, свидетель, расчёт.
+   */
   function choiceLocked(state, choice) {
     const c = choice || {};
+    const need = Array.isArray(c.needs) ? c.needs : [];
+    const miss = need.filter(f => (state.flags || []).indexOf(f) < 0);
+    if (miss.length) {
+      return c.needHint ? 'нужно: ' + c.needHint : 'нужно: ' + miss.join(' + ');
+    }
     if (typeof c.hp === 'number' && c.hp < 0 && state.hp + c.hp <= 0) return 'нет сил: этот путь убьёт';
     if (c.item === -1 && state.items <= 0) return 'нечего отдать';
     return '';
@@ -440,9 +497,11 @@
     const c = (node.choices || [])[index];
     if (!c) return null;
     if (choiceLocked(state, c)) return null;
+    const gained = [].concat(c.flag ? [c.flag] : [], Array.isArray(c.flags) ? c.flags : [])
+      .filter(f => f && state.flags.indexOf(f) < 0);
     const next = Object.assign({}, state, {
       node: c.to,
-      flags: c.flag && state.flags.indexOf(c.flag) < 0 ? state.flags.concat([c.flag]) : state.flags.slice(),
+      flags: state.flags.concat(gained),
       hp: Math.max(0, Math.min(state.maxHp, state.hp + (c.hp || 0))),
       items: Math.max(0, state.items + (c.item || 0)),
       steps: state.steps.concat([{ from: state.node, choice: String(c.text).slice(0, 90), flag: c.flag || '', hp: c.hp || 0 }])
@@ -485,7 +544,9 @@
   function bookStory(state, book) {
     const b = bookById((state && state.bookId) || (book && book.id));
     if (!b) return '';
-    const parts = [`# ${b.title}`, '', `**Герой:** ${state.heroName || 'Безымянный'}`, ''];
+    const parts = [`# ${b.title}`, ''];
+    if (b.world) parts.push('> ' + b.world, '');
+    parts.push(`**Герой:** ${state.heroName || 'Безымянный'}`, '');
     (state.steps || []).forEach((s, i) => {
       const node = b.nodes[s.from];
       if (!node) return;
@@ -506,6 +567,7 @@
   }
 
   return {
-    BOOKS, listBooks, bookById, startBook, bookChoices, bookStep, bookNode, bookEnding, bookStory, choiceLocked
+    BOOKS, BOOK_GROUPS, listBooks, booksByGroup, bookById, startBook, bookChoices,
+    bookStep, bookNode, bookEnding, bookStory, choiceLocked
   };
 });

@@ -1,27 +1,143 @@
-/* Книги-игры: главы без ИИ. Проверяем, что их можно пройти до конца,
-   что условия на выборы работают и что прохождение выгружается текстом. */
+/* Истории без ИИ: главы написаны вручную. Проверяем не только то, что они
+   открываются, но и то, что они логичны: каждая концовка достижима по правилам
+   книги (с уликами, силами и припасами), тупиков нет, а ни один выбор не
+   требует того, чего в истории не бывает. */
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const Books = require('../src/books.js');
 
-test('книги на месте: у каждой есть главы, начало и концовки', () => {
+const SRC = path.join(__dirname, '..', 'src');
+
+test('истории на месте: их не меньше восьми и они разных жанров', () => {
   const list = Books.listBooks();
-  assert.ok(list.length >= 2, 'нужно хотя бы две книги: ' + list.length);
-  list.forEach(short => {
+  assert.ok(list.length >= 8, 'нужно хотя бы восемь историй: ' + list.length);
+  const genres = new Set(list.map(b => b.genre));
+  assert.ok(genres.size >= 6, 'жанры должны различаться: ' + genres.size);
+  const groups = new Set(list.map(b => b.group));
+  assert.ok(groups.size >= 3, 'нужны и фэнтези, и будущее, и прошлое: ' + [...groups].join(', '));
+  list.forEach(b => {
+    assert.ok(b.title && b.tagline && b.icon, `${b.id}: у истории нет названия, подписи или значка`);
+    assert.ok(b.chapters >= 6, `${b.id}: глав должно быть не меньше шести, а их ${b.chapters}`);
+    assert.ok(b.endings >= 2, `${b.id}: концовок должно быть минимум две, а их ${b.endings}`);
+  });
+});
+
+test('каждая глава цела: текст, выборы и переходы в существующие главы', () => {
+  Books.listBooks().forEach(short => {
     const b = Books.bookById(short.id);
-    const chapters = Object.keys(b.nodes).length;
-    assert.ok(chapters >= 6, `${b.id}: глав должно быть не меньше шести, а их ${chapters}`);
     assert.ok(b.nodes[b.start], `${b.id}: стартовой главы нет среди узлов`);
-    const endings = Object.keys(b.nodes).filter(id => b.nodes[id].ending);
-    assert.ok(endings.length >= 2, `${b.id}: концовок должно быть минимум две, а их ${endings.length}`);
+    assert.ok(b.world && b.world.length > 80, `${b.id}: не описан мир истории`);
     Object.entries(b.nodes).forEach(([id, node]) => {
       assert.ok(node.chapter && node.text && node.text.length, `${b.id}/${id}: глава без названия или текста`);
+      assert.ok(node.text.join(' ').length >= 140, `${b.id}/${id}: глава короче абзаца — текст потерялся`);
       assert.ok(node.ending || (node.choices && node.choices.length), `${b.id}/${id}: глава без выборов`);
       (node.choices || []).forEach(c => {
+        assert.ok(c.text && c.text.length > 3, `${b.id}/${id}: у выбора нет текста`);
         assert.ok(b.nodes[c.to], `${b.id}/${id}: выбор ведёт в несуществующую главу ${c.to}`);
       });
     });
+  });
+});
+
+test('в истории нет потерянных глав: до каждой можно дойти от начала', () => {
+  Books.listBooks().forEach(short => {
+    const b = Books.bookById(short.id);
+    const seen = new Set([b.start]);
+    const queue = [b.start];
+    while (queue.length) {
+      const cur = b.nodes[queue.shift()];
+      (cur.choices || []).forEach(c => {
+        if (!seen.has(c.to)) { seen.add(c.to); queue.push(c.to); }
+      });
+    }
+    const lost = Object.keys(b.nodes).filter(id => !seen.has(id));
+    assert.equal(lost.length, 0, `${b.id}: в эти главы не попасть: ${lost.join(', ')}`);
+  });
+});
+
+test('тупиков нет: у героя в силах всегда есть хотя бы один путь', () => {
+  Books.listBooks().forEach(short => {
+    const b = Books.bookById(short.id);
+    const allFlags = [];
+    Object.values(b.nodes).forEach(n => (n.choices || []).forEach(c => {
+      [].concat(c.flag || [], c.flags || []).forEach(f => { if (allFlags.indexOf(f) < 0) allFlags.push(f); });
+    }));
+    const hero = { bookId: b.id, node: b.start, hp: 5, maxHp: 5, items: 3, flags: allFlags, steps: [] };
+    Object.keys(b.nodes).forEach(id => {
+      const node = b.nodes[id];
+      if (node.ending) return;
+      const open = (node.choices || []).filter(c => !Books.choiceLocked(Object.assign({}, hero, { node: id }), c));
+      assert.ok(open.length, `${b.id}/${id}: все выборы закрыты — герой заперт`);
+    });
+  });
+});
+
+test('каждая концовка достижима по правилам: улики, силы и припасы считаются', () => {
+  const key = s => [s.node, s.flags.slice().sort().join('|'), s.hp, s.items].join('::');
+  Books.listBooks().forEach(short => {
+    const b = Books.bookById(short.id);
+    const endings = Object.keys(b.nodes).filter(id => b.nodes[id].ending);
+    const start = Books.startBook(b.id, { name: 'Проверка' });
+    const seen = new Set([key(start)]);
+    const queue = [start];
+    const reached = new Set();
+    let guard = 0;
+    while (queue.length && guard < 20000) {
+      const st = queue.shift();
+      guard++;
+      if (b.nodes[st.node].ending) { reached.add(st.node); continue; }
+      (b.nodes[st.node].choices || []).forEach((c, i) => {
+        const res = Books.bookStep(st, i);
+        if (!res) return;
+        const next = res.state;
+        const k = key(next);
+        if (seen.has(k)) return;
+        seen.add(k);
+        queue.push(next);
+      });
+    }
+    const lost = endings.filter(id => !reached.has(id));
+    assert.equal(lost.length, 0, `${b.id}: эти концовки недостижимы: ${lost.map(id => b.nodes[id].chapter).join(', ')}`);
+  });
+});
+
+test('условия выборов опираются на то, что в истории есть', () => {
+  Books.listBooks().forEach(short => {
+    const b = Books.bookById(short.id);
+    const obtainable = new Set();
+    Object.values(b.nodes).forEach(n => (n.choices || []).forEach(c => {
+      [].concat(c.flag || [], c.flags || []).forEach(f => obtainable.add(f));
+    }));
+    Object.entries(b.nodes).forEach(([id, node]) => {
+      (node.choices || []).forEach(c => {
+        (c.needs || []).forEach(f => {
+          assert.ok(obtainable.has(f), `${b.id}/${id}: выбор требует «${f}», но получить это в истории нельзя`);
+        });
+        if (c.needs && c.needs.length) {
+          assert.ok(c.needHint, `${b.id}/${id}: у закрытого выбора нет подсказки игроку`);
+        }
+      });
+    });
+  });
+});
+
+test('концовкам даны заголовки, а историям — вес', () => {
+  Books.listBooks().forEach(short => {
+    const b = Books.bookById(short.id);
+    const endings = Object.keys(b.nodes).filter(id => b.nodes[id].ending);
+    endings.forEach(id => {
+      const meta = (b.endings || {})[id];
+      assert.ok(meta && meta.title, `${b.id}/${id}: у концовки нет заголовка в списке концовок`);
+    });
+    let words = 0;
+    Object.values(b.nodes).forEach(n => {
+      (n.text || []).forEach(p => { words += String(p).split(/\s+/).length; });
+      (n.choices || []).forEach(c => { words += String(c.text || '').split(/\s+/).length; });
+    });
+    assert.ok(words >= 500, `${b.id}: история коротковата — ${words} слов`);
   });
 });
 
@@ -39,7 +155,21 @@ test('главу нельзя пройти мимо: голодный герой
   });
 });
 
-test('книга проходится до концовки: любой разрешённый путь не ломает состояние', () => {
+test('закрытый выбор объясняет себя: без улики герой видит подсказку', () => {
+  const b = Books.bookById('trakt');
+  const guard = Object.entries(b.nodes).flatMap(([id, n]) =>
+    (n.choices || []).filter(c => (c.needs || []).length).map(c => ({ id, c })));
+  assert.ok(guard.length >= 3, 'в истории с уликами должны быть закрытые пути');
+  guard.forEach(({ id, c }) => {
+    const empty = { bookId: 'trakt', node: id, hp: 5, maxHp: 5, items: 3, flags: [], steps: [] };
+    const locked = Books.choiceLocked(empty, c);
+    assert.ok(locked && locked.indexOf('нужно') === 0, `${id}: закрытый выбор должен говорить, чего не хватает`);
+    const full = { bookId: 'trakt', node: id, hp: 5, maxHp: 5, items: 3, flags: c.needs.slice(), steps: [] };
+    assert.equal(Books.choiceLocked(full, c), '', `${id}: с уликой путь должен открыться`);
+  });
+});
+
+test('история проходится до концовки: любой разрешённый путь не ломает состояние', () => {
   const state = Books.startBook('ash', { name: 'Свет' });
   assert.ok(state.node, 'книга должна начинаться главой');
   let steps = 0;
@@ -76,7 +206,7 @@ test('все стартовые концовки достижимы: у кажд
   });
 });
 
-test('прохождение книги выгружается текстом', () => {
+test('прохождение истории выгружается текстом', () => {
   let state = Books.startBook('line', { name: 'Проводник' });
   for (let i = 0; i < 5; i++) {
     const res = Books.bookStep(state, 0);
@@ -91,9 +221,12 @@ test('прохождение книги выгружается текстом', 
   assert.ok(md.length > 400, 'выгрузка не должна быть огрызком: ' + md.length);
 });
 
-test('книга не зависит от сети и ИИ: только свои данные', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'books.js'), 'utf8');
-  ['fetch(', 'XMLHttpRequest', 'localStorage', '/api/', 'http://', 'https://'].forEach(bad => {
-    assert.ok(!src.includes(bad), 'книга не должна зависеть от сети: найдено ' + bad);
+test('истории не зависят от сети и ИИ: только свои данные', () => {
+  const bad = ['fetch(', 'XMLHttpRequest', 'localStorage', '/api/', 'http://', 'https://'];
+  ['books.js', 'stories.js'].forEach(name => {
+    const src = fs.readFileSync(path.join(SRC, name), 'utf8');
+    bad.forEach(word => {
+      assert.ok(!src.includes(word), `${name}: история не должна зависеть от сети: найдено ${word}`);
+    });
   });
 });

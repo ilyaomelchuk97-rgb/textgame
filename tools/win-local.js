@@ -38,6 +38,13 @@ const stamp = () => new Date().toISOString().slice(14, 19) + 'с';
   await page.waitForSelector('#hero-name', { timeout: 8000 });
   await page.fill('#hero-name', 'Смельчак');
   await page.click('#screen-hero [data-act="start-adventure"]');
+  // вопрос «С чего начнём» ждёт ответа игрока: выбираем «пусть решает мастер»
+  await page.waitForSelector('#modal:not([hidden]) .btn', { timeout: 15000 }).catch(() => {});
+  await page.evaluate(() => {
+    const ghost = document.querySelector('#modal .btn--ghost');
+    const any = ghost || Array.from(document.querySelectorAll('#modal button')).find(b => /решает мастер|Пропустить|Начать/i.test(b.textContent));
+    if (any) any.click();
+  });
   await page.waitForSelector('#actions .action-btn:not(.action-btn--ghost)', { timeout: 40000 });
   await page.evaluate(() => {
     const b = document.querySelector('#prologue:not([hidden]) [data-act="close-prologue"]');

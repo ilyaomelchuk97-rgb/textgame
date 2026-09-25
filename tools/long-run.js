@@ -159,7 +159,10 @@ const TURN = (i) => ({
   await page.waitForSelector('#modal:not([hidden])', { timeout: 8000 }).catch(() => {});
   await page.click('#modal .btn--primary').catch(() => {});
   await page.waitForTimeout(300);
-  await page.click('[data-act="open-books"]');
+  // истории живут во вкладке «Истории» экрана «Новая игра»
+  await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('#mode-tabs .tab[data-mode="books"]', { timeout: 8000 });
+  await page.click('#mode-tabs .tab[data-mode="books"]');
   await page.waitForSelector('#books-list .book-card', { timeout: 8000 });
   await page.click('#books-list .book-card:first-child .btn');
   await page.waitForSelector('#actions .action-btn', { timeout: 8000 });

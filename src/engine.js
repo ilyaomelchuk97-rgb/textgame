@@ -11,24 +11,50 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const SCHEMA_VERSION = 3;
+  const SCHEMA_VERSION = 4;
 
   /* ---------------------------------------------------------- */
   /* Рандом                                                     */
   /* ---------------------------------------------------------- */
+  /**
+   * Источник случайности. Обычно это Math.random, но забег дня подставляет
+   * сюда генератор с зерном: тогда кубик и все подборы одинаковы у всех игроков.
+   * Замена живёт до clearSeed() — обычные кампании остаются вольными.
+   */
+  let rndSource = null;
+  const roll = () => (rndSource ? rndSource() : Math.random());
+  /** Генератор с зерном (mulberry32): одинаковое зерно — одинаковый поток. */
+  function seededSource(seed) {
+    let a = (Number(seed) >>> 0) || 1;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
   const rnd = {
-    int(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; },
-    chance(p) { return Math.random() < p; },
-    pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; },
+    int(min, max) { return Math.floor(roll() * (max - min + 1)) + min; },
+    chance(p) { return roll() < p; },
+    pick(arr) { return arr[Math.floor(roll() * arr.length)]; },
     shuffle(arr) {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(roll() * (i + 1));
         [a[i], a[j]] = [a[j], a[i]];
       }
       return a;
     },
-    seed() { return Math.floor(Math.random() * 2000000000) - 1000000000; }
+    seed() { return Math.floor(roll() * 2000000000) - 1000000000; },
+    /** Забег дня: фиксируем поток случайностей целиком. */
+    setSeed(seed) { rndSource = seededSource(seed); return rnd; },
+    clearSeed() { rndSource = null; return rnd; },
+    get seeded() { return !!rndSource; },
+    /** Зерно дня для кубика: у всех игроков одни и те же броски. */
+    setDiceSeed(seed) { diceSource = seededSource(seed); return rnd; },
+    clearDiceSeed() { diceSource = null; return rnd; },
+    get diceSeeded() { return !!diceSource; }
   };
 
   /* ---------------------------------------------------------- */
@@ -212,7 +238,15 @@
   /** Сдвиг сложности от «жестокости» мира (настройка своего мира). */
   const DANGER_SHIFT = { soft: -2, normal: 0, harsh: 2 };
 
-  const rollDie = sides => rnd.int(1, sides);
+  /**
+   * Кубик — отдельный поток. В забеге дня он идёт из зерна дня, поэтому броски
+   * совпадают у всех, кому выпал тот же день. Всё остальное (подбор промптов,
+   * украшения, реплики) остаётся вольным: оно не должно сдвигать броски.
+   */
+  let diceSource = null;
+  const rollDie = sides => (diceSource
+    ? 1 + Math.floor(diceSource() * sides)
+    : rnd.int(1, sides));
   const rollD20 = () => rollDie(20);
 
   /** P(d20 + mod >= dc), с учётом преимущества (2d20 — лучший). */
@@ -258,6 +292,442 @@
     fail: 'Провал',
     fumble: 'Критический провал!'
   };
+
+  /* ---------------------------------------------------------- */
+  /* Блок B: предметы, состояния, припасы и знакомые             */
+  /* ---------------------------------------------------------- */
+
+  /** Что предмет делает — одной строкой, без пояснений игроку. */
+  const ITEM_KINDS = {
+    heal:      { icon: '🧪', verb: 'Выпить',     line: item => 'лечит на ' + (item.power || 2) + ' здоровья' },
+    boost:     { icon: '📈', verb: 'Приготовить', line: item => '+' + (item.power || 1) + ' к проверке «' + statById(item.stat).name + '» на один ход' },
+    advantage: { icon: '🎯', verb: 'Применить',   line: () => 'преимущество: бросок дважды, берём лучший' },
+    key:       { icon: '🗝️', verb: 'Открыть',    line: () => 'ключ к вехе: открывает путь' },
+    trophy:    { icon: '🎒', verb: 'Осмотреть',   line: () => 'память о былом, без механики' }
+  };
+
+  /** Мастер присылает просто название — догадываемся об эффекте по словам. */
+  const ITEM_GUESS = [
+    [/зель|настой|бальзам|бинт|аптечк|фляг|лечебн|potion|medicine|heal/i, 'heal', 3, 'con'],
+    [/точильн|напильник|набор|инструмент|чертеж|схем|клинок|сталь|tool|kit|blade/i, 'boost', 1, 'str'],
+    [/верёвк|веревк|крюк|отмычк|канат|плащ|rope|hook|lockpick|grapple/i, 'boost', 1, 'agi'],
+    [/талисман|амулет|оберег|медальон|фотограф|charm|amulet|talisman/i, 'advantage', 1, 'per'],
+    [/ключ|печать|пропуск|жетон|карта|шифр|key|pass|map|codex/i, 'key', 1, 'int']
+  ];
+
+  /** Состояния: каждое — модификатор к проверкам и подсказка мастеру. */
+  const STATES = [
+    { id: 'wound',    title: 'Рана',        icon: '🩸', mod: -1, stats: ['str', 'con', 'agi'], hint: 'рана не залечена — физические проверки хуже' },
+    { id: 'fatigue',  title: 'Усталость',   icon: '🥱', mod: -1, stats: ['int', 'per', 'wit'], hint: 'герой вымотан — умственные проверки хуже' },
+    { id: 'inspired', title: 'Вдохновение', icon: '✨', mod: +1, stats: STAT_IDS,              hint: 'герой поверил в себя — все проверки лучше' },
+    { id: 'marked',   title: 'На мушке',    icon: '🎯', mod: -1, stats: ['agi', 'per'],        hint: 'за героем следят — скрытность и чутьё хуже' }
+  ];
+  const STATE_MAX_TURNS = 4;
+  const SUPPLIES_START = 6;
+  const SUPPLIES_MAX = 8;
+
+  /** Отношения со знакомыми: как меняют разговор и что дают. */
+  const RELATIONS = [
+    { id: 'friend',  title: 'друг',      icon: '🤝', dc: -4, note: 'другу легче соврать и попросить: договориться на 4 легче' },
+    { id: 'debtor',  title: 'должник',   icon: '🪙', dc: -2, note: 'должник приходит на помощь один раз за кампанию' },
+    { id: 'neutral', title: 'нейтрально', icon: '👤', dc: 0,  note: '' },
+    { id: 'enemy',   title: 'враг',      icon: '⚔️', dc: 4,  note: 'врагу верить нельзя: договориться труднее, зато подозревать его легче' }
+  ];
+  const RELATION_BY_ID = id => RELATIONS.find(r => r.id === id) || RELATIONS[2];
+
+  function relationFromText(text) {
+    const t = String(text || '').toLowerCase();
+    if (/враг|враждеб|ненав|мстит|угрожа|hate|hostile/.test(t)) return 'enemy';
+    if (/должник|должн|обязан|долг|owes/.test(t)) return 'debtor';
+    if (/друг|союз|верн|благодар|товарищ|приятель|friend|ally/.test(t)) return 'friend';
+    return 'neutral';
+  }
+
+  const TRUST_BY_RELATION = { friend: 4, debtor: 3, neutral: 2, enemy: 0 };
+  function trustFromRelation(id) {
+    const t = TRUST_BY_RELATION[id];
+    return t === undefined ? TRUST_BY_RELATION.neutral : t;
+  }
+
+  /* ---- предметы ---- */
+
+  function itemIdFrom(name) {
+    const slug = String(name || '').toLowerCase().replace(/[^a-zа-яё0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
+    return slug || ('item-' + rnd.int(100, 999));
+  }
+
+  /** Предмет: имя + эффект. Мастеру достаточно названия, эффект досчитаем сами. */
+  function makeItem(name, opts) {
+    opts = opts || {};
+    const clean = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!clean) return null;
+    let kind = opts.kind, power = opts.power, stat = opts.stat;
+    if (!kind) {
+      const guess = ITEM_GUESS.find(g => g[0].test(clean));
+      kind = guess ? guess[1] : 'trophy';
+      power = power === undefined ? (guess ? guess[2] : 0) : power;
+      stat = stat || (guess ? guess[3] : '');
+    }
+    if (kind === 'heal') power = power || 3;
+    if (kind === 'boost') { power = power || 1; stat = STAT_IDS.indexOf(stat) >= 0 ? stat : 'str'; }
+    if (kind === 'advantage') power = 1;
+    if (kind === 'trophy') power = 0;
+    if (kind === 'key') power = 1;
+    return {
+      id: opts.id || itemIdFrom(clean) + '-' + rnd.int(10, 99),
+      name: clean,
+      kind, power: power || 0,
+      stat: stat || '',
+      icon: opts.icon || (ITEM_KINDS[kind] || ITEM_KINDS.trophy).icon
+    };
+  }
+
+  /** Одна строка «что делает» — её видит игрок в карточке предмета. */
+  function itemLine(item) {
+    if (!item) return '';
+    return ((ITEM_KINDS[item.kind] || ITEM_KINDS.trophy).line)(item);
+  }
+
+  function itemVerb(item) {
+    if (!item) return '';
+    return ((ITEM_KINDS[item.kind] || ITEM_KINDS.trophy).verb) || '';
+  }
+
+  /** Старые сохранения хранили просто названия — превращаем их в предметы. */
+  function normalizeInventory(list) {
+    return (Array.isArray(list) ? list : []).map(entry => {
+      if (entry && typeof entry === 'object' && entry.name) {
+        const ready = makeItem(entry.name, { id: entry.id, kind: entry.kind, power: entry.power, stat: entry.stat, icon: entry.icon });
+        return ready;
+      }
+      return makeItem(String(entry || ''));
+    }).filter(Boolean).slice(0, 12);
+  }
+
+  function itemById(game, id) {
+    return (game.hero.inventory || []).find(i => i.id === id) || null;
+  }
+
+  function heroItems(game) {
+    return (game.hero.inventory || []).slice();
+  }
+
+  /** «Использовать» в бою и вне боя: тратим предмет, получаем эффект. */
+  function useItem(game, id) {
+    const h = game.hero;
+    const item = itemById(game, id);
+    if (!item) return { ok: false, reason: 'нет такого предмета', notes: [] };
+    const notes = [];
+    const drop = () => { h.inventory = h.inventory.filter(i => i.id !== item.id); };
+    if (item.kind === 'trophy') return { ok: false, reason: 'У этого предмета нет эффекта — он просто память.', notes: [] };
+    if (item.kind === 'heal') {
+      const before = h.hp;
+      h.hp = clamp(h.hp + (item.power || 3), 0, h.maxHp);
+      notes.push({ type: 'hp', icon: '💚', text: item.name + ': +' + (h.hp - before) + ' здоровья' });
+      if (hasState(game, 'wound') && item.power >= 3) removeState(game, 'wound', notes);
+      drop();
+    } else if (item.kind === 'boost') {
+      h.buff = Math.max(Number(h.buff) || 0, item.power || 1);
+      h.buffStat = item.stat || '';
+      h.buffLabel = item.name;
+      notes.push({ type: 'buff', icon: '📈', text: item.name + ': +' + h.buff + ' к проверке «' + statById(h.buffStat || 'str').name + '» на этот ход' });
+      drop();
+    } else if (item.kind === 'advantage') {
+      h.advantage = true;
+      h.advantageLabel = item.name;
+      notes.push({ type: 'buff', icon: '🎯', text: item.name + ': преимущество на этот ход' });
+      drop();
+    } else if (item.kind === 'key') {
+      const step = arcAdvance(game, 'ключ: ' + item.name);
+      notes.push({ type: 'goal', icon: '🗝️', text: item.name + ' открывает путь' + (step ? ': веха «' + step.title + '»' : '') });
+      if (typeof game.keysOpened !== 'number') game.keysOpened = 0;
+      game.keysOpened += 1;
+      drop();
+    }
+    return { ok: true, item, notes };
+  }
+
+  /* ---- состояния ---- */
+
+  function stateById(id) { return STATES.find(s => s.id === id) || null; }
+
+  function stateList(game) {
+    return ((game.hero && game.hero.states) || []).map(st => {
+      const def = stateById(st.id);
+      if (!def) return null;
+      return {
+        id: def.id, title: def.title, icon: def.icon, mod: def.mod,
+        turns: st.turns || 0, hint: def.hint,
+        text: def.title + ' (' + (def.mod > 0 ? '+' : '') + def.mod + ')'
+      };
+    }).filter(Boolean);
+  }
+
+  function hasState(game, id) {
+    return ((game.hero && game.hero.states) || []).some(st => st.id === id);
+  }
+
+  /** Состояние: не чаще одного раза, повторный случай продлевает. */
+  function addState(game, id, turns, notes) {
+    const def = stateById(id);
+    if (!def) return null;
+    game.hero.states = game.hero.states || [];
+    const known = game.hero.states.find(st => st.id === id);
+    const life = clamp(Number(turns) || 2, 1, STATE_MAX_TURNS);
+    if (known) {
+      known.turns = Math.max(known.turns || 0, life);
+      return { id, refreshed: true };
+    }
+    game.hero.states.push({ id, turns: life });
+    if (notes) notes.push({ type: 'state', icon: def.icon, text: 'Состояние: ' + def.title + ' (' + (def.mod > 0 ? '+' : '') + def.mod + ') — ' + def.hint });
+    return { id, refreshed: false };
+  }
+
+  function removeState(game, id, notes) {
+    const def = stateById(id);
+    const before = ((game.hero && game.hero.states) || []).length;
+    game.hero.states = ((game.hero && game.hero.states) || []).filter(st => st.id !== id);
+    if (notes && before !== game.hero.states.length && def) {
+      notes.push({ type: 'state', icon: '✅', text: 'Прошло: ' + def.title });
+    }
+    return before !== game.hero.states.length;
+  }
+
+  /** Сколько состояние отнимает или добавляет к проверке этой характеристики. */
+  function stateMod(game, stat) {
+    return ((game.hero && game.hero.states) || []).reduce((sum, st) => {
+      const def = stateById(st.id);
+      if (!def) return sum;
+      return def.stats.indexOf(stat) >= 0 ? sum + def.mod : sum;
+    }, 0);
+  }
+
+  function stateLine(game) {
+    const list = stateList(game);
+    return list.length ? list.map(s => s.icon + ' ' + s.text).join(' · ') : '';
+  }
+
+  function tickStates(game, notes) {
+    const before = ((game.hero && game.hero.states) || []).length;
+    game.hero.states = ((game.hero && game.hero.states) || []).map(st => Object.assign({}, st, { turns: (st.turns || 0) - 1 }))
+      .filter(st => st.turns > 0);
+    if (notes && game.hero.states.length < before) notes.push({ type: 'state', icon: '✅', text: 'Состояние прошло' });
+    return before - game.hero.states.length;
+  }
+
+  /* ---- припасы ---- */
+
+  function suppliesOf(game) {
+    const n = Number(game.hero && game.hero.supplies);
+    return Number.isFinite(n) ? clamp(Math.round(n), 0, SUPPLIES_MAX) : SUPPLIES_START;
+  }
+
+  function addSupplies(game, n) {
+    const before = suppliesOf(game);
+    game.hero.supplies = clamp(before + Math.round(Number(n) || 0), 0, SUPPLIES_MAX);
+    return game.hero.supplies - before;
+  }
+
+  function spendSupplies(game, n) {
+    const need = Math.round(Number(n) || 0);
+    if (suppliesOf(game) < need) return false;
+    game.hero.supplies = suppliesOf(game) - need;
+    return true;
+  }
+
+  /** Ночёвка: −1 припасы, силы возвращаются, усталость уходит. */
+  function restStop(game) {
+    if (!spendSupplies(game, 1)) return { ok: false, reason: 'Припасов не осталось — ночевать не на чем.', notes: [] };
+    const notes = [];
+    const before = game.hero.hp;
+    game.hero.hp = clamp(game.hero.hp + 2, 0, game.hero.maxHp);
+    notes.push({ type: 'supplies', icon: '🔥', text: 'Привал: −1 припасы' + (game.hero.hp > before ? ', +' + (game.hero.hp - before) + ' здоровья' : '') });
+    removeState(game, 'fatigue', notes);
+    return { ok: true, notes };
+  }
+
+  /** Лечение: −1 припасы, +3 здоровья, рана затягивается. */
+  function healStop(game) {
+    if (!spendSupplies(game, 1)) return { ok: false, reason: 'Припасов не осталось — перевязать нечем.', notes: [] };
+    const notes = [];
+    const before = game.hero.hp;
+    game.hero.hp = clamp(game.hero.hp + 3, 0, game.hero.maxHp);
+    notes.push({ type: 'hp', icon: '🩹', text: 'Перевязка: −1 припасы, +' + (game.hero.hp - before) + ' здоровья' });
+    removeState(game, 'wound', notes);
+    return { ok: true, notes };
+  }
+
+  /** Обход опасного места: −1 припасы, следующий бросок с преимуществом. */
+  function bypassDanger(game) {
+    if (!spendSupplies(game, 1)) return { ok: false, reason: 'Припасов не осталось — обход не потянуть.', notes: [] };
+    game.hero.advantage = true;
+    game.hero.advantageLabel = 'обход по запасам';
+    return { ok: true, notes: [{ type: 'supplies', icon: '🧭', text: 'Обход: −1 припасы, следующий бросок с преимуществом' }] };
+  }
+
+  /* ---- знакомые и отношения ---- */
+
+  function npcMemory(game) {
+    const m = game.memory || {};
+    return Array.isArray(m.npcs) ? m.npcs : [];
+  }
+
+  function relationOf(npc) {
+    if (!npc) return 'neutral';
+    return npc.relation || relationFromText(npc.attitude);
+  }
+
+  function trustOf(npc) {
+    const t = Number(npc && npc.trust);
+    return Number.isFinite(t) ? clamp(Math.round(t), 0, 5) : trustFromRelation(relationOf(npc));
+  }
+
+  function relationInfo(npc) {
+    const rel = RELATION_BY_ID(relationOf(npc));
+    return Object.assign({}, rel, { trust: trustOf(npc), name: (npc && npc.name) || '' });
+  }
+
+  /** Знакомые для интерфейса: имя, кто он, отношение, доверие. */
+  function npcList(game) {
+    return npcMemory(game).map(n => {
+      const info = relationInfo(n);
+      return {
+        name: n.name, role: n.role || '', voice: n.voice || '',
+        relation: info.id, relationTitle: info.title, relationIcon: info.icon,
+        trust: info.trust, helped: !!n.helped, note: info.note,
+        seen: n.seen || 0
+      };
+    }).sort((a, b) => (b.seen || 0) - (a.seen || 0));
+  }
+
+  function setTrust(npc, value, notes, why) {
+    if (!npc) return 0;
+    const before = trustOf(npc);
+    npc.trust = clamp(Math.round(Number(value)), 0, 5);
+    npc.relation = npc.trust >= 3 ? (npc.relation === 'enemy' && npc.trust >= 4 ? 'friend' : (npc.trust >= 4 ? 'friend' : 'debtor'))
+      : (npc.trust <= 1 ? 'enemy' : 'neutral');
+    if (notes && npc.trust !== before) {
+      const up = npc.trust > before;
+      notes.push({
+        type: 'relation', icon: up ? '🤝' : '💔',
+        text: (npc.name || 'знакомый') + ': доверие ' + (up ? '+' : '') + (npc.trust - before) + ' (' + npc.trust + '/5)' + (why ? ' — ' + why : '')
+      });
+    }
+    return npc.trust;
+  }
+
+  /**
+   * Ищем знакомого в тексте действия: «уговорить Власа», «попросить стражника
+   * Грома» — это про них. Сравниваем и полное имя, и каждое слово по отдельности
+   * без последней буквы: в русском имя в тексте почти всегда стоит в падеже.
+   */
+  function npcInText(game, text) {
+    const hay = String(text || '').toLowerCase().replace(/ё/g, 'е');
+    if (!hay) return null;
+    let best = null, bestHit = '';
+    npcMemory(game).forEach(n => {
+      const name = String(n.name || '').toLowerCase().replace(/ё/g, 'е').trim();
+      if (name.length < 3) return;
+      const keys = [name].concat(name.split(/[^a-zа-я0-9]+/).filter(w => w.length >= 4));
+      const hit = keys.find(key => hay.indexOf(key) >= 0 || (key.length > 4 && hay.indexOf(key.slice(0, key.length - 1)) >= 0));
+      if (!hit) return;
+      if (!best || hit.length > bestHit.length || (hit.length === bestHit.length && trustOf(n) > trustOf(best))) {
+        best = n; bestHit = hit;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * Социальная проверка против знакомого (п.10): сложность зависит от отношения,
+   * а подозрение врага даёт преимущество — недоверчивость тоже бывает полезна.
+   */
+  function socialPlan(game, actionText) {
+    const npc = npcInText(game, actionText);
+    if (!npc) return null;
+    const info = relationInfo(npc);
+    const social = /уговор|проси|попроси|убежд|соврать|обман|хвалит|торг|подкуп|угрож|запуг|спроси|расспрос|договор|уговорить|солга|призна|приглас/i.test(String(actionText || ''));
+    const suspect = /подозрев|не вер|провер|след|выслеж|следить|наблюд|обыск|обман|изуч|нрав|слуша|замеча/i.test(String(actionText || ''));
+    const enemy = info.id === 'enemy';
+    return {
+      npc,
+      name: npc.name || '',
+      relation: info.id,
+      relationTitle: info.title,
+      relationIcon: info.icon,
+      trust: info.trust,
+      dcShift: social ? info.dc : 0,
+      advantage: !!(suspect && enemy) || !!(social && info.id === 'debtor' && info.trust >= 3),
+      social,
+      suspect: !!(suspect && enemy),
+      note: social
+        ? npc.name + ' — ' + info.title + ' (доверие ' + info.trust + '/5): проверка ' +
+          (info.dc === 0 ? 'как обычно' : (info.dc > 0 ? 'труднее на ' + info.dc : 'легче на ' + Math.abs(info.dc)))
+        : (enemy && suspect ? 'ты давно не веришь ' + npc.name + ' — подозревать его легче' : '')
+    };
+  }
+
+  /** Должник приходит на помощь — один раз за кампанию (п.8). */
+  function callDebtor(game) {
+    const debtors = npcMemory(game).filter(n => relationOf(n) === 'debtor' || trustOf(n) >= 3);
+    const free = debtors.find(n => !n.helped);
+    if (!free) return { ok: false, reason: debtors.length ? 'Все должники уже помогали.' : 'Пока некому помочь: сначала нужен знакомый-должник.', notes: [] };
+    free.helped = true;
+    game.hero.advantage = true;
+    game.hero.advantageLabel = 'помощь: ' + free.name;
+    const notes = [{ type: 'relation', icon: '🪙', text: free.name + ' подставил плечо: следующий бросок с преимуществом' }];
+    if (typeof rememberFact === 'function') rememberFact(game, free.name + ' пришёл на помощь по старому долгу');
+    return { ok: true, who: free.name, notes };
+  }
+
+  /* ---- крит и провал с последствиями (п.12) ---- */
+
+  /** Крит — «получилось, и это заметили»: нить в память и рост доверия. */
+  function markNoticed(game, npc, notes) {
+    const who = npc || npcMemory(game).slice(-1)[0] || null;
+    if (who) setTrust(who, trustOf(who) + 1, notes, 'заметили твой успех');
+    const thread = who && who.name ? who.name + ' — заметили, как ты справился' : 'Твой успех заметили те, кому не надо было';
+    const m = game.memory || (game.memory = emptyMemory());
+    if (m.threads.indexOf(thread) < 0) {
+      m.threads.push(thread);
+      if (m.threads.length > 6) m.threads.shift();
+    }
+    if (notes) notes.push({ type: 'thread', icon: '👁️', text: 'Замечено: ' + thread });
+    return thread;
+  }
+
+  /** Провал — «получилось дороже»: сначала припасы, потом состояние. */
+  function fumbleCost(game, notes) {
+    if (spendSupplies(game, 1)) {
+      if (notes) notes.push({ type: 'supplies', icon: '🎒', text: 'Провал обошёлся дороже: −1 припас (осталось ' + suppliesOf(game) + ')' });
+      return 'supplies';
+    }
+    addState(game, 'fatigue', 2, notes);
+    return 'fatigue';
+  }
+
+  /** Подсказка мастеру: состояние, припасы, предметы и знакомые одной строкой. */
+  function mechanicBlock(game) {
+    const h = game.hero;
+    const items = heroItems(game);
+    const itemLines = items.slice(0, 6).map(i => `- ${i.name} — ${itemLine(i)} (действие: ${itemVerb(i) || '—'})`);
+    const states = stateList(game);
+    const people = npcList(game).slice(0, 4).map(n =>
+      `- ${n.name}${n.role ? ' (' + n.role + ')' : ''}: ${n.relationTitle}, доверие ${n.trust}/5${n.helped ? ', уже помогал' : ''}`);
+    return [
+      'ХОДОВОЙ ЗАПАС ГЕРОЯ (механика, учитывай в тексте и в последствиях):',
+      `Припасы: ${suppliesOf(game)} из ${SUPPLIES_MAX} — ночёвка, перевязка и обход опасного места тратят по одному.`,
+      states.length ? 'Состояния: ' + states.map(s => s.icon + ' ' + s.title + ' ' + (s.mod > 0 ? '+' : '') + s.mod + ' к ' + (s.id === 'wound' ? 'силе, телосложению, ловкости' : (s.id === 'fatigue' ? 'уму, восприятию, воле' : (s.id === 'inspired' ? 'любой проверке' : 'ловкости и восприятию')))).join('; ')
+        : 'Состояний нет: герой в порядке.',
+      itemLines.length ? 'Предметы с эффектом:\n' + itemLines.join('\n') : 'Предметов с эффектом нет.',
+      people.length ? 'ЗНАКОМЫЕ И ОТНОШЕНИЯ:\n' + people.join('\n') : '',
+      'Если знакомый рядом, учитывай отношение: другу легче соврать и попросить, враг заметит обман.',
+      'Крит: не только «получилось», но и «это заметили» — добавь нить в память (поле "thread") и подними доверие знакомому (+1 к trust).',
+      'Провал: цена, а не тупик — потеряй припасы (effects.supplies −1) или наложи состояние (effects.state).'
+    ].filter(Boolean).join('\n');
+  }
+
+
 
   /* ---------------------------------------------------------- */
   /* Миры: свои сценарии                                        */
@@ -813,6 +1283,10 @@
     if (!Array.isArray(m.facts)) m.facts = [];
     if (!Array.isArray(m.deeds)) m.deeds = [];
     if (!Array.isArray(m.npcs)) m.npcs = [];
+    m.npcs.forEach(n => {
+      if (!n.relation) n.relation = relationFromText(n.attitude);
+      if (!Number.isFinite(Number(n.trust))) n.trust = trustFromRelation(relationOf(n));
+    });
     if (!Array.isArray(m.threads)) m.threads = [];
     if (!Array.isArray(m.openings)) m.openings = [];
     if (typeof m.place !== 'string') m.place = '';
@@ -916,12 +1390,18 @@
           if (npc.role) known.role = String(npc.role).slice(0, 40);
           if (npc.attitude) known.attitude = String(npc.attitude).slice(0, 40);
           if (npc.voice) known.voice = String(npc.voice).slice(0, 60);
+          if (npc.trust !== undefined) known.trust = clamp(Math.round(Number(npc.trust) || 0), 0, 5);
+          if (npc.attitude) known.relation = relationFromText(npc.attitude);
+          if (!known.relation) known.relation = relationFromText(known.attitude);
         } else {
           m.npcs.push({
             name, seen: game.turn,
             role: String(npc.role || npc.detail || '').slice(0, 40),
             attitude: String(npc.attitude || '').slice(0, 40),
-            voice: String(npc.voice || '').slice(0, 60)
+            relation: relationFromText(npc.attitude),
+            trust: Number.isFinite(Number(npc.trust)) ? clamp(Math.round(Number(npc.trust)), 0, 5) : trustFromRelation(relationFromText(npc.attitude)),
+            voice: String(npc.voice || '').slice(0, 60),
+            helped: false
           });
           if (m.npcs.length > 10) m.npcs.shift();
         }
@@ -1883,9 +2363,10 @@
     const notes = [];
     list.forEach(gift => {
       if (gift === 'relic') {
-        const item = 'реликвия прошлой жизни';
+        // реликвия прошлой жизни — предмет с эффектом: преимущество в трудный час
+        const item = makeItem('реликвия прошлой жизни', { kind: 'advantage' });
         hero.inventory.push(item);
-        notes.push(item);
+        notes.push(item.name);
       }
       if (gift === 'stat') {
         const best = STAT_IDS.slice().sort((a, b) => (hero.stats[b] || 0) - (hero.stats[a] || 0))[0];
@@ -1970,10 +2451,16 @@
         stats,
         hp: maxHp,
         maxHp,
-        inventory: origin.item ? [origin.item] : [],
+        inventory: normalizeInventory(origin.item ? [origin.item] : []),
+        supplies: SUPPLIES_START,
+        states: [],
         hooks: [origin.hook || origin.hint, race.trait].filter(Boolean),
         ability: abilityForHero(cls),
-        buff: 0
+        buff: 0,
+        buffStat: '',
+        buffLabel: '',
+        advantage: false,
+        advantageLabel: ''
       },
       legacyGifts: [],
       legacyNotes: [],
@@ -2352,6 +2839,79 @@
     cart: 'a broken cart', tent: 'a patched tent', ship: 'a boat by the water',
     tower: 'a stone tower', statue: 'an old statue', bridge: 'a narrow bridge', door: 'a heavy door'
   };
+
+  /**
+   * Предметы, которые игрок берёт, читает и разглядывает. Именно они делают кадр
+   * информативным: «поднимаю записку» должно нарисовать записку в руке, а не
+   * прежний пейзаж. Английские слова подобраны так, чтобы генератор показал
+   * и сам предмет, и написанное на нём.
+   */
+  const FOCUS_ART = [
+    { tag: 'записк', art: 'a crumpled handwritten note held in a gloved hand, legible ink letters on the paper', close: true },
+    { tag: 'письм', art: 'an opened letter with a broken wax seal, handwritten lines visible, held in hand', close: true },
+    { tag: 'послан', art: 'a sealed message scroll with a wax seal, handwriting visible, held in hand', close: true },
+    { tag: 'карт', art: 'an old parchment map spread in hands, hand-drawn marks and place names visible', close: true },
+    { tag: 'свит', art: 'an ancient scroll unrolled in hands, runes and writing visible on the parchment', close: true },
+    { tag: 'книг', art: 'an open old book in hands, dense handwritten pages and ink drawings visible', close: true },
+    { tag: 'журнал', art: 'an open logbook in hands, handwritten entries and stamped marks visible', close: true },
+    { tag: 'дневник', art: 'an open diary in hands, cramped handwriting visible on yellowed pages', close: true },
+    { tag: 'таблич', art: 'a carved stone tablet with deep letters, held and studied, close-up', close: true },
+    { tag: 'надпис', art: 'a close view of carved letters on old stone, readable inscription', close: true },
+    { tag: 'гравиров', art: 'engraved markings with readable letters on metal, close-up', close: true },
+    { tag: 'медальон', art: 'an old medallion opened in hand, engraved letters inside the lid', close: true },
+    { tag: 'амулет', art: 'a talisman on a chain in hand, runes glowing faintly, close-up', close: true },
+    { tag: 'ключ', art: 'a heavy iron key in hand, close-up, worn metal', close: true },
+    { tag: 'монет', art: 'old coins in an open palm, close-up, minted faces visible', close: true },
+    { tag: 'кольц', art: 'a ring held between fingers, close-up, engraved band', close: true },
+    { tag: 'флакон', art: 'a small glass vial in hand, liquid catching the light, close-up', close: true },
+    { tag: 'фонар', art: 'a lantern lifted in hand, warm light falling on the surroundings', close: true },
+    { tag: 'факел', art: 'a torch held up, flame lighting the scene from the hand', close: true },
+    { tag: 'оружи', art: 'a weapon drawn and held ready, close-up on the grip and blade', close: true },
+    { tag: 'меч', art: 'a sword drawn and held ready, close-up on the hilt and edge', close: true },
+    { tag: 'кинжал', art: 'a dagger drawn and held ready, close-up on the blade', close: true },
+    { tag: 'труп', art: 'a body on the floor, the hero crouching over it, investigative framing', close: true },
+    { tag: 'след', art: 'tracks on the ground seen from a crouch, close-up of the footprints', close: true },
+    { tag: 'кров', art: 'a dark bloodstain on the floor studied closely, grim detail shot', close: true },
+    { tag: 'сундук', art: 'a chest opened by hand, contents catching the light, close-up', close: true },
+    { tag: 'двер', art: 'the hero at a heavy door, hand on the handle, seen from behind' },
+    { tag: 'лестниц', art: 'the hero on a narrow staircase, steps and railing in view, seen from behind' },
+    { tag: 'окн', art: 'the hero at a window looking out, light through the frame, seen from behind' },
+    { tag: 'костёр', art: 'the hero by a campfire, sparks rising, warm light on the face' },
+    { tag: 'привал', art: 'the hero resting by a small fire, bedroll and gear around, calm framing' },
+    { tag: 'мост', art: 'the hero stepping onto a narrow bridge, water far below, wide framing' },
+    { tag: 'лодк', art: 'a boat pulled up to the shore, the hero about to step in, wide framing' },
+    { tag: 'стойк', art: 'the hero at a tavern counter, mugs and candlelight, mid-shot' }
+  ];
+
+  /** Ракурс по глаголу действия: поднял — крупно, осмотрелся — широко. */
+  const FRAMING_ART = [
+    { re: /(подним|беру|взял|взять|подобра|снимаю с|достаю|вытаск)/, art: 'extreme close-up on the hands' },
+    { re: /(чита|проч|изуча|рассматрива|осматрива|разглядыва|вчитыва|сверя)/, art: 'close-up on what the hero is studying' },
+    { re: /(слуша|прислушива|принюх|затаива|прячусь|прячусь|жду)/, art: 'tense mid-shot, the hero listening, quiet background' },
+    { re: /(бегу|бросаюсь|убегаю|мчусь|спасаюсь|прорываюсь)/, art: 'dynamic action shot, motion blur in the background' },
+    { re: /(атак|бью|ударя|рублю|стреляю|напада|дра|сраж)/, art: 'dynamic action shot, impact and sparks' },
+    { re: /(иду|шагаю|спуска|поднима|пробира|переход|отправля|еду|плыву|возвраща)/, art: 'wide travelling shot, the hero seen from behind' },
+    { re: /(говор|спрашив|прошу|убежда|торгую|приказыва|отвеча)/, art: 'mid-shot of the conversation, both faces in frame' },
+    { re: /(осмотр|огляд|огляну|ищу|поиск|высматрива|прикидыва)/, art: 'wide establishing shot with the hero small in frame' }
+  ];
+
+  /**
+   * Что игрок сделал в этой сцене: предмет крупным планом и ракурс.
+   * Возвращает {art, tag, close} — пусто, если в действии нет ничего предметного.
+   */
+  function actionFocus(actionText, sceneText) {
+    const action = String(actionText || '').toLowerCase();
+    const scene = String(sceneText || '').toLowerCase();
+    const found = FOCUS_ART.find(f => action.indexOf(f.tag) >= 0) ||
+      FOCUS_ART.find(f => scene.indexOf(f.tag) >= 0);
+    const frame = FRAMING_ART.find(f => f.re.test(action));
+    if (!found && !frame) return null;
+    const art = [found && found.art, frame && frame.art].filter(Boolean).join(', ');
+    // метка для ключа кэша: кадр с новым предметом должен нарисоваться заново,
+    // даже если место не изменилось
+    const tag = found ? ('obj:' + found.tag) : '';
+    return { art, tag, close: !!(found && found.close), object: found ? found.tag : '' };
+  }
   const ENGLISH_LIGHT_RE = /dawn|dusk|night|morning|evening|sunset|sunrise|noon|moonlight|torchlight|daylight/i;
 
   /** Свет и время суток из текста сцены — по-английски, для генератора. */
@@ -2387,6 +2947,8 @@
     const s = scenarioById(game && game.scenarioId);
     const sceneText = [o.sceneText, o.action && o.action.text, o.npc].filter(Boolean).join(' ');
     const actors = sceneActors(sceneText);
+    // что игрок только что сделал: предмет крупным планом, ракурс по глаголу
+    const focus = actionFocus(o.action && o.action.text, o.sceneText);
     let base = String(o.aiPrompt || '').replace(/\s+/g, ' ').trim();
     const hadPrompt = !!base;
     if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
@@ -2406,6 +2968,8 @@
     if (actors.enemies.length && !ENEMY_WORD_RE.test(base)) {
       parts.push(ENEMY_ART[actors.enemies[0]]);
     }
+    // предмет действия — самое информативное в кадре: рисуем его первым делом
+    if (focus && focus.art) parts.push(focus.art);
     // выбранный игроком стиль: кадр выглядит как одна книга, а не как набор случайных
     const style = stylePrompt(game && game.artStyle);
     if (style && !base.includes(style)) parts.push(style);
@@ -2971,7 +3535,7 @@
     '  "scene": "2–4 предложения описания сцены и последствий действия игрока",',
     '  "place": "где мы сейчас, 2–4 слова по-русски (например: «ночной рынок у моста»)",',
     '  "chapter": "название главы, 2–4 слова, если сменилась локация, иначе пустая строка",',
-    '  "npc": {"name": "Имя", "role": "кто он", "attitude": "дружелюбен | насторожен | враждебен", "voice": "как говорит, 2–4 слова"} или пустая строка,',
+    '  "npc": {"name": "Имя", "role": "кто он", "attitude": "друг | должник | нейтрально | враг", "trust": 0, "voice": "как говорит, 2–4 слова"} или пустая строка,',
     '  "imagePrompt": "English prompt for an image generator, 10-18 words: место, свет, настроение, кто в кадре",',
     '  "world": "только для первой сцены: 2–4 предложения о мире — где мы, как здесь всё устроено, чем живут люди",',
     '  "backstory": "только для первой сцены: 3–5 предложений предыстории героя — откуда он, что потерял, почему он здесь",',
@@ -2979,7 +3543,7 @@
     '  "options": [',
     '    {"text": "что делает игрок (1 предложение, от третьего лица)", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"}',
     '  ],',
-    '  "effects": {"hp": 0, "item": "", "goal": false},',
+    '  "effects": {"hp": 0, "item": "", "goal": false, "supplies": 0, "state": "", "give": {"name": "", "kind": "heal|boost|advantage|key", "power": 1, "stat": "str"}},',
     '  "complication": "чем обошёлся провал или крит: коротко и по делу, иначе пустая строка",',
     '  "thread": "новая незакрытая нить сюжета, если появилась, иначе пустая строка",',
     '  "progress": true',
@@ -2987,6 +3551,10 @@
     'Поле "stat" — проверяемая характеристика: str сила, agi ловкость, con телосложение, int разум, per восприятие, wit воля, cha харизма.',
     '"difficulty": easy — простое (dc 8), medium (dc 11), hard (dc 14), deadly (dc 17).',
     '"effects.hp" — целое число от -6 до +4, обычно 0. "effects.item" — короткое название предмета или пусто.',
+    '"effects.supplies" — на сколько изменились припасы героя (обычно 0: −1 за ночёвку или трату, +1 за находку).',
+    '"effects.state" — состояние героя: wound (рана), fatigue (усталость), inspired (вдохновение), marked (на мушке) или пусто.',
+    '"effects.give" — предмет с эффектом: kind heal (лечит на power), boost (+power к проверке stat на ход), advantage (преимущество), key (ключ к вехе).',
+    '"npc.trust" — доверие к знакомому 0–5; другу легче соврать и попросить, враг заметит обман.',
     'Пиши на русском, но "imagePrompt" — всегда на английском.',
     '',
     'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть те, кто участвует в сцене.',
@@ -2997,6 +3565,13 @@
     'ПРАВИЛА БРОСКА: результат броска — закон. Крит: выгода и новая возможность, которых не ждали.',
     'Провал: цена, осложнение, потеря — но история не останавливается и не превращается в тупик.',
     'Никогда не переписывай бросок и не отменяй его последствия.',
+    '',
+    'ПРАВИЛА МЕХАНИКИ: у героя есть припасы, состояния и предметы с эффектом. Припасы тратятся на',
+    'ночёвку, перевязку и обход опасного места — если игрок это делает, отними припасы ("effects.supplies": -1).',
+    'Состояния влияют на броски: wound мешает силе и телосложению, fatigue — уму и восприятию,',
+    'inspired помогает всему, marked мешает скрытности. Накладывай их по сюжету и снимай, когда герой отдыхает.',
+    'Крит — «получилось, и это заметили»: нить в память и +1 доверия знакомому, который был рядом.',
+    'Провал — цена, а не тупик: потерянная вещь, отнятые припасы, состояние, испорченное отношение.',
     '',
     'ПРАВИЛА ПАМЯТИ: герой и его знакомые — живые люди. Переиспользуй персонажей из блока памяти,',
     'не придумывай каждый ход новых; если вводишь нового — не больше одного за ход.',
@@ -3022,7 +3597,8 @@
       `Раса/вид: ${h.raceName} — ${r.trait}`,
       `Происхождение: ${h.originName} — ${o.hook}`,
       `Характеристики: ${statsLine}.`,
-      `Здоровье: ${h.hp}/${h.maxHp}. Инвентарь: ${inv}.`,
+      `Здоровье: ${h.hp}/${h.maxHp}. Припасы: ${suppliesOf(game)}. Инвентарь: ${inv}.`,
+      stateLine(game) ? `Состояния: ${stateLine(game)}.` : 'Состояний нет.',
       hooks ? `ЛИЧНЫЕ КРЮЧКИ (используй их в сюжете!): ${hooks}` : ''
     ].filter(Boolean).join('\n');
   }
@@ -3032,6 +3608,12 @@
     const c = game.worldConfig;
     const parts = [`МИР: ${game.title} (${s.genre}).`, `ЗАДАЧА ГЕРОЯ: ${game.goal}.`];
     if (s.systemHint) parts.push(`ОСОБЕННОСТИ МИРА: ${s.systemHint}`);
+    // забег дня: у всех игроков одна цель и одни броски — мастер обязан её держаться
+    if (game.daily && game.daily.goal) {
+      parts.push(`ЗАБЕГ ДНЯ ${game.daily.code || ''} (одинаковый у всех игроков, ${game.daily.date}). ` +
+        `ЦЕЛЬ ДНЯ: ${game.daily.goal} Держись именно этой цели: вехи, сцены и финал ведут к ней. ` +
+        'Не подменяй цель другой задачей.');
+    }
     if (c) {
       const bits = [
         c.genre ? `жанр: ${c.genre}` : '', c.tone ? `тон: ${c.tone}` : '',
@@ -3055,6 +3637,7 @@
       worldDescription(game),
       `ВСТУПЛЕНИЕ МИРА: ${scenarioById(game.scenarioId).opening || game.goal}`,
       heroDescription(game),
+      mechanicBlock(game),
       rulesLine(game),
       memory,
       game.summary ? `РАНЕЕ: ${game.summary}` : '',
@@ -3815,7 +4398,7 @@
       npc: '',
       imagePrompt: composeSceneImagePrompt(game, { sceneText: scene }),
       options: storyOptions(beat, game.worldConfig && game.worldConfig.danger),
-      effects: { hp: 0, item: '', goal: false }
+      effects: { hp: 0, item: '', goal: false, supplies: 0, state: '' }
     };
   }
 
@@ -3972,8 +4555,17 @@
     const effects = {
       hp: success ? (outcome === 'crit' ? 1 : 0) : (outcome === 'fumble' ? -rnd.int(3, 4) : -rnd.int(1, 2)),
       item: success && action && action.item ? action.item : '',
+      supplies: success && outcome === 'crit' ? 1 : 0,
       goal: false
     };
+    // крит: «получилось, и это заметили»; провал: цена (припасы или состояние)
+    if (outcome === 'crit') {
+      effects.noticed = true;
+      lines.push('Получилось так чисто, что это заметили.');
+    } else if (outcome === 'fumble') {
+      effects.fumble = true;
+      lines.push('Дорого вышло: часть запасов ушла на то, чтобы просто выбраться.');
+    }
     let nextIndex = index + 1;
     let options;
     if (beat.final && success) {
@@ -4042,7 +4634,11 @@
       if (h.ability.cooldown === 0) h.ability.ready = true;
     }
     h.buff = 0;
+    h.buffStat = '';
+    h.buffLabel = '';
     h.advantage = false;
+    h.advantageLabel = '';
+    tickStates(game);
   }
 
   /**
@@ -4125,11 +4721,34 @@
       if (delta < 0) notes.push({ type: 'hp', icon: '💔', text: `−${Math.abs(delta)} здоровья` });
       if (delta > 0) notes.push({ type: 'hp', icon: '💚', text: `+${delta} здоровья` });
     }
-    const item = typeof effects.item === 'string' ? effects.item.replace(/\s+/g, ' ').trim().slice(0, 40) : '';
+    let item = typeof effects.item === 'string' ? effects.item.replace(/\s+/g, ' ').trim().slice(0, 40) : '';
+    const give = effects.give && typeof effects.give === 'object' ? effects.give : null;
+    if (give && give.name) item = String(give.name).replace(/\s+/g, ' ').trim().slice(0, 40);
     if (item) {
-      game.hero.inventory.push(item);
-      if (game.hero.inventory.length > 12) game.hero.inventory.shift();
-      notes.push({ type: 'item', icon: '🎒', text: `Получено: ${item}` });
+      const made = makeItem(item, give ? { kind: give.kind, power: give.power, stat: give.stat } : null);
+      if (made) {
+        game.hero.inventory.push(made);
+        if (game.hero.inventory.length > 12) game.hero.inventory.shift();
+        notes.push({ type: 'item', icon: made.icon, text: `Получено: ${made.name} — ${itemLine(made)}` });
+      }
+    }
+    if (effects.supplies) {
+      const delta = addSupplies(game, Number(effects.supplies));
+      if (delta) {
+        notes.push({
+          type: 'supplies', icon: delta > 0 ? '🎒' : '🕳️',
+          text: (delta > 0 ? '+' : '') + delta + ' припас (осталось ' + suppliesOf(game) + ')'
+        });
+      }
+    }
+    const stateId = typeof effects.state === 'string' ? effects.state.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+    if (stateId) {
+      const known = stateById(stateId);
+      if (known) addState(game, stateId, 2, notes);
+      else if (/ран|wound/.test(stateId)) addState(game, 'wound', 2, notes);
+      else if (/устал|fatigue|утомл/.test(stateId)) addState(game, 'fatigue', 2, notes);
+      else if (/вдохнов|inspired/.test(stateId)) addState(game, 'inspired', 2, notes);
+      else if (/мушк|marked|след/.test(stateId)) addState(game, 'marked', 2, notes);
     }
     if (effects.goal && !game.questDone) {
       game.questDone = true;
@@ -4138,6 +4757,9 @@
     // Смерть здесь не приговор: сцена ещё может дать второй шанс, «поражение
     // с ценой» или перерождение. Кто именно решает — ход игры, а не таблица эффектов.
     if (game.hero.hp <= 0) game.downAt = game.turn || 0;
+    // цена провала: припасы или усталость — но история идёт дальше
+    if (effects.fumble) fumbleCost(game, notes);
+    if (effects.noticed) markNoticed(game, null, notes);
     // Веха арки закрывается по цели или по явному прогрессу в ответе мастера
     if (effects.goal) {
       const step = arcAdvance(game, 'цель достигнута');
@@ -4243,7 +4865,7 @@
     };
   }
 
-  /** Приведение старых сохранений к текущей схеме (v1/v2 → v3). */
+  /** Приведение старых сохранений к текущей схеме (v1/v2/v3 → v4). */
   function migrate(game) {
     if (!game || typeof game !== 'object') return null;
     const h = game.hero || (game.hero = {});
@@ -4281,6 +4903,18 @@
       game.scenarioBase = game.scenarioBase || game.scenarioId;
       game.schema = SCHEMA_VERSION;
     }
+    // блок B: припасы, состояния и предметы с эффектом — и для старых сейвов тоже
+    if (!Array.isArray(h.states)) h.states = [];
+    if (!Number.isFinite(Number(h.supplies))) h.supplies = SUPPLIES_START;
+    if (!Array.isArray(h.inventory) || (h.inventory[0] && typeof h.inventory[0] === 'string')) {
+      h.inventory = normalizeInventory(h.inventory);
+    }
+    if (h.states.length) h.states = h.states.filter(st => stateById(st.id)).map(st => ({ id: st.id, turns: clamp(Number(st.turns) || 1, 1, STATE_MAX_TURNS) }));
+    if (h.buffStat === undefined) h.buffStat = '';
+    if (h.buffLabel === undefined) h.buffLabel = '';
+    if (h.advantage === undefined) h.advantage = false;
+    if (h.advantageLabel === undefined) h.advantageLabel = '';
+    if (game.schema < 4) game.schema = SCHEMA_VERSION;
     return game;
   }
 
@@ -4300,6 +4934,11 @@
     fillProfileGaps, statForText, heroPromptThreat, isSamePlace, placeStems, sceneLightFromText,
     abilityFromOption, cleanBonus, hpBonusFromStats, CUSTOM_ICONS,
     makeStats, maxHpFor, makeAbility,
+    ITEM_KINDS, itemLine, itemVerb, makeItem, normalizeInventory, heroItems, useItem, itemById,
+    STATES, stateById, stateList, stateLine, stateMod, addState, removeState, hasState, tickStates,
+    SUPPLIES_START, SUPPLIES_MAX, suppliesOf, addSupplies, spendSupplies, restStop, healStop, bypassDanger,
+    RELATIONS, relationOf, relationInfo, trustOf, setTrust, npcList, npcInText, socialPlan, callDebtor,
+    markNoticed, fumbleCost, mechanicBlock,
     difficultyById, difficultyForDc, shiftDc, rollDie, rollD20, successChance, resolveCheck,
     scenarioById, randomScenarioSet, emptyWorldConfig, buildWorldPrompt, sceneKindFromText, sceneLayersFromText, sceneLayersPrompt, SCENE_KINDS, DAYPARTS, WEATHER_KINDS,
     createGame, newGameId,
@@ -4312,6 +4951,7 @@
     validateTurn, repairHint, npcVoiceFor, npcLine, offlineSecondChance, openingQuestion,
     STYLE_PRESETS, styleById, stylePrompt, sceneKeywords, scenePromptCoverage, reinforcePrompt,
     sceneActors, composeSceneImagePrompt, parsePlan, storyOptions, useAbility, tickCooldowns,
+    actionFocus, FOCUS_ART,
     applyEffects, pushLog, createStorage, migrate, probabilityLabel, OUTCOME_LABEL,
     storyFor, storyBeat, ATMOSPHERE, GENERIC_ATMOSPHERE,
     emptyMemory, memoryOf, memoryBlock, rememberTurn, rememberFact, openingOf, rulesOf, defaultRules,

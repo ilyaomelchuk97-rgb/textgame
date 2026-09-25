@@ -351,7 +351,7 @@
   /* ---------------------------------------------------------- */
   /* Роутер                                                     */
   /* ---------------------------------------------------------- */
-  const SCREENS = ['menu', 'scenarios', 'hero', 'game', 'saves', 'journal', 'map', 'run'];
+  const SCREENS = ['menu', 'scenarios', 'hero', 'game', 'saves', 'journal', 'map', 'run', 'daily'];
   function show(screenId) {
     SCREENS.forEach(id => {
       const el = document.getElementById('screen-' + id);
@@ -384,19 +384,24 @@
       const host = $('#menu-critters');
       if (!host) return;
       this.api = window.DTCritters.mount(host, {
-        onTap: role => {
+        // у каждого персонажа своя реплика: кто бы ни попал в кадр
+        onTap: (role, info) => {
           Sound.tap();
-          if (role === 'knight') notify('Рыцарь: «Я его не звал!»', { timeout: 1800 });
-          else notify('Дракоша: «Обед!.. то есть, привет»', { timeout: 1800 });
+          if (info && info.name) notify(info.name + ': ' + (info.line || ''), { timeout: 1800 });
         }
       });
       this.ready = !!this.api;
     },
+    shown: false,      // первая пара уже случайна — её не трогаем
     sync(isMenu) {
       this.mount();
       if (!this.api) return;
-      if (isMenu && !document.hidden) this.api.start();
-      else this.api.stop();
+      if (isMenu && !document.hidden) {
+        // заходим в меню — там уже другие герои: отряд из 14 фигур, пара каждый раз новая
+        if (this.shown && typeof this.api.rotate === 'function') this.api.rotate();
+        this.shown = true;
+        this.api.start();
+      } else this.api.stop();
     }
   };
 
@@ -408,12 +413,376 @@
     const badge = $('#menu-saves-count');
     badge.textContent = count ? String(count) : '';
     badge.hidden = !count;
+    // забег дня: значок показывает сегодняшний результат, а не только наличие
+    const dayBadge = $('#menu-daily-badge');
+    if (dayBadge) {
+      const today = dailyStore()[D.dateKey()];
+      dayBadge.textContent = today ? String(today.score) : '';
+      dayBadge.hidden = !today;
+    }
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Забег дня: один мир и одни броски на всех (п.37)            */
+  /* ---------------------------------------------------------- */
+  /* Дата превращается в seed: из него выходят мир дня, герой дня,
+     цель дня и весь поток случайностей движка — кубик в том числе.
+     Счёт копится локально и уходит в облако без имени: только числа. */
+
+  const D = window.DTDaily;
+  const DAILY_RUN_KEY = 'dt2:dailyRun';      // незаконченный забег: {date, gameId}
+  const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+  function dailyStore() { return Local.get(D.KEY, {}) || {}; }
+
+  /** Что выпало на сегодня: мир, герой и цель дня — одинаковые у всех. */
+  function dailySetup() {
+    return D.setup(D.dateKey(), {
+      scenarios: E.SCENARIOS, classes: E.CLASSES, races: E.RACES, origins: E.ORIGINS
+    });
+  }
+
+  /** «24 сентября 2026» из ключа дня. */
+  function dailyDateText(key) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+    if (!m) return key || '';
+    return Number(m[3]) + ' ' + (MONTHS[Number(m[2]) - 1] || '') + ' ' + m[1];
+  }
+
+  /** «7 ч 12 мин» — сколько ждать нового забега. */
+  function dailyLeftText(ms) {
+    const min = Math.max(1, Math.round((ms || 0) / 60000));
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    if (!h) return m + ' мин';
+    return h + ' ч' + (m ? ' ' + m + ' мин' : '');
+  }
+
+  /**
+   * Кубик забега идёт из зерна дня; обычные игры остаются вольными.
+   * Зерно трогает только броски: подбор промптов и украшения не сдвигают его.
+   */
+  function setDailyRng(daily) {
+    if (daily && Number.isFinite(Number(daily.seed))) E.rnd.setDiceSeed(daily.seed);
+    else E.rnd.clearDiceSeed();
+  }
+
+  function dailyOf(game) { return (game && game.daily) || State.daily || null; }
+
+  /** Незаконченный забег сегодняшнего дня: его предлагаем продолжить. */
+  function dailyRunSaved(date) {
+    const run = Local.get(DAILY_RUN_KEY, null);
+    if (!run || run.date !== date || !run.gameId) return null;
+    const list = State.storage ? State.storage.list() : [];
+    const item = list.filter(x => x.id === run.gameId)[0];
+    return item && !item.over ? item : null;
+  }
+
+  /** Числа для счёта: цель, жизнь, припасы, предметы, броски, темп. */
+  function dailyNumbers(g, st) {
+    return {
+      victory: g.ending === 'victory' || !!g.questDone,
+      hp: (g.hero && g.hero.hp) || 0,
+      supplies: E.suppliesOf(g),
+      items: (E.heroItems(g) || []).length,
+      crits: (st && st.crits) || 0,
+      fumbles: (st && st.fumbles) || 0,
+      turns: Math.max(1, g.turn || 1)
+    };
+  }
+
+  /** Записать результат дня: в один день хранится последний забег. */
+  function dailyRecord(g, st) {
+    const daily = dailyOf(g);
+    if (!daily || !daily.date) return null;
+    const res = D.score(dailyNumbers(g, st));
+    const entry = {
+      date: daily.date, code: daily.code || '', score: res.total,
+      turns: Math.max(1, g.turn || 1), victory: res.victory, at: Date.now()
+    };
+    Local.set(D.KEY, D.remember(dailyStore(), entry));
+    const run = Local.get(DAILY_RUN_KEY, null);
+    if (run && run.date === daily.date) Local.set(DAILY_RUN_KEY, null);
+    return { entry, res };
+  }
+
+  /** Кто-то ещё играл сегодня? Спрашиваем облако, но никогда не ждём его. */
+  function dailyOthers(host, date, mine) {
+    const line = h('p', { class: 'muted small', text: '👥 смотрим облако: кто ещё прошёл этот день…' });
+    host.appendChild(line);
+    const paint = board => {
+      if (!board || !board.runs) return;
+      const bits = ['👥 прошли день: ' + board.runs + (board.runs === 1 ? ' герой' : ' героев')];
+      if (board.victory) bits.push('цель взяли: ' + board.victory);
+      bits.push('лучший счёт: ' + board.best);
+      bits.push('средний: ' + board.avg);
+      if (board.place) bits.push('вы — ' + board.place + '-й из ' + Math.max(board.runs, board.place));
+      line.textContent = bits.join(' · ');
+      line.classList.remove('muted');
+    };
+    const ask = mine === null || mine === undefined
+      ? API.dailyBoard(date)
+      : API.dailySubmit({ date, code: (dailyOf(State.game) || {}).code || '', score: mine.score, turns: mine.turns, victory: mine.victory });
+    ask.then(r => {
+      if (r && r.ok && r.board) paint(r.board);
+      else {
+        line.textContent = '👥 облако молчит — результат сохранён на телефоне, доска появится позже.';
+        line.classList.add('muted');
+      }
+    }).catch(() => {
+      line.textContent = '👥 облако молчит — результат сохранён на телефоне.';
+      line.classList.add('muted');
+    });
+  }
+
+  /* --- экран забега --- */
+
+  function openDaily() {
+    renderDaily();
+    show('daily');
+  }
+
+  function renderDaily() {
+    const host = clear($('#daily-body'));
+    const today = D.dateKey();
+    const setup = dailySetup();
+    const store = dailyStore();
+    const mine = store[today] || null;
+    const best = D.bestOf(store);
+    const streak = D.streak(store, today);
+    const run = dailyRunSaved(today);
+    const footer = $('[data-act="daily-start"]');
+    if (footer) footer.textContent = run ? '▶ Продолжить забег дня' : '🗓 Начать забег дня';
+
+    // 1. что сегодня за день
+    host.appendChild(h('div', { class: 'journal-block' }, [
+      h('div', { class: 'section-title', text: '🗓 Забег дня · ' + dailyDateText(today) }),
+      h('p', { class: 'muted small', text: 'Код дня ' + setup.code + '. У всех, кто играет сегодня, тот же мир, тот же герой и те же броски. Новый забег через ' + dailyLeftText(D.untilMidnight()) + '.' })
+    ]));
+
+    // 2. мир дня
+    if (setup.scenario) {
+      host.appendChild(h('div', { class: 'scenario-card' }, [
+        h('div', { class: 'scenario-card__cover', style: 'background-image:' + coverUrl(setup.scenario.cover) }),
+        h('div', { class: 'scenario-card__body' }, [
+          h('div', { class: 'scenario-card__genre', text: setup.scenario.icon + ' ' + setup.scenario.genre + ' · мир дня' }),
+          h('h3', { class: 'scenario-card__title', text: setup.scenario.title }),
+          h('p', { class: 'scenario-card__tagline', text: setup.scenario.tagline })
+        ])
+      ]));
+    }
+
+    // 3. герой дня и цель дня
+    const heroBlock = h('div', { class: 'journal-block' }, [
+      h('div', { class: 'section-title', text: '🎭 Герой дня' })
+    ]);
+    if (setup.klass && setup.race && setup.origin) {
+      const ability = (setup.klass.ability && typeof setup.klass.ability === 'object')
+        ? setup.klass.ability : E.abilityById(setup.klass.ability);
+      heroBlock.appendChild(h('div', { class: 'hero-sheet__tags' }, [
+        h('span', { class: 'tag tag--stat', text: setup.klass.icon + ' ' + setup.klass.title }),
+        h('span', { class: 'tag tag--stat', text: setup.race.icon + ' ' + setup.race.title }),
+        h('span', { class: 'tag', text: setup.origin.icon + ' ' + setup.origin.title }),
+        h('span', { class: 'tag tag--chance', text: ability.icon + ' ' + ability.name })
+      ]));
+      heroBlock.appendChild(h('p', { class: 'muted small', text: 'Судьба дня: класс, раса и происхождение заданы забегом. Ваше — имя и решения.' }));
+    }
+    heroBlock.appendChild(h('div', { class: 'journal-goal' }, [
+      h('div', { class: 'journal-goal__label', text: '🎯 Цель дня' }),
+      h('div', { class: 'journal-goal__text', text: setup.goal })
+    ]));
+    host.appendChild(heroBlock);
+
+    // 4. мой результат
+    const block = h('div', { class: 'journal-block' }, [
+      h('div', { class: 'section-title', text: '🏆 Мой результат' })
+    ]);
+    block.appendChild(h('p', {
+      class: mine ? '' : 'muted small',
+      text: mine ? 'Сегодня: ' + D.line(mine) + (mine.victory ? ' 🌟' : '') : 'Сегодня ещё не играли — день ждёт.'
+    }));
+    if (best) {
+      const dateText = best.date === today ? 'сегодня' : dailyDateText(best.date);
+      block.appendChild(h('p', { class: 'muted small', text: 'Лучший за всё время: ' + D.line(best) + ' (' + dateText + ').' }));
+    }
+    if (streak > 1) block.appendChild(h('p', { class: 'muted small', text: '🔥 Дней подряд: ' + streak + '. Завтра — новый мир.' }));
+    if (run) {
+      block.appendChild(h('p', { class: 'muted small', text: 'Забег дня не закончен: ' + run.title + ', ход ' + Math.max(1, run.turn) + '.' }));
+    }
+    host.appendChild(block);
+
+    // 5. другие игроки (облако, если оно есть)
+    const others = h('div', { class: 'journal-block' }, [
+      h('div', { class: 'section-title', text: '👥 Другие игроки' })
+    ]);
+    host.appendChild(others);
+    if (mine) dailyOthers(others, today, mine);
+    else dailyOthers(others, today, null);
+
+    // 6. правила
+    host.appendChild(h('div', { class: 'journal-block' }, [
+      h('div', { class: 'section-title', text: '❓ Как это работает' }),
+      h('ul', { class: 'journal-list' }, [
+        h('li', { text: 'Мир, герой и цель дня одинаковы у всех: их считает дата, а не случай.' }),
+        h('li', { text: 'Кубик тоже идёт из зерна дня — у всех, кто делает те же шаги, совпадают броски.' }),
+        h('li', { text: 'Ведущий — встроенный мастер: своего ключа не нужно, без сети историю ведёт игра.' }),
+        h('li', { text: 'Счёт: цель дня, жизнь, припасы, предметы, криты и темп (меньше ходов — больше очков).' }),
+        h('li', { text: 'Результат хранится на телефоне, а в облако уходят только очки — без имени и без истории.' })
+      ])
+    ]));
+  }
+
+  /** Начать (или продолжить) забег дня. */
+  function startDaily() {
+    const today = D.dateKey();
+    const run = dailyRunSaved(today);
+    if (run) { Sound.tap(); loadGame(run.id, false); return; }
+    const setup = dailySetup();
+    if (!setup.scenario || !setup.klass || !setup.race || !setup.origin) {
+      notify('Забег дня не собрался: не хватает данных мира', { kind: 'warn' });
+      return;
+    }
+    State.daily = {
+      date: setup.date, seed: setup.seed, code: setup.code, goal: setup.goal,
+      profile: dailyHeroProfile(setup)
+    };
+    setDailyRng(State.daily);
+    State.pickedScenario = setup.scenario;
+    State.pendingWorld = null;
+    State.heroProfile = State.daily.profile;
+    State.draft.classId = setup.classId;
+    State.draft.raceId = setup.raceId;
+    State.draft.originId = setup.originId;
+    if (!State.draft.name) State.draft.name = randomName();
+    Sound.tap();
+    openHero();
+    setProfileNote('🗓 Забег дня: мир, класс, раса и происхождение заданы судьбой — ваше имя и решения.', { showReroll: false });
+  }
+
+  /** Профиль героя дня: по одному варианту — шаги выбора прячутся сами. */
+  function dailyHeroProfile(setup) {
+    const base = E.defaultHeroProfile();
+    return Object.assign({}, base, {
+      classes: [setup.klass], races: [setup.race], origins: [setup.origin],
+      classLabel: 'Класс дня', raceLabel: 'Раса дня', originLabel: 'Происхождение дня',
+      source: 'daily', noteWho: '🗓 ', showClass: true, showRace: true, showOrigin: true,
+      note: 'судьба дня: класс, раса и происхождение выбраны за игрока, менять их нельзя'
+    });
+  }
+
+  /** Выйти из режима забега: дальше игра вольная. */
+  function leaveDaily() {
+    State.daily = null;
+    if (!State.game || !State.game.daily) setDailyRng(null);
+  }
+
+  /** Плашка забега в журнале: код, цель и счёт прямо по ходу игры. */
+  function dailyJournalBlock(g) {
+    const daily = dailyOf(g);
+    const res = D.score(dailyNumbers(g, runStats(g)));
+    return h('div', { class: 'journal-block', id: 'journal-daily' }, [
+      h('div', { class: 'section-title', text: '🗓 Забег дня ' + (daily.code || '') }),
+      h('ul', { class: 'journal-list' }, [
+        h('li', { text: 'Цель дня: ' + daily.goal }),
+        h('li', { text: 'Счёт сейчас: ' + res.total + ' · ходов ' + Math.max(1, g.turn || 1) }),
+        h('li', { text: 'Новый забег через ' + dailyLeftText(D.untilMidnight()) + ' — результат дня всё равно один.' })
+      ])
+    ]);
+  }
+
+  /** Итог забега в финале: слагаемые счёта, мой лучший и другие игроки. */
+  function dailyResultBlock(g) {
+    const daily = dailyOf(g);
+    if (!daily) return null;
+    const stale = document.getElementById('epilogue-daily');
+    if (stale) stale.remove();
+    const recorded = dailyRecord(g, runStats(g));
+    const res = recorded ? recorded.res : D.score(dailyNumbers(g, runStats(g)));
+    const box = h('div', { class: 'journal-block', id: 'epilogue-daily' }, [
+      h('div', { class: 'section-title', text: '🗓 Забег дня ' + (daily.code || '') + ' · ' + dailyDateText(daily.date) })
+    ]);
+    const list = h('ul', { class: 'journal-list' });
+    res.rows.forEach(row => list.appendChild(h('li', {
+      text: row.icon + ' ' + row.label + ': ' + (row.value > 0 ? '+' : '') + row.value
+    })));
+    list.appendChild(h('li', { text: '🏆 итог дня: ' + res.total + ' очков' + (res.victory ? ' · цель дня взята' : '') }));
+    box.appendChild(list);
+    const store = dailyStore();
+    const best = D.bestOf(store);
+    if (best) {
+      const same = best.date === daily.date;
+      box.appendChild(h('p', {
+        class: 'muted small',
+        text: (same ? 'Это и есть ваш лучший результат.' :
+          'Лучший за всё время: ' + D.line(best) + ' (' + dailyDateText(best.date) + ').') +
+          (D.streak(store, D.dateKey()) > 1 ? ' Дней подряд: ' + D.streak(store, D.dateKey()) + '.' : '')
+      }));
+    }
+    // другие игроки: спрашиваем один раз на кампанию, чтобы не плодить строки на доске
+    const others = h('p', { class: 'muted small', text: '👥 смотрим, как прошли другие…' });
+    box.appendChild(others);
+    if (!g.dailyPosted) {
+      g.dailyPosted = true;
+      API.dailySubmit({
+        date: daily.date, code: daily.code || '', score: res.total,
+        turns: Math.max(1, g.turn || 1), victory: res.victory
+      }).then(r => {
+        if (r && r.ok && r.board && r.board.runs) {
+          const b = r.board;
+          others.textContent = '👥 прошли день: ' + b.runs + ' · лучший счёт: ' + b.best +
+            ' · средний: ' + b.avg + (b.place ? ' · вы — ' + b.place + '-й' : '') + '.';
+          others.classList.remove('muted');
+        } else {
+          others.textContent = '👥 облако молчит — результат дня сохранён на телефоне.';
+        }
+      }).catch(() => {
+        others.textContent = '👥 облако молчит — результат дня сохранён на телефоне.';
+      });
+    } else {
+      others.textContent = 'Результат дня записан.';
+    }
+    box.appendChild(h('div', { class: 'epilogue__tools' }, [
+      h('button', {
+        class: 'btn btn--ghost btn--sm', type: 'button', text: '🗓 К забегу дня',
+        onclick: () => { closeEpilogue(); openDaily(); }
+      }),
+      h('button', {
+        class: 'btn btn--primary btn--sm', type: 'button', text: '🔁 Ещё попытка',
+        title: 'тот же мир и герой дня, броски с начала',
+        onclick: () => { closeEpilogue(); againDaily(); }
+      })
+    ]));
+    // забег сыгран: дальше случайности вольные, кубик снова свободный
+    setDailyRng(null);
+    return box;
+  }
+
+  /** Второй заход тем же забегом: мир и герой те же, броски с начала. */
+  function againDaily() {
+    const g = State.game;
+    if (!g || !g.daily) { openDaily(); return; }
+    const daily = g.daily;
+    const setup = dailySetup();
+    State.pickedScenario = E.scenarioById(g.scenarioId) || E.SCENARIOS[0];
+    State.daily = { date: daily.date, seed: daily.seed, code: daily.code, goal: daily.goal, profile: dailyHeroProfile(setup) };
+    State.heroProfile = State.daily.profile;
+    State.pendingWorld = null;
+    State.draft.classId = g.hero.classId;
+    State.draft.raceId = g.hero.raceId;
+    State.draft.originId = g.hero.originId;
+    State.draft.name = g.hero.name;
+    setDailyRng(State.daily);
+    Sound.tap();
+    openHero();
+    setProfileNote('🗓 Забег дня: тот же мир и герой — броски начинаются заново.', { showReroll: false });
   }
 
   /* ---------------------------------------------------------- */
   /* Выбор мира: вкладки, случайные, по играм, свой мир          */
   /* ---------------------------------------------------------- */
   function openScenarios() {
+    leaveDaily();
     State.scenarioSet = E.randomScenarioSet(0);
     renderRandomScenarios();
     renderGameWorlds();
@@ -709,6 +1078,28 @@
   }
 
   /**
+   * Кем игрок уже играл в этом мире: класс, вид, происхождение и имя.
+   * Мир — это антураж, который игрок собрал сам; заставлять его второй раз
+   * выбирать то же самое незачем — выбор помнится и подставляется сам.
+   */
+  function heroPickKey() {
+    return 'dt2:heroPick:' + variantKey().slice(0, 40);
+  }
+  function loadHeroPick() {
+    try {
+      const raw = localStorage.getItem(heroPickKey());
+      const data = raw ? JSON.parse(raw) : null;
+      return (data && typeof data === 'object') ? data : null;
+    } catch (e) { return null; }
+  }
+  function saveHeroPick(pick) {
+    try {
+      const data = Object.assign({ at: Date.now() }, loadHeroPick() || {}, pick || {});
+      localStorage.setItem(heroPickKey(), JSON.stringify(data));
+    } catch (e) { /* приватный режим — просто не помним */ }
+  }
+
+  /**
    * Мастер не ответил сразу — зовём его ещё раз через полминуты, пока игрок выбирает.
    * Канал бесплатный и часто отвечает «занят», поэтому одна попытка не показатель.
    */
@@ -731,6 +1122,7 @@
   async function rerollHero() {
     // ждём только героя: сборка мира перебору не мешает
     if (State.heroLoading || State.starting) return;
+    if (State.daily) { notify('В забеге дня герой задан судьбой — новый набор невозможен', { kind: 'info' }); return; }
     const base = State.pickedScenario || E.CUSTOM_SCENARIO;
     if (!(base.custom || base.customGame)) {
       notify('Набор вариантов придумывает мастер для «своей игры» и своего мира', { kind: 'info' });
@@ -757,6 +1149,7 @@
 
 
   function pickScenario(s) {
+    leaveDaily();
     State.pickedScenario = s;
     State.pendingWorld = null;
     State.heroProfile = E.defaultHeroProfile();
@@ -947,6 +1340,41 @@
     return { cover: s.cover, title, goal, icon: s.icon };
   }
 
+  /**
+   * true — разделы класса/вида/происхождения раскрыты вручную. Когда выбор за мир
+   * уже сделан, они свёрнуты: игрок видит одну строку с итогом и кнопку «сменить».
+   */
+  let heroStepsOpen = false;
+
+  /** Строка «уже выбрано» над разделами: что выбрано и как это сменить. */
+  function renderHeroPickRow() {
+    const note = $('#hero-pick-note');
+    const text = $('#hero-pick-text');
+    const change = $('#hero-pick-change');
+    if (!note || !text || !change) return;
+    // забег дня: герой задан судьбой, менять нечего — строку «сменить» не показываем
+    if (State.daily) { note.hidden = true; return; }
+    const pick = loadHeroPick();
+    if (!pick || heroStepsOpen) { note.hidden = true; return; }
+    const cls = pick.classId ? E.classById(pick.classId) : null;
+    const race = pick.raceId ? E.raceById(pick.raceId) : null;
+    const origin = pick.originId ? E.originById(pick.originId) : null;
+    const bits = [cls && (cls.icon + ' ' + cls.title), race && (race.icon + ' ' + race.title), origin && origin.title]
+      .filter(Boolean);
+    if (!bits.length) { note.hidden = true; return; }
+    note.hidden = false;
+    text.textContent = 'В этом мире уже выбрано: ' + bits.join(' · ');
+    change.textContent = 'сменить';
+    change.onclick = () => {
+      heroStepsOpen = true;
+      renderHeroPickRow();
+      applyProfileToForm();
+      renderClassList(); renderRaceList(); renderOriginList();
+      const first = $('#section-class');
+      if (first && first.scrollIntoView) first.scrollIntoView({ block: 'center' });
+    };
+  }
+
   function openHero() {
     const s = heroBannerScenario();
     const banner = clear($('#hero-scenario'));
@@ -963,11 +1391,16 @@
     renderOriginList();
     renderStatPreview();
     if (State.heroLoading) setProfileNote('🧠 Мастер придумывает героя под эту игру…', { busy: true });
+    if (State.daily) {
+      setProfileNote('🗓 Забег дня: мир, класс, раса и происхождение заданы судьбой — ваше имя и решения.',
+        { showReroll: false });
+    }
     show('hero');
   }
 
   /** Текущий профиль создания героя (обычный мир — все шаги). */
   function heroProfile() {
+    if (State.daily && State.daily.profile) return State.daily.profile;   // забег дня: судьба решена
     if (!State.heroProfile) State.heroProfile = E.defaultHeroProfile();
     return State.heroProfile;
   }
@@ -992,18 +1425,33 @@
     $('#label-class').textContent = p.classLabel;
     $('#label-race').textContent = p.raceLabel;
     $('#label-origin').textContent = p.originLabel;
-    $('#section-class').hidden = !p.showClass;
-    $('#section-race').hidden = !p.showRace;
-    $('#section-origin').hidden = !p.showOrigin;
+    // Выбор за этот мир уже сделан? Тогда шаги не спрашиваем второй раз:
+    // подставляем прежнее и прячем разделы, пока игрок сам не нажмёт «сменить».
+    const pick = loadHeroPick();
+    if (pick) {
+      if (pick.classId && (!State.draft.classId || !p.classes.some(c => c.id === State.draft.classId))) State.draft.classId = pick.classId;
+      if (pick.raceId && p.showRace && !State.draft.raceId) State.draft.raceId = pick.raceId;
+      if (pick.originId && p.showOrigin && !State.draft.originId) State.draft.originId = pick.originId;
+      if (pick.name && !State.draft.nameSaved) { State.draft.name = pick.name; $('#hero-name').value = pick.name; State.draft.nameSaved = true; }
+    }
+    // один вариант — выбирать нечего: шаг убираем совсем
+    const oneClass = p.classes.length === 1;
+    const oneRace = p.showRace && p.races.length === 1;
+    const oneOrigin = p.showOrigin && p.origins.length === 1;
+    if (oneClass) State.draft.classId = p.classes[0].id;
+    if (oneRace) State.draft.raceId = p.races[0].id;
+    if (oneOrigin) State.draft.originId = p.origins[0].id;
+    const chose = !heroStepsOpen && !!pick;
+    $('#section-class').hidden = !p.showClass || oneClass || chose;
+    $('#section-race').hidden = !p.showRace || oneRace || chose;
+    $('#section-origin').hidden = !p.showOrigin || oneOrigin || chose;
+    renderHeroPickRow();
     const noAI = (p.source === 'local' || p.source === 'default');
     const who = p.noteWho || (noAI ? '🧠 Мастер (без ИИ): '
       : (p.source === 'cache' ? '🧠 Мастер (прошлый заход): ' : '🧠 Мастер: '));
     // «Другой набор» ждёт только героя: пока мастер строит мир, новые варианты уже можно просить
     if (!State.noteQuiet) setProfileNote(p.note ? who + p.note : '', { busy: !!State.heroLoading });
     // если вариант один — выбираем его сами
-    if (p.classes.length === 1) State.draft.classId = p.classes[0].id;
-    if (p.showRace && p.races.length === 1) State.draft.raceId = p.races[0].id;
-    if (p.showOrigin && p.origins.length === 1) State.draft.originId = p.origins[0].id;
     if (!p.showRace && State.draft.raceId === null) State.draft.raceId = p.races[0].id;
     if (!p.showOrigin && State.draft.originId === null) State.draft.originId = p.origins[0].id;
   }
@@ -1125,6 +1573,13 @@
       game.scenarioTitle = State.draftWorld.gameName;
       game.title = State.draftWorld.gameName;
     }
+    // забег дня: цель дня и зерно бросков живут вместе с кампанией
+    if (State.daily) {
+      game.daily = { date: State.daily.date, seed: State.daily.seed, code: State.daily.code, goal: State.daily.goal };
+      game.goal = State.daily.goal;
+      Local.set(DAILY_RUN_KEY, { date: State.daily.date, gameId: game.id });
+    }
+    setDailyRng(game.daily);
     State.game = game;
     State.book = null;
     State.openingExtra = '';
@@ -1149,6 +1604,12 @@
       renderActions(null, true);
       paintBackdrop(null, '');
       applyPendingWorld(ready);
+      return;
+    }
+    if (game.daily) {
+      // цель дня уже названа: лишний вопрос только задерживает забег
+      State.openingExtra = '';
+      openGame(game, true, isWorldBuilding);
       return;
     }
     askOpeningQuestion().then(extra => {
@@ -1182,6 +1643,8 @@
   /* ---------------------------------------------------------- */
   function openGame(game, isNew, worldPending) {
     State.game = game;
+    // продолжение забега дня: броски снова из зерна того дня, вольная игра — из Math.random
+    setDailyRng(game.daily);
     // выбранный стиль кадров важнее выведенного из жанра: игрок решает сам
     if (Settings.data.imageStyle && Settings.data.imageStyle !== 'auto') game.artStyle = Settings.data.imageStyle;
     if (State.book) State.book = null;
@@ -1235,9 +1698,11 @@
     const g = State.game;
     $('#game-title').textContent = g.title;
     const parts = [];
-    if (g.chapter) parts.push(g.chapter);
+    if (g.daily) parts.push('🗓 забег дня');
+    else if (g.chapter) parts.push(g.chapter);
     parts.push('Ход ' + Math.max(1, g.turn));
     parts.push('❤️ ' + g.hero.hp + '/' + g.hero.maxHp);
+    parts.push('🎒 ' + E.suppliesOf(g));       // припасы всегда на виду, места в шапке хватает
     if (g.questDone) parts.push('🏁 цель взята');
     $('#game-sub').textContent = parts.join(' · ');
     const bar = $('#game-hp');
@@ -1252,6 +1717,7 @@
     bar.style.width = pct + '%';
     bar.dataset.low = pct <= 30 ? '1' : '0';
     $('#game-title').dataset.icon = E.scenarioById(g.scenarioId).icon || '🎲';
+    renderMechanics();
   }
 
   /* --- текст сцены --- */
@@ -1487,6 +1953,107 @@
     State.streamPreview = false;
   }
 
+  /** Подпись кнопки-иконки: текст живёт в отдельной строке под значком. */
+  function barLabel(btn, text) {
+    if (!btn) return;
+    const lab = btn.querySelector('.bar-btn__label');
+    if (lab) lab.textContent = text; else btn.textContent = text;
+  }
+
+  /* ---------------------------------------------------------- */
+  /* Блок B: механики под рукой — припасы, состояния, сумка,     */
+  /* знакомые. Показываем только то, что правда пригодится.      */
+  /* ---------------------------------------------------------- */
+
+  /** Карточка предмета: иконка, название, «что делает», кнопка использования. */
+  function itemCard(item) {
+    const verb = E.itemVerb(item);
+    return h('div', { class: 'item-card item-card--' + item.kind + (item.kind === 'key' ? ' is-key' : '') }, [
+      h('span', { class: 'item-card__icon', text: item.icon }),
+      h('div', { class: 'item-card__body' }, [
+        h('div', { class: 'item-card__name', text: item.name }),
+        h('div', { class: 'item-card__line', text: E.itemLine(item) })
+      ]),
+      verb ? h('button', {
+        class: 'item-card__use', type: 'button', text: verb,
+        title: E.itemLine(item),
+        onclick: () => runMech('use-item', item.id)
+      }) : null
+    ]);
+  }
+
+  /** Один вход для всех механик: и с полосы над кнопками, и из журнала. */
+  function runMech(kind, id) {
+    const g = State.game;
+    if (!g || !g.hero || State.busy || g.over) return;
+    const res = kind === 'use-item' ? E.useItem(g, id)
+      : kind === 'rest-stop' ? E.restStop(g)
+        : kind === 'heal-stop' ? E.healStop(g)
+          : kind === 'bypass' ? E.bypassDanger(g)
+            : kind === 'call-debtor' ? E.callDebtor(g)
+              : null;
+    if (!res) return;
+    if (!res.ok) {
+      notify(res.reason || 'Сейчас так нельзя', { kind: 'info', timeout: 3200 });
+      return;
+    }
+    Sound.tap();
+    vibrate([12, 22, 12]);
+    (res.notes || []).forEach(n => notify(n.icon + ' ' + n.text, {
+      kind: n.type === 'hp' && /−|-/.test(n.text) ? 'bad' : 'info', timeout: 3600
+    }));
+    autosave();
+    renderMechanics();
+    renderGameTop();
+    if (document.body.dataset.screen === 'journal') renderJournal();
+    if (document.body.dataset.screen === 'game') renderActions(g.scene ? g.scene.options : null, false);
+  }
+
+  /**
+   * Полоса механик: чипы сведений и кнопки полезных действий.
+   * Кнопки появляются по нужде — при ране, усталости, ранении или должнике,
+   * иначе экран остаётся чистым.
+   */
+  function renderMechanics() {
+    const bar = $('#mech-bar');
+    if (!bar) return;
+    const g = State.game;
+    if (!g || !g.hero || State.book || g.over) { bar.hidden = true; return; }
+    const chips = clear($('#mech-chips'));
+    // полоса занимает место у текста, поэтому появляется только когда есть что сказать:
+    // состояния героя или действие, которое правда пригодится сейчас
+    const acts = [];
+    E.stateList(g).forEach(st => chips.appendChild(h('span', {
+      class: 'mech-chip ' + (st.mod > 0 ? 'mech-chip--good' : 'mech-chip--bad'),
+      title: st.hint + (st.turns ? ' · осталось ходов: ' + st.turns : ''),
+      text: st.icon + ' ' + st.title + ' ' + (st.mod > 0 ? '+' + st.mod : st.mod) + (st.turns ? ' · ' + st.turns + ' х.' : '')
+    })));
+    const known = E.npcList(g) || [];
+
+    const push = (text, title, kind, id) => acts.push(h('button', {
+      class: 'mech-chip mech-chip--use', type: 'button', text, title,
+      onclick: () => runMech(kind, id)
+    }));
+    const supply = E.suppliesOf(g);
+    // предметы с эффектом — прямо из сцены, не откладывая ход
+    E.heroItems(g).filter(i => i.kind === 'heal' || i.kind === 'advantage' || i.kind === 'boost')
+      .slice(0, 2).forEach(i => push(i.icon + ' ' + E.itemVerb(i) + ': ' + i.name, E.itemLine(i), 'use-item', i.id));
+    if (supply > 0 && (g.hero.hp < g.hero.maxHp || E.hasState(g, 'fatigue'))) {
+      push('🔥 Привал', '−1 припас: +2 здоровья и снять усталость', 'rest-stop');
+    }
+    if (supply > 0 && (g.hero.hp < g.hero.maxHp || E.hasState(g, 'wound'))) {
+      push('🩹 Перевязка', '−1 припас: +3 здоровья и перевязать рану', 'heal-stop');
+    }
+    const debtor = known.find(n => n.relation === 'debtor' && !n.helped);
+    if (debtor) push('🤝 ' + debtor.name, 'Должник выручает один раз за кампанию: преимущество в следующий бросок', 'call-debtor');
+
+    acts.forEach(a => chips.appendChild(a));
+    bar.hidden = chips.children.length === 0;
+    // если строка ушла за край — мягко подсказываем, что её можно пролистать
+    const more = chips.scrollWidth > chips.clientWidth + 4;
+    chips.classList.toggle('is-more', more);
+  }
+
   function renderLog() {
     const g = State.game;
     const wrap = clear($('#log-list'));
@@ -1499,7 +2066,7 @@
       return;
     }
     toggle.hidden = false;
-    toggle.textContent = $('#log-wrap').hidden ? 'История (' + total + ')' : 'Скрыть историю';
+    barLabel(toggle, $('#log-wrap').hidden ? 'История ' + total : 'Скрыть');
     entries.reverse().forEach(e => {
       wrap.appendChild(h('div', { class: 'log-entry log-entry--' + (e.kind || 'gm') }, [
         e.kind === 'action'
@@ -1552,8 +2119,9 @@
       const diff = E.difficultyById(opt.difficulty);
       const buff = g.hero.buff || 0;
       const totalMod = mod + buff;
-      const advantage = !!g.hero.advantage;
-      const dc = opt.dc || diff.dc;   // та же сложность, что уйдёт в бросок и в подпись кнопки
+      const plan = actionPlan(g, opt);          // та же поправка, что уйдёт в бросок
+      const advantage = plan.advantage;
+      const dc = plan.dc;
       const chance = Math.round(E.successChance(totalMod, dc, advantage) * 100);
       // одна строка вместо трёх: сложность и шанс в одном чипе — кнопки ниже, тексту больше места
       const meta = [
@@ -1570,8 +2138,9 @@
         })
       ];
       const btn = h('button', {
-        class: 'action-btn', type: 'button',
-        'aria-label': opt.text + '. ' + diff.label + ', шанс ' + chance + ' процентов',
+        class: 'action-btn' + (plan.plan ? ' action-btn--social' : ''), type: 'button',
+        'aria-label': opt.text + '. ' + diff.label + ', шанс ' + chance + ' процентов'
+          + (plan.plan ? '. Знакомый: ' + plan.plan.name : ''),
         onclick: () => {
           if (opt.__held) { opt.__held = false; return; }   // долгое нажатие — это вопрос, а не выбор
           onActionChosen(opt);
@@ -1665,11 +2234,11 @@
         if (!wrap || !toggle || toggle.hidden) return;
         if (dy < -46 && wrap.hidden) {
           wrap.hidden = false;
-          toggle.textContent = 'Скрыть историю';
+          barLabel(toggle, 'Скрыть');
           Sound.tap();
         } else if (dy > 46 && !wrap.hidden) {
           wrap.hidden = true;
-          toggle.textContent = 'История';
+          barLabel(toggle, 'История');
         }
       }, { passive: true });
     }
@@ -1716,12 +2285,35 @@
    * Силуэты героя, противников и предметов берём прямо из текста сцены,
    * чтобы картинка совпадала с тем, что рассказывает мастер.
    */
+  /** Палитра истории: берём набор того мира, на обложку которого она похожа. */
+  function paletteForBook(book) {
+    const list = (E.SCENARIOS || []).concat(E.GAME_WORLDS || []);
+    const same = list.filter(x => x && x.palette && x.cover === book.cover);
+    return same.length ? same[0].palette : null;
+  }
+
+  /** Текст главы истории: по нему кадр понимает место и погоду. */
+  function bookNarration() {
+    const st = State.book && State.book.state;
+    if (!st || !Books) return '';
+    const node = Books.bookNode(st);
+    const book = Books.bookById(st.bookId);
+    return [node && node.art, node && node.text && node.text.join(' '),
+      book && book.title, book && book.genre, book && book.world].filter(Boolean).join(' ');
+  }
+
   function paintBackdrop(prompt, sceneText, opts) {
     const g = State.game;
-    if (!g || !Backdrop) return;
+    if (!Backdrop) return;
+    const st = State.book && State.book.state;
+    const book = (st && Books) ? Books.bookById(st.bookId) : null;
+    if (!g && !book) return;
     const o = opts || {};
-    const s = E.scenarioById(g.scenarioId);
-    const narration = [sceneText, prompt, g.scene && g.scene.npc, g.goal].filter(Boolean).join(' ');
+    const s = g ? E.scenarioById(g.scenarioId) : null;
+    // у истории нет мира кампании: место описывают её собственные главы
+    const narration = (g
+      ? [sceneText, prompt, g.scene && g.scene.npc, g.goal]
+      : [prompt, sceneText, bookNarration()]).filter(Boolean).join(' ');
     const kind = E.sceneKindFromText(narration);
     const layers = E.sceneLayersFromText(narration);
     const actors = E.sceneActors(narration);
@@ -1731,7 +2323,7 @@
       // нижний слой: место и свет. Фигуры и погода живут на отдельном холсте,
       // поэтому фон можно оставить, а происходящее — сменить.
       Backdrop.draw($('#scene-canvas'), {
-        kind, palette: paletteFor(g, s), seed: State.backdropSeed,
+        kind, palette: g ? paletteFor(g, s) : paletteForBook(book), seed: State.backdropSeed,
         daypart: layers.daypart, weather: layers.weather, fire: layers.fire
       });
       const canvas = $('#scene-canvas');
@@ -1936,16 +2528,32 @@
       $('#scene-badge').hidden = true;
     };
     if (!place) return fromLink();
-    const key = E.placeKey(g, place);
-    FrameStore.get(key).then(stored => {
-      if (State.game !== g) return;
-      if (!stored || !stored.url) return fromLink();
-      State.imageCache[key] = { url: stored.url, source: stored.source, at: stored.at || Date.now() };
-      State.imageKey = key;
-      if (g.scene) g.scene.placeKey = key;
-      setSceneImage(stored.url, stored.source);
-      $('#scene-badge').hidden = true;
-    }).catch(fromLink);
+    // Ключ кадра мог быть записан с меткой предмета (крупный план записки, карты и т.п.).
+    // Сейв помнит точный ключ — берём его первым, иначе считаем по месту и по соседям.
+    const saved = (g && g.scene && g.scene.placeKey) || '';
+    const base = E.placeKey(g, place);
+    const keys = [saved, base].filter(Boolean);
+    Object.keys(State.imageCache || {}).forEach(k => {
+      if (k === base || k.indexOf(base + ':') === 0) keys.push(k);
+    });
+    const unique = keys.filter((k, i) => k && keys.indexOf(k) === i);
+    (async () => {
+      for (let i = 0; i < unique.length; i++) {
+        const key = unique[i];
+        let stored = null;
+        try { stored = await FrameStore.get(key); } catch (e) { stored = null; }
+        if (State.game !== g) return;
+        if (stored && stored.url) {
+          State.imageCache[key] = { url: stored.url, source: stored.source, at: stored.at || Date.now() };
+          State.imageKey = key;
+          if (g.scene) g.scene.placeKey = key;
+          setSceneImage(stored.url, stored.source);
+          $('#scene-badge').hidden = true;
+          return;
+        }
+      }
+      fromLink();
+    })();
   }
 
   /**
@@ -1957,9 +2565,16 @@
     if (!g) return;
     const o = opts || {};
     const place = o.place || (g.scene && g.scene.place) || E.memoryOf(g).place || g.chapter || '';
-    const key = place ? E.placeKey(g, place) : E.styleOf(g).id + ':начало';
+    // Кадр рисуется не только «по месту», но и «по предмету»: поднял записку —
+    // это новый кадр (крупный план с запиской), а не прежний пейзаж из кэша.
+    const focus = E.actionFocus(action && action.text, (g.scene && g.scene.text) || '');
+    const focusTag = focus && focus.tag ? focus.tag : '';
+    const placeBase = place ? E.placeKey(g, place) : E.styleOf(g).id + ':начало';
+    const key = focusTag ? placeBase + ':' + focusTag : placeBase;
     // то же место, названное другими словами: переиспользуем уже нарисованный кадр
-    const nearKey = !o.force && place
+    // похожий кадр другого места берём только когда предмета в действии нет:
+    // иначе игрок увидит чужой пейзаж вместо своей записки
+    const nearKey = !o.force && place && !focusTag
       ? Object.keys(State.imageCache).find(k => k !== key && E.isSamePlace(k.split(':').slice(1).join(':').replace(/-/g, ' '), place))
       : null;
     const cached = !o.force && (State.imageCache[key] || (nearKey && State.imageCache[nearKey]));
@@ -2008,7 +2623,7 @@
     const used = o.early
       ? earlyImagePrompt(g, place, sceneText)
       : (aiPrompt
-        ? E.composeSceneImagePrompt(g, { aiPrompt, sceneText, npc: g.scene && g.scene.npc })
+        ? E.composeSceneImagePrompt(g, { aiPrompt, sceneText, npc: g.scene && g.scene.npc, action })
         : E.placePrompt(g, place, '', { noStyle: true }));
     // строка «рисуем кадр…» живёт недолго: сцена уже нарисована сама,
     // а кадр подтянется, когда генератор ответит, — ждать его на экране не нужно
@@ -2398,6 +3013,31 @@
     }
   };
 
+  /**
+   * Номер озвучиваемой сцены. Всё, что относится к прошлому номеру, замолкает
+   * сразу: и очередь абзацев, и уже начатый mp3. Без этого голос догонял игрока
+   * через ход-два — читал то, что он уже прошёл.
+   */
+  let speakEpoch = 0;
+  const speakAborts = new Set();
+  const speakLog = [];           // след чтения для прогонов: что и когда ушло в голос
+
+  /** Новый номер сцены: прошлая озвучка (и всё, что не успело зазвучать) отменяется. */
+  function speakFresh() {
+    speakEpoch += 1;
+    while (speakAborts.size) {
+      const abort = speakAborts.values().next().value;
+      speakAborts.delete(abort);
+      try { abort(); } catch (e) { /* не критично */ }
+    }
+    return speakEpoch;
+  }
+
+  /** Сцена сменилась — цепочка абзацев должна остановиться на ближайшей проверке. */
+  function speakStill(epoch) {
+    return Voice.on && epoch === speakEpoch;
+  }
+
   /** Озвучка сцены: системный синтез речи, всегда с кнопкой «выключить». */
   const Voice = (function () {
     /**
@@ -2454,6 +3094,8 @@
       stopBrowser();
       if (audio) { try { audio.pause(); } catch (e) { /* noop */ } audio = null; }
       if (audioUrl) { try { URL.revokeObjectURL(audioUrl); } catch (e) { /* noop */ } audioUrl = null; }
+      // очередь абзацев и уже начатые куски прекращаются вместе с плеером
+      speakFresh();
     }
     function sayBrowser(text, mood) {
       if (!(typeof window !== 'undefined' && 'speechSynthesis' in window)) return false;
@@ -2503,7 +3145,9 @@
       if (!supported) { btn.hidden = true; return; }
       btn.hidden = false;
       const on = !!Settings.data.voice;
-      btn.textContent = on ? '🔇 Без озвучки' : '🔊 Озвучить';
+      barLabel(btn, on ? 'Без озвучки' : 'Озвучить');
+      const icon = btn.querySelector('.bar-btn__icon');
+      if (icon) icon.textContent = on ? '🔇' : '🔊'; else btn.textContent = on ? '🔇 Без озвучки' : '🔊 Озвучить';
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       btn.classList.toggle('is-on', on);
     }
@@ -2529,14 +3173,38 @@
        */
       scene(text, mood) {
         if (!this.on) return;
+        speakFresh();                        // старые абзацы потеряли право голоса
         stop();
         speakParagraphs(text, mood, Settings.data.voiceGender);
       },
-      stop
+      stop,
+      /** Состояние для прогонов: номер сцены, очередь чтения, играет ли звук. */
+      state() {
+        return {
+          on: !!Settings.data.voice && supported,
+          epoch: speakEpoch,             // номер озвучиваемой сцены
+          aborts: speakAborts.size,      // сколько кусков ещё ждёт очереди
+          playing: !!audio,              // звучит ли серверный mp3 прямо сейчас
+          chain: !!speakChain,           // цепочка абзацев жива
+          log: speakLog.slice(-12),      // что ушло в голос и когда
+          now: Date.now()
+        };
+      }
     };
   })();
 
   try { window.DTvoice = Voice; } catch (e) { /* noop */ }
+  // датчик блока B: прогон проверяет карточки предметов, припасы, состояния и темы
+  try {
+    window.DTv20 = {
+      game: () => State.game,
+      mech: (kind, id) => runMech(kind, id),
+      refresh: () => { renderMechanics(); renderGameTop(); renderLog(); },
+      theme: () => document.body.dataset.theme || ''
+    };
+  } catch (e) { /* noop */ }
+  // датчик кадра: прогон проверяет, что действие с предметом даёт крупный план предмета
+  try { window.DTfocus = (action, scene) => E.actionFocus(action, scene); } catch (e) { /* noop */ }
   // датчик состояния для прогонов и отладки: ход, занятость, сцена, варианты
   try {
     window.DTnotes = [];
@@ -2558,6 +3226,7 @@
         moodVoice: (State.mood && State.mood.voice) || '',
         typing: !!(document.querySelector('#scene-text .is-typing')),
         motion: document.getElementById('screen-game') ? document.getElementById('screen-game').dataset.motion : '',
+        voice: (window.DTvoice && window.DTvoice.state) ? window.DTvoice.state() : null,
         notes: (window.DTnotes || []).slice(-6)
       };
     };
@@ -2651,25 +3320,38 @@
    */
   function drawActorLayer(time, progress) {
     const g = State.game;
-    if (!g || !Backdrop) return;
+    if (!Backdrop) return;
+    const st = State.book && State.book.state;
+    if (!g && !st) return;
     const canvas = $('#scene-actors');
     if (!canvas) return;
-    const s = E.scenarioById(g.scenarioId);
-    const hasImage = !!(g.scene && g.scene.image);
-    const narration = [g.scene && g.scene.text, g.scene && g.scene.npc, g.goal].filter(Boolean).join(' ');
+    const s = g ? E.scenarioById(g.scenarioId) : null;
+    const hasImage = !!(g && g.scene && g.scene.image);
+    // в истории герой безымянный странник: он идёт по главе против тех, о ком она говорит
+    const narration = g
+      ? [g.scene && g.scene.text, g.scene && g.scene.npc, g.goal].filter(Boolean).join(' ')
+      : bookNarration();
     const kind = E.sceneKindFromText(narration);
     const actors = Object.assign(E.sceneActors(narration), {
-      hero: { shape: 'human', weapon: heroBackdropWeapon(g), shield: ['warrior', 'lg-heir'].indexOf(g.hero.classId) >= 0 }
+      hero: g
+        ? { shape: 'human', weapon: heroBackdropWeapon(g), shield: ['warrior', 'lg-heir'].indexOf(g.hero.classId) >= 0 }
+        : { shape: 'human', weapon: 'staff', shield: false }
     });
     try {
       const layers = State.sceneLayers || E.sceneLayersFromText(narration);
       Backdrop.drawOver(canvas, {
-        kind, seed: State.backdropSeed, actors, palette: paletteFor(g, s),
+        kind, seed: State.backdropSeed, actors, palette: g ? paletteFor(g, s) : paletteForBook(book0(State)),
         over: hasImage, time: time || 0,
         daypart: layers.daypart, weather: layers.weather, fire: layers.fire,
         progress: progress === undefined ? State.actorProgress : progress
       });
     } catch (e) { /* canvas может быть недоступен — не критично */ }
+  }
+
+  /** Книга текущей истории — там, где кампании нет. */
+  function book0(state) {
+    const st = state && state.book && state.book.state;
+    return (st && Books) ? Books.bookById(st.bookId) : null;
   }
 
   /** Фигуры появляются мягко: 0 → 1 за полсекунды. */
@@ -2885,6 +3567,22 @@
     applyTurn(turn, null, true);
   }
 
+  /**
+   * План броска для варианта: сложность с поправкой на знакомого (блок B, п.10).
+   * Одна функция на кнопку и на бросок — иначе подпись «шанс 62%» разойдётся с делом.
+   */
+  function actionPlan(g, opt) {
+    let plan = null;
+    try { plan = E.socialPlan(g, opt.text); } catch (e) { plan = null; }
+    const base = opt.dc || E.difficultyById(opt.difficulty).dc;
+    return {
+      plan,
+      base,
+      dc: Math.max(4, base + (plan ? plan.dcShift : 0)),
+      advantage: !!g.hero.advantage || !!(plan && plan.advantage)
+    };
+  }
+
   async function onActionChosen(opt) {
     const g = State.game;
     if (State.busy || g.over) return;
@@ -2892,8 +3590,14 @@
     Sound.unlock();
     const baseMod = g.hero.stats[opt.stat] || 0;
     const buff = g.hero.buff || 0;
-    const advantage = !!g.hero.advantage;
-    const check = E.resolveCheck({ stat: opt.stat, dc: opt.dc, bonus: baseMod + buff, advantage });
+    const ap = actionPlan(g, opt);
+    const advantage = ap.advantage;
+    if (ap.plan && (ap.plan.dcShift || ap.plan.advantage)) {
+      notify(ap.plan.relationIcon + ' ' + ap.plan.note, {
+        kind: ap.plan.relation === 'enemy' ? 'warn' : 'info', timeout: 3800
+      });
+    }
+    const check = E.resolveCheck({ stat: opt.stat, dc: ap.dc, bonus: baseMod + buff, advantage });
     E.pushLog(g, {
       kind: 'action',
       text: opt.text,
@@ -2902,8 +3606,13 @@
     autosave();
     await Dice.roll(check, g.hero);
     const extra = [];
-    if (advantage) extra.push('Герой применил умение и бросал с преимуществом.');
+    if (g.hero.advantage) extra.push('Герой применил умение и бросал с преимуществом.');
     if (buff) extra.push('К броску добавлен бонус умения +' + buff + '.');
+    if (ap.plan) {
+      extra.push('Это действие про знакомого ' + ap.plan.name + ': ' + ap.plan.note
+        + '. Сложность ' + ap.base + ' стала ' + ap.dc + '.');
+      if (ap.plan.advantage && !g.hero.advantage) extra.push('Преимущество дало знание о нём.');
+    }
     setActionsLoading('Мастер описывает последствия…');
     State.earlyImageDone = false;
     State.earlyImage = null;              // кадр прошлого хода больше не подхватываем
@@ -2997,6 +3706,16 @@
       imagePrompt: turn.imagePrompt || E.composeSceneImagePrompt(g, {
         sceneText: turn.scene, npc: turn.npc, action
       }),
+      // мир запоминает, кем в нём играли: второй заход не спросит то же самое
+      heroPickSaved: (() => {
+        try {
+          saveHeroPick({
+            classId: g.hero.classId, raceId: g.hero.raceId, originId: g.hero.originId,
+            name: g.hero.name, title: g.scenarioTitle || ''
+          });
+        } catch (e) { /* не критично */ }
+        return true;
+      })(),
       image: samePlace && g.scene ? (g.scene.image || '') : '',
       imageSource: samePlace && g.scene ? (g.scene.imageSource || '') : ''
     };
@@ -3109,7 +3828,14 @@
     if (Settings.data.npcVoices !== false && turn.npc && Voice.on) {
       const key = npcVoiceKey(turn);
       const line = E.npcLine(turn);
-      if (key) setTimeout(() => Voice.say((line && line.line) || turn.npc, 'book', key), 1200);
+      const npcEpoch = speakEpoch;          // сцена, к которой относится реплика
+      if (key) {
+        setTimeout(() => {
+          // игрок уже ушёл вперёд — прошлая реплика не звучит вдогонку
+          if (npcEpoch !== speakEpoch || !Voice.on) return;
+          Voice.say((line && line.line) || turn.npc, 'book', key);
+        }, 1200);
+      }
     }
     Ambient.sync();
     if (g.over || g.ending === 'victory') setTimeout(showEpilogue, 950);
@@ -3196,6 +3922,7 @@
     const g = State.game;
     const box = $('#epilogue');
     if (!g || !box || !box.hidden) return;
+    epilogueFoot(false);   // финал кампании играет своими кнопками
     Voice.stop();
     Ambient.stop();
     setTurnStatus('');
@@ -3273,6 +4000,10 @@
     }));
     body.appendChild(tools);
 
+    // Итог забега дня: слагаемые счёта и как прошли другие.
+    const dailyBox = dailyResultBlock(g);
+    if (dailyBox) body.appendChild(dailyBox);
+
     // Галерея кадров: только те, что нарисовали в этой кампании.
     renderFrames(body);
   }
@@ -3336,6 +4067,12 @@
       legacyText: Legacy.block()
     });
     game.rules = Object.assign(E.defaultRules(), old.rules || {}, rulesPatch());
+    if (old.daily) {
+      game.daily = old.daily;            // второй заход тем же забегом: мир и цель те же
+      game.goal = old.daily.goal;
+      Local.set(DAILY_RUN_KEY, { date: old.daily.date, gameId: game.id });
+    }
+    setDailyRng(game.daily);
     State.game = game;
     State.storage.save(game);
     const worldPending = !!(old.worldConfig && (old.worldConfig.genre || old.worldConfig.gameName));
@@ -3582,20 +4319,50 @@
   /* ---------------------------------------------------------- */
   /** Ряд кнопок-переключателей: выбранный вариант подсвечен. */
   function choiceRow(list, value, onPick) {
-    return h('div', { class: 'rules-row' }, list.map(item => h('button', {
-      class: 'rules-btn' + (item.id === value ? ' is-on' : ''),
-      type: 'button', text: item.title, title: item.hint || '',
-      onclick: () => { Sound.tap(); onPick(item.id); }
-    })));
+    const row = h('div', { class: 'rules-row' });
+    list.forEach(item => {
+      // образец темы: маленькая карточка с кнопкой в её материале (без текста,
+      // чтобы подпись кнопки осталась ровно названием темы)
+      const swatch = item.skin ? h('span', {
+        class: 'skin-demo', 'data-tp': item.id, 'aria-hidden': 'true'
+      }, [h('span', { class: 'skin-demo__btn' })]) : null;
+      row.appendChild(h('button', {
+        class: 'rules-btn' + (item.id === value ? ' is-on' : ''),
+        type: 'button', title: item.hint || '',
+        onclick: () => {
+          Sound.tap();
+          // подсветку переключаем на месте: окно настроек не должно мигать
+          Array.from(row.children).forEach(b => b.classList.remove('is-on'));
+          row.children[list.indexOf(item)].classList.add('is-on');
+          onPick(item.id);
+        }
+      }, [swatch, item.title]));   // подпись есть у всех, образец — только у тем
+    });
+    return row;
   }
 
+  /**
+   * Темы меняют не только цвет: у каждой свой материал кнопок, блоков и окон.
+   * Тот же набор токенов, что в src/skins.css, — подпись описывает его словами.
+   */
   const THEMES = [
-    { id: 'auto', title: 'Как в игре', hint: 'оформление подбирается по стилю кампании' },
-    { id: 'night', title: 'Ночь', hint: 'тёмно-синий интерфейс' },
-    { id: 'neon', title: 'Неон', hint: 'киберпанк-подсветка' },
-    { id: 'parchment', title: 'Пергамент', hint: 'тёплые книжные тона' },
-    { id: 'oled', title: 'Чёрная', hint: 'экономит батарею на OLED' }
+    { id: 'auto', title: 'Авто', skin: true, hint: 'материал подбирается по жанру кампании' },
+    { id: 'material', title: 'Материальная', skin: true, hint: 'гладкие белые карточки, мягкие тени, скруглённые кнопки' },
+    { id: 'night', title: 'Ночь', skin: true, hint: 'тёмное стекло, мягкий бирюзовый кант' },
+    { id: 'neon', title: 'Киберпанк', skin: true, hint: 'острые углы, неоновая кромка, сканлайны и свечение' },
+    { id: 'terminal', title: 'Терминал', skin: true, hint: 'зелёный фосфор, пунктирные рамки, ровные строки консоли' },
+    { id: 'parchment', title: 'Пергамент', skin: true, hint: 'бумажные листы с неровным краем на тёмном столе' },
+    { id: 'ink', title: 'Тушь и медь', skin: true, hint: 'прямые углы, медная кромка и заклёпки по углам' },
+    { id: 'sunset', title: 'Закат', skin: true, hint: 'тёплое свечение и градиенты, крупные мягкие формы' },
+    { id: 'ice', title: 'Лёд', skin: true, hint: 'обледеневшие кнопки и блоки: наледь, иней, сосульки по кромке' },
+    { id: 'oled', title: 'Чёрная', skin: true, hint: 'чистый чёрный, только тонкий контур — экономит батарею' }
   ];
+
+  /** Что именно сделает тема — словами, под списком выбора. */
+  function themeHint(id) {
+    const found = THEMES.filter(t => t.id === id)[0];
+    return found ? found.hint : '';
+  }
 
   /**
    * Чем сейчас ведётся игра: внешним каналом или встроенным мастером.
@@ -3629,10 +4396,30 @@
   function choiceRowLive(getList, value, onPick) {
     const row = h('div', { class: 'rules-row rules-row--tall' });
     const fill = () => {
+      // список обновляется сам, когда сервер расскажет о каналах: палец и фокус
+      // должны остаться на той же кнопке, иначе игрока выкидывает из настроек
+      const box = $('#modal-box');
+      const active = document.activeElement;
+      const inside = !!(active && row.contains(active));
+      const label = inside ? (active.textContent || '').trim() : '';
+      const twinsBefore = inside
+        ? Array.from(row.querySelectorAll('button')).filter(b => (b.textContent || '').trim() === label)
+        : [];
+      const nth = inside ? Math.max(0, twinsBefore.indexOf(active)) : 0;
+      const scroll = box ? box.scrollTop : 0;
+      const put = () => {
+        if (!label) return;
+        const twinsAfter = Array.from(row.querySelectorAll('button'))
+          .filter(b => (b.textContent || '').trim() === label);
+        const again = twinsAfter[Math.min(nth, twinsAfter.length - 1)];
+        if (again) again.focus({ preventScroll: true });
+        if (box) box.scrollTop = scroll;
+      };
       const list = getList();
       clear(row);
       if (!list.length) {
         row.appendChild(h('div', { class: 'muted small', text: 'Сервер не ответил: доступен «Авто» и встроенный мастер.' }));
+        put();
         return;
       }
       list.forEach(item => {
@@ -3649,13 +4436,39 @@
           h('span', { class: 'rules-btn__hint', text: [item.hint, item.detail].filter(Boolean).join(' · ') })
         ]));
       });
+      put();
     };
     fill();
     row.dataset.live = '1';
     return { row, fill };
   }
 
-  function openSettings() {
+  /**
+   * Место в настройках, к которому нужно вернуться после перерисовки.
+   * Игрок не должен терять прокрутку и поле ввода, нажимая галочки.
+   */
+  const settingsAnchor = { scroll: 0, placeholder: '', selection: null, label: '', nth: 0 };
+
+  function openSettings(opts) {
+    const keep = !!(opts && opts.keep);
+    const box = $('#modal-box');
+    if (keep && box) {
+      settingsAnchor.scroll = box.scrollTop;
+      const active = document.activeElement;
+      settingsAnchor.label = '';
+      if (active && box.contains(active) && /^(INPUT|TEXTAREA)$/.test(active.tagName)) {
+        settingsAnchor.placeholder = active.getAttribute('placeholder') || '';
+        settingsAnchor.selection = [active.selectionStart, active.selectionEnd];
+      } else if (active && box.contains(active)) {
+        // нажали галочку — вернём палец и клавиатурный фокус на неё же
+        settingsAnchor.placeholder = '';
+        settingsAnchor.selection = null;
+        settingsAnchor.label = (active.textContent || '').trim();
+        const twins = Array.from(box.querySelectorAll('button'))
+          .filter(b => (b.textContent || '').trim() === settingsAnchor.label);
+        settingsAnchor.nth = Math.max(0, twins.indexOf(active));
+      }
+    }
     const keyInput = h('input', {
       class: 'input', type: 'text',
       value: Settings.data.apiKey || API.getApiKey(), autocomplete: 'off',
@@ -3707,13 +4520,13 @@
       Settings.set({ master: id });
       const item = (API.masterChoices() || []).find(x => x.id === id);
       toast('Ведущий: ' + ((item && item.title) || id), { kind: 'good' });
-      closeModal(); openSettings();
+      openSettings({ keep: true });
     });
     const imageLive = choiceRowLive(API.imageChoices, Settings.data.imageSource || 'auto', id => {
       Settings.set({ imageSource: id });
       const item = (API.imageChoices() || []).find(x => x.id === id);
       toast('Кадры рисует: ' + ((item && item.title) || id), { kind: 'good' });
-      closeModal(); openSettings();
+      openSettings({ keep: true });
     });
     // обновляем списки, когда сервер расскажет о своих каналах
     API.probeBackend(true).then(() => {
@@ -3727,7 +4540,7 @@
       Settings.set({ imageStyle: id });
       const g = State.game;
       if (g) { g.artStyle = E.styleById(id).id; State.storage.save(g); }
-      closeModal(); openSettings();
+      openSettings({ keep: true });
       toast('Стиль кадров: ' + ((E.styleById(id) || {}).title || id), { kind: 'good' });
     });
     const installButton = h('button', {
@@ -3765,7 +4578,7 @@
       choiceRow(E.TONES, Settings.data.tone, id => {
         Settings.set({ tone: id });
         applyRulesLive();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
         toast('Тон: ' + (E.TONES.find(t => t.id === id) || {}).title, { kind: 'good', timeout: 1800 });
       }),
 
@@ -3773,7 +4586,7 @@
       choiceRow(E.RATINGS, Settings.data.rating, id => {
         Settings.set({ rating: id });
         applyRulesLive();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
         toast('Жёсткость: ' + (E.RATINGS.find(r => r.id === id) || {}).title, { kind: 'good', timeout: 1800 });
       }),
 
@@ -3783,7 +4596,7 @@
         { id: 'voice-off', title: '🚫 Без озвучки', hint: 'текст только глазами' }
       ], Settings.data.voice ? 'voice-on' : 'voice-off', id => {
         Voice.set(id === 'voice-on');
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
       h('p', { class: 'muted small', text: 'Голос — нейросетевой (Microsoft Edge на сервере); без сервера сцену читает голос устройства.' }),
       h('div', { class: 'section-title', text: 'Голос рассказчика' }),
@@ -3795,7 +4608,7 @@
         { id: 'andrew', title: '🌍 Эндрю', hint: 'новая линейка, мужской, с дыханием' }
       ], Settings.data.voiceGender || 'female', id => {
         Settings.set({ voiceGender: id });
-        closeModal(); openSettings();
+        openSettings({ keep: true });
         if (Voice.on && State.game && State.game.scene) Voice.say(State.game.scene.text, (State.mood && State.mood.voice) || 'book');
       }),
       h('p', { class: 'muted small', text: 'Тон рассказа меняет подачу голоса: в страхе он тише и медленнее, в победе — быстрее и выше.' }),
@@ -3805,7 +4618,7 @@
       ], Settings.data.ambient !== false ? 'amb-on' : 'amb-off', id => {
         Settings.set({ ambient: id === 'amb-on' });
         Ambient.sync();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
 
       h('div', { class: 'section-title', text: 'Размер текста' }),
@@ -3813,7 +4626,7 @@
       choiceRow(TEXT_SIZES, Settings.data.textSize || 'm', id => {
         Settings.set({ textSize: id });
         applyTextSize();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
 
       h('div', { class: 'section-title', text: 'Музыка и звуки' }),
@@ -3824,14 +4637,14 @@
       ], Settings.data.music ? 'music-on' : 'music-off', id => {
         Settings.set({ music: id === 'music-on' });
         if (Settings.data.music) Music.start(State.game); else Music.stop();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
       choiceRow([
         { id: 'sfx-on', title: '👣 Звуки сцены', hint: 'шаг, дверь, ветер, удар — под настроение' },
         { id: 'sfx-off', title: '🔇 Без них', hint: 'тише' }
       ], Settings.data.sfx !== false ? 'sfx-on' : 'sfx-off', id => {
         Settings.set({ sfx: id === 'sfx-on' });
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
 
       h('div', { class: 'section-title', text: 'Как держу телефон' }),
@@ -3842,14 +4655,20 @@
       ], Settings.data.handOne ? 'hand-one' : 'hand-two', id => {
         Settings.set({ handOne: id === 'hand-one' });
         applyHandOne();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
 
       h('div', { class: 'section-title', text: 'Оформление' }),
+      h('p', { class: 'muted small', text: 'Тема меняет весь интерфейс: цвета, подложки, форму кнопок. «Авто» подбирает тему по жанру кампании.' }),
       choiceRow(THEMES, Settings.data.theme || 'auto', id => {
         Settings.set({ theme: id });
         applyTheme(State.game);
-        closeModal(); openSettings();
+        openSettings({ keep: true });
+      }),
+      h('p', {
+        class: 'muted small theme-hint',
+        text: 'Тема «' + (THEMES.filter(t => t.id === (Settings.data.theme || 'auto'))[0] || {}).title + '»: '
+          + themeHint(Settings.data.theme || 'auto')
       }),
       h('div', { class: 'section-title', text: 'Живость экрана' }),
       h('p', { class: 'muted small', text: 'Сцена дышит и дрожит по настроению: страх — медленно и с дрожью, победа — светлеет. Текст печатается волной.' }),
@@ -3861,14 +4680,14 @@
         applyMoodToUI(State.mood, []);
         // вместе с живостью включается и наклон кадра: это одна и та же настройка
         if (Settings.data.motion) Tilt.start(); else Tilt.stop();
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
       choiceRow([
         { id: 'hapt-on', title: '📳 Отклик', hint: 'телефон вздрагивает от удара и победы' },
         { id: 'hapt-off', title: '🤫 Без отклика', hint: 'без вибрации' }
       ], Settings.data.haptics !== false ? 'hapt-on' : 'hapt-off', id => {
         Settings.set({ haptics: id === 'hapt-on' });
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
 
       h('div', { class: 'section-title', text: 'Канал ИИ' }),
@@ -3886,14 +4705,14 @@
         { id: 'ask-off', title: '⏩ Пусть решает сам', hint: 'мастер сразу начинает историю' }
       ], Settings.data.beginQuestion !== false ? 'ask-on' : 'ask-off', id => {
         Settings.set({ beginQuestion: id === 'ask-on' });
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
       choiceRow([
         { id: 'npcvoice-on', title: '👥 Голоса знакомых', hint: 'у каждого знакомого свой тембр' },
         { id: 'npcvoice-off', title: '🎙 Один голос', hint: 'всю сцену читает рассказчик' }
       ], Settings.data.npcVoices !== false ? 'npcvoice-on' : 'npcvoice-off', id => {
         Settings.set({ npcVoices: id === 'npcvoice-on' });
-        closeModal(); openSettings();
+        openSettings({ keep: true });
       }),
 
       h('div', { class: 'section-title', text: '📊 Метрики без слежки' }),
@@ -3925,11 +4744,44 @@
           onClick: () => {
             Settings.set({ muted: !Settings.data.muted });
             Ambient.sync();
-            closeModal(); openSettings();
+            openSettings({ keep: true });
           }
         }
       ]
     });
+    if (keep) restoreSettingsAnchor();
+  }
+
+  /** Вернуть игрока туда, где он был: та же прокрутка, то же поле в фокусе. */
+  function restoreSettingsAnchor() {
+    const box = $('#modal-box');
+    if (!box) return;
+    const apply = () => {
+      box.scrollTop = settingsAnchor.scroll;
+      if (settingsAnchor.label) {
+        const twins = Array.from(box.querySelectorAll('button'))
+          .filter(b => (b.textContent || '').trim() === settingsAnchor.label);
+        const again = twins[Math.min(settingsAnchor.nth, twins.length - 1)];
+        if (again) {
+          again.focus({ preventScroll: true });
+          box.scrollTop = settingsAnchor.scroll;
+        }
+        return;
+      }
+      const want = settingsAnchor.placeholder;
+      if (!want) return;
+      const field = Array.from(box.querySelectorAll('input, textarea'))
+        .find(el => (el.getAttribute('placeholder') || '') === want);
+      if (!field) return;
+      field.focus({ preventScroll: true });
+      const sel = settingsAnchor.selection;
+      if (sel && typeof field.setSelectionRange === 'function') {
+        try { field.setSelectionRange(sel[0], sel[1]); } catch (e) { /* не критично */ }
+      }
+      box.scrollTop = settingsAnchor.scroll;
+    };
+    apply();
+    requestAnimationFrame(apply);      // окно ещё дорисовывается — повторим кадром позже
   }
 
   /* ---------------------------------------------------------- */
@@ -3967,6 +4819,80 @@
       h('div', { class: 'journal-goal__text', text: g.goal || 'цель ещё не названа' }),
       h('div', { class: 'muted small', text: mem.place ? 'Где мы: ' + mem.place : 'Место пока не названо' })
     ]));
+
+    if (dailyOf(g)) host.appendChild(dailyJournalBlock(g));
+
+    // --- Сумка: предметы с эффектом и припасы (блок B, п.7) ---
+    const bagBlock = h('div', { class: 'journal-block', id: 'journal-bag' }, [
+      h('div', { class: 'section-title', text: '🎒 Сумка' })
+    ]);
+    const bag = E.heroItems(g);
+    if (!bag.length) {
+      bagBlock.appendChild(h('p', { class: 'muted small', text: 'Пусто. Предметы мастер выдаёт по ходу истории.' }));
+    }
+    bag.forEach(item => bagBlock.appendChild(itemCard(item)));
+    bagBlock.appendChild(h('div', { class: 'supply-row' }, [
+      h('span', { class: 'supply-dots', title: 'Припасы: ночёвка, перевязка и обход' },
+        Array.from({ length: E.SUPPLIES_MAX }, (_, i) =>
+          h('span', { class: 'supply-dot' + (i < E.suppliesOf(g) ? ' is-on' : '') }))),
+      h('span', { class: 'supply-row__text', text: 'припасы: ' + E.suppliesOf(g) + ' из ' + E.SUPPLIES_MAX })
+    ]));
+    bagBlock.appendChild(h('div', { class: 'row-actions' }, [
+      h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: '🔥 Привал',
+        title: '−1 припас: +2 здоровья и снять усталость', onclick: () => runMech('rest-stop') }),
+      h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: '🩹 Перевязка',
+        title: '−1 припас: +3 здоровья и перевязать рану', onclick: () => runMech('heal-stop') }),
+      h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: '🧭 Обойду',
+        title: '−1 припас: обойти опасное место — следующий бросок с преимуществом', onclick: () => runMech('bypass') })
+    ]));
+    host.appendChild(bagBlock);
+
+    // --- состояния: что мешает и что помогает (блок B, п.9) ---
+    const states = E.stateList(g);
+    if (states.length) {
+      const stBlock = h('div', { class: 'journal-block' }, [h('div', { class: 'section-title', text: '🩸 Состояния' })]);
+      states.forEach(st => stBlock.appendChild(h('div', { class: 'rel-card' }, [
+        h('span', { class: 'rel-card__icon', text: st.icon }),
+        h('div', { class: 'rel-card__body' }, [
+          h('div', { class: 'rel-card__name', text: st.title + ' ' + (st.mod > 0 ? '+' + st.mod : st.mod) }),
+          h('div', { class: 'rel-card__line', text: st.hint + (st.turns ? ' · осталось ходов: ' + st.turns : '') })
+        ])
+      ])));
+      stBlock.appendChild(h('p', { class: 'muted small', text: 'Состояния меняют броски и подсказывают мастеру, как вести сцену.' }));
+      host.appendChild(stBlock);
+    }
+
+    // --- знакомые: отношение и доверие (блок B, пп.8, 10) ---
+    const npcs = E.npcList(g) || [];
+    if (npcs.length) {
+      const relBlock = h('div', { class: 'journal-block' }, [
+        h('div', { class: 'section-title', text: '👥 Знакомые' }),
+        h('p', { class: 'muted small', text: 'С другом и должником договориться легче, врага легче заподозрить. Соцбросок мастер учитывает сам.' })
+      ]);
+      npcs.slice(0, 8).forEach(n => {
+        const pips = '●'.repeat(Math.max(0, n.trust)) + '○'.repeat(Math.max(0, 5 - n.trust));
+        const row = h('div', { class: 'rel-card rel-card--' + (n.relation || 'neutral') }, [
+          h('span', { class: 'rel-card__icon', text: n.relationIcon || '👤' }),
+          h('div', { class: 'rel-card__body' }, [
+            h('div', { class: 'rel-card__name', text: n.name + (n.role ? ' · ' + n.role : '') }),
+            h('div', { class: 'rel-card__line' }, [
+              h('span', { text: (n.relationTitle || 'нейтрально') + ' ' }),
+              h('span', { class: 'rel-card__trust', text: pips, title: 'Доверие ' + n.trust + ' из 5' }),
+              n.note ? h('span', { text: ' · ' + n.note }) : null
+            ])
+          ])
+        ]);
+        if (n.relation === 'debtor' && !n.helped) {
+          row.appendChild(h('button', {
+            class: 'item-card__use', type: 'button', text: '🤝 Позвать',
+            title: 'Должник выручает один раз за кампанию',
+            onclick: () => runMech('call-debtor')
+          }));
+        }
+        relBlock.appendChild(row);
+      });
+      host.appendChild(relBlock);
+    }
 
     // арка: вехи, которые уже пройдены, и та, к которой идёт история
     if (arc && arc.steps && arc.steps.length) {
@@ -4203,19 +5129,49 @@
   /* ---------------------------------------------------------- */
 
   const BOOK_KEY = 'dt2:bookProgress';
+  const BOOK_FILTER_KEY = 'dt2:booksFilter';
+  const BOOK_ENDS_KEY = 'dt2:bookEnds';   // какие концовки уже видел игрок
 
+  /**
+   * Истории без ИИ: жанр, объём и число концовок видно сразу.
+   * Фильтр по жанру запоминается, пройденные истории отмечаются.
+   */
   function renderBooks() {
     const host = clear($('#books-list'));
-    const books = Books ? Books.listBooks() : [];
+    const all = Books ? Books.listBooks() : [];
     const saved = Local.get(BOOK_KEY, null);
+    const passed = Local.get(BOOK_ENDS_KEY, {}) || {};
+    if (!State.bookGroup) State.bookGroup = Local.get(BOOK_FILTER_KEY, 'all');
+    const group = State.bookGroup || 'all';
+
+    const filter = clear($('#books-filter'));
+    (Books && Books.BOOK_GROUPS ? Books.BOOK_GROUPS : []).forEach(g => {
+      const count = g.id === 'all' ? all.length : all.filter(b => b.group === g.id).length;
+      if (!count) return;
+      filter.appendChild(h('button', {
+        class: 'books-filter__chip' + (g.id === group ? ' is-on' : ''),
+        type: 'button', role: 'tab', 'aria-selected': g.id === group ? 'true' : 'false',
+        text: g.title + ' ' + count,
+        onclick: () => { Sound.tap(); State.bookGroup = g.id; Local.set(BOOK_FILTER_KEY, g.id); renderBooks(); }
+      }));
+    });
+
+    const books = group === 'all' ? all : all.filter(b => b.group === group);
     books.forEach(b => {
       const inProgress = saved && saved.state && saved.state.bookId === b.id;
-      host.appendChild(h('div', { class: 'book-card' }, [
+      const done = passed[b.id];
+      const got = done && Array.isArray(done.titles) ? done.titles.length : 0;
+      host.appendChild(h('div', { class: 'book-card' + (inProgress ? ' is-reading' : '') }, [
         h('div', { class: 'book-card__icon', text: b.icon }),
         h('div', { class: 'book-card__body' }, [
           h('div', { class: 'book-card__title', text: b.title }),
-          h('div', { class: 'book-card__tag', text: b.genre + ' · глав: ' + b.chapters }),
-          h('p', { class: 'muted small', text: b.tagline })
+          h('div', { class: 'book-card__tag', text: [b.genre, b.chapters + ' глав', b.endings + ' концовки', '≈' + b.minutes + ' мин'].join(' · ') }),
+          h('p', { class: 'muted small', text: b.tagline }),
+          h('div', {
+            class: 'book-card__note',
+            text: inProgress ? 'Читаешь прямо сейчас — герой ждёт в этой истории'
+              : (got ? 'Собрано концовок: ' + got + ' из ' + b.endings + (got >= b.endings ? ' — все!' : '') : '')
+          })
         ]),
         h('div', { class: 'book-card__actions' }, [
           h('button', {
@@ -4226,6 +5182,12 @@
         ])
       ]));
     });
+    if (!books.length) {
+      host.appendChild(h('p', { class: 'muted small', text: 'В этом жанре историй пока нет — загляни в «Все».' }));
+    }
+    const chapters = all.reduce((n, b) => n + b.chapters, 0);
+    host.appendChild(h('p', { class: 'muted small books-total', text:
+      'Всего ' + all.length + ' историй и ' + chapters + ' глав. Играются без мастера и без сети: текст, выборы и концовки лежат внутри игры.' }));
   }
 
   function startBookMode(bookId, resume) {
@@ -4249,10 +5211,13 @@
 
   /** Книга играется без ИИ: убираем всё, что относится к ходам мастера. */
   function bookChrome(on) {
-    ['open-journal', 'open-map', 'open-run'].forEach(act => {
+    ['open-journal', 'open-map', 'open-run', 'open-bag'].forEach(act => {
       const btn = document.querySelector('[data-act="' + act + '"]');
       if (btn) btn.hidden = !!on;
     });
+    // «История хода» собирает ходы мастера: в книге ходов нет, кнопка была бы пустой
+    const logBtn = $('#log-toggle');
+    if (logBtn) logBtn.hidden = !!on;
     const status = $('#scene-status-text');
     if (status) status.textContent = on ? 'нарисовано игрой' : 'рисуем…';
     const badge = $('#scene-badge');
@@ -4318,8 +5283,36 @@
   }
 
   /** Финал книги: без мастера и без бросков — только то, что выбрал игрок. */
+  /**
+   * Подвал экрана итога: у кампании там «Мои игры», «Остаться в мире» и новая кампания,
+   * у истории — «Другая концовка» и дорога назад к списку.
+   */
+  function epilogueFoot(book) {
+    const foot = $('#epilogue .prologue__foot');
+    if (!foot) return;
+    foot.querySelectorAll('[data-act]').forEach(b => { b.hidden = !!book; });
+    let back = foot.querySelector('[data-act="book-list"]');
+    if (book && !back) {
+      back = h('button', {
+        class: 'btn btn--primary', type: 'button', 'data-act': 'book-list', text: '📖 К другим историям',
+        onclick: () => { Sound.tap(); closeEpilogue(); openScenarios(); setWorldMode('books'); renderBooks(); }
+      });
+      foot.appendChild(back);
+    }
+    if (back) back.hidden = !book;
+  }
+
   function showBookEnding(end) {
     if (!end) return;
+    // запоминаем, что концовка собрана: в списке историй видно, сколько их ещё осталось
+    const seen = Local.get(BOOK_ENDS_KEY, {}) || {};
+    const rec = seen[end.bookId] || { titles: [] };
+    if (rec.titles.indexOf(end.title) < 0) rec.titles.push(end.title);
+    rec.last = end.title;
+    rec.at = Date.now();
+    seen[end.bookId] = rec;
+    Local.set(BOOK_ENDS_KEY, seen);
+    Local.set(BOOK_KEY, null);   // история дочитана: закладка «на чём остановился» больше не нужна
     const body = clear($('#epilogue-body'));
     $('#epilogue-title').textContent = '📖 ' + end.bookTitle;
     body.appendChild(h('h3', { class: 'book-end__title', text: end.title }));
@@ -4345,6 +5338,7 @@
         startBookMode(end.bookId, false);
       }
     }));
+    epilogueFoot(true);
     State.epilogueOpen = true;
     $('#epilogue').hidden = false;
     MetricsBox.game();
@@ -4509,9 +5503,8 @@
 
   let speakChain = Promise.resolve();
   const PARAGRAPH_PAUSE = 220;
-
   /** Одно чтение с ожиданием конца: серверный mp3 или голос браузера. */
-  function speakPiece(text, mood, voice) {
+  function speakPiece(text, mood, voice, epoch) {
     return new Promise(resolve => {
       const clean = String(text || '').replace(/\s+/g, ' ').trim();
       if (!clean) { resolve(false); return; }
@@ -4519,16 +5512,24 @@
         let called = false;
         return value => { if (!called) { called = true; resolve(value); } };
       })();
+      // смена сцены обрывает кусок сразу: очередь не должна ждать конца mp3
+      const abort = () => done(false);
+      speakAborts.add(abort);
+      speakLog.push({ epoch: epoch === undefined ? speakEpoch : epoch, chars: clean.length, at: Date.now() });
+      if (speakLog.length > 60) speakLog.shift();
+      const finish = value => { speakAborts.delete(abort); done(value); };
+      const alive = () => epoch === undefined || epoch === speakEpoch;
       const gender = voice || Settings.data.voiceGender || 'female';
       API.speakScene(clean, { mood: mood || 'book', gender }).then(url => {
-        if (!url) { done(speakBrowserPiece(clean, mood, gender)); return; }
+        if (!alive()) { if (url) { try { URL.revokeObjectURL(url); } catch (e) {} } return finish(false); }
+        if (!url) { return finish(speakBrowserPiece(clean, mood, gender)); }
         const el = new window.Audio(url);
-        el.onended = () => { try { URL.revokeObjectURL(url); } catch (e) {} done(true); };
-        el.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} done(speakBrowserPiece(clean, mood, gender)); };
-        el.play().catch(() => done(speakBrowserPiece(clean, mood, gender)));
-      }).catch(() => done(speakBrowserPiece(clean, mood, gender)));
+        el.onended = () => { try { URL.revokeObjectURL(url); } catch (e) {} finish(true); };
+        el.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} finish(speakBrowserPiece(clean, mood, gender)); };
+        el.play().catch(() => finish(speakBrowserPiece(clean, mood, gender)));
+      }).catch(() => finish(speakBrowserPiece(clean, mood, gender)));
       // страховка: не застреваем навсегда, очередь должна идти дальше
-      setTimeout(() => done(true), 30000);
+      setTimeout(() => finish(true), 30000);
     });
   }
 
@@ -4556,10 +5557,12 @@
   function speakParagraphs(text, mood, voice) {
     const parts = E.paragraphMoods(text);
     if (!parts.length) return;
+    const epoch = speakEpoch;               // сцена, которую читаем
     speakChain = speakChain.then(async () => {
       for (const part of parts) {
-        if (!Voice.on) return;
-        await speakPiece(part.text, mood || part.mood, voice);
+        if (!speakStill(epoch)) return;     // игрок ушёл дальше — дальше не читаем
+        await speakPiece(part.text, mood || part.mood, voice, epoch);
+        if (!speakStill(epoch)) return;     // пауза не должна тянуть старую сцену
         await new Promise(r => setTimeout(r, PARAGRAPH_PAUSE));
       }
     }).catch(() => { /* цепочка не должна ломаться */ });
@@ -4952,8 +5955,30 @@
       switch (act) {
         case 'new-game': Sound.tap(); openScenarios(); break;
         case 'my-games': Sound.tap(); show('saves'); break;
-        case 'open-books': Sound.tap(); openScenarios(); setWorldMode('books'); break;
+        case 'daily-run': Sound.tap(); openDaily(); break;
+        case 'daily-start': startDaily(); break;
+        case 'daily-why': {
+          openModal({
+            title: 'Забег дня',
+            icon: '🗓',
+            text: 'Каждый день один мир, один герой и один набор бросков — общие для всех. ' +
+              'Ведущий встроенный: ключ и интернет не нужны. Счёт считают цель дня, жизнь, ' +
+              'припасы, предметы, криты и темп. Результат хранится на телефоне, а в облако ' +
+              'уходят только очки — без имени и без истории. Завтра выпадет новый мир.',
+            actions: [{ label: 'Понятно', kind: 'primary', onClick: () => closeModal() }]
+          });
+          break;
+        }
         case 'open-journal': Sound.tap(); show('journal'); break;
+        case 'open-bag':
+          Sound.tap();
+          show('journal');
+          // журнал покажет раздел сумки первым, что видно
+          setTimeout(() => {
+            const bag = $('#journal-bag');
+            if (bag && bag.scrollIntoView) bag.scrollIntoView({ block: 'start' });
+          }, 70);
+          break;
         case 'open-map': Sound.tap(); show('map'); break;
         case 'open-run': Sound.tap(); show('run'); break;
         case 'back-game':
@@ -4963,7 +5988,8 @@
         case 'cloud-put': Sound.tap(); cloudPutFlow(); break;
         case 'cloud-get': Sound.tap(); cloudGetFlow(); break;
         case 'back':
-          if (document.body.dataset.screen === 'scenarios') show('menu');
+          if (document.body.dataset.screen === 'daily') show('menu');
+          else if (document.body.dataset.screen === 'scenarios') show('menu');
           else if (document.body.dataset.screen === 'hero') show('scenarios');
           else if (document.body.dataset.screen === 'saves') show('menu');
           break;
@@ -5059,7 +6085,7 @@
     $('#log-toggle').addEventListener('click', () => {
       const wrap = $('#log-wrap');
       wrap.hidden = !wrap.hidden;
-      $('#log-toggle').textContent = wrap.hidden ? 'История' : 'Скрыть историю';
+      barLabel($('#log-toggle'), wrap.hidden ? 'История' : 'Скрыть');
     });
 
     // клавиши: 1/2/3 — вариант, U — умение, Esc — закрыть диалог

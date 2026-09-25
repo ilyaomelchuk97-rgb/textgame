@@ -1,0 +1,716 @@
+/* ============================================================
+ * Скины тем: не только цвет, но и материал интерфейса.
+ *
+ * Здесь живёт то, чем одна тема отличается от другой на ощупь:
+ * форма углов, кромка, заливка, блик, «шуба» из инея, сканлайны,
+ * заклёпки, бумажные листы, мягкие тени Material.
+ *
+ * Как это работает: каждая тема задаёт набор токенов --sk-*,
+ * а общий блок ниже применяет их к кнопкам, блокам, окнам и полосам.
+ * Разметка при этом одна и та же — меняется только материал, поэтому
+ * размеры кнопок и раскладка остаются прежними (44 px, 14 % / 22 %).
+ *
+ * Правило при правках: скины меняют цвет, кромку, радиус, тень и фон,
+ * но НИКОГДА — отступы, высоту и размер шрифта.
+ * ============================================================ */
+
+/* ------------------------------------------------------------
+ * 1. Общие умолчания: если тема ничего не переопределила — как «Ночь».
+ * ------------------------------------------------------------ */
+:root {
+  --sk-r-card: var(--radius, 16px);
+  --sk-r-btn: var(--radius, 16px);
+  --sk-r-small: 12px;
+  --sk-r-chip: 999px;
+
+  --sk-card-paint: linear-gradient(180deg, var(--panel-2, #101820), var(--panel, #0d1418));
+  --sk-card-gloss: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,0) 42%);
+  --sk-card-tint: transparent;
+  --sk-card-edge: var(--line);
+  --sk-card-shadow: var(--shadow, 0 10px 30px rgba(0,0,0,.45));
+
+  --sk-btn-paint: var(--btn-bg);
+  --sk-btn-gloss: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 48%);
+  --sk-btn-tint: transparent;
+  --sk-btn-edge: var(--line-strong);
+  --sk-btn-shadow: var(--ds-shadow, 0 1px 2px rgba(0,0,0,.35));
+  --sk-btn-text: var(--text);
+  --sk-btn-muted: var(--muted);
+
+  --sk-primary-paint: linear-gradient(180deg, var(--accent, #6fe3b8), color-mix(in srgb, var(--accent, #6fe3b8) 72%, #000 12%));
+  --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 52%);
+  --sk-primary-tint: transparent;
+  --sk-primary-edge: rgba(255,255,255,.25);
+  --sk-primary-text: #04231a;
+  --sk-primary-shadow: 0 8px 22px color-mix(in srgb, var(--accent, #6fe3b8) 26%, transparent);
+
+  --sk-bar-paint: var(--bar-bg);
+  --sk-bar-gloss: none;
+  --sk-bar-edge: var(--line);
+  --sk-bar-shadow: none;
+
+  --sk-scene-gloss: none;
+  --sk-glow: none;
+  --sk-tap: color-mix(in srgb, var(--accent, #6fe3b8) 34%, transparent);
+
+  /* Материал темы: настоящие фактуры (картинки, вшитые в сборку).
+     Тема задаёт три слоя затемнения — фон, полосы и панель текста, —
+     чтобы интерфейс оставался читаемым поверх картинки. */
+  --sk-art-bg: none;
+  --sk-art-tex: none;
+  --sk-art-tex-size: 340px;
+  --sk-scrim: none;
+  --sk-scrim-bars: none;
+  --sk-scrim-panel: none;
+}
+
+/* ------------------------------------------------------------
+ * 2. Один и тот же интерфейс, разные материалы.
+ *    Все правила ниже читают токены темы — отдельные компоненты
+ *    переписывать под каждую тему не нужно.
+ * ------------------------------------------------------------ */
+
+/* --- кнопки --- */
+body[data-theme] .btn {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-text);
+  border-radius: var(--sk-r-btn);
+  box-shadow: var(--sk-btn-shadow);
+}
+body[data-theme] .btn--primary {
+  background-color: var(--sk-primary-tint);
+  background-image: var(--sk-primary-gloss), var(--sk-art-tex), var(--sk-primary-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-primary-edge);
+  color: var(--sk-primary-text);
+  box-shadow: var(--sk-primary-shadow);
+}
+body[data-theme] .btn--ghost {
+  background-color: transparent;
+  background-image: var(--sk-btn-gloss), none;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-text);
+  box-shadow: none;
+}
+body[data-theme] .btn--quiet { background-image: none; box-shadow: none; }
+body[data-theme] .btn--danger { border-color: color-mix(in srgb, var(--danger, #ff6b6b) 45%, transparent); }
+
+body[data-theme] .icon-btn {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-text);
+  border-radius: var(--sk-r-small);
+  box-shadow: var(--sk-btn-shadow);
+}
+
+/* --- варианты действий: их видно чаще всего --- */
+body[data-theme] .action-btn {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-text);
+  border-radius: var(--sk-r-small);
+  box-shadow: var(--sk-btn-shadow);
+}
+body[data-theme] .action-btn__meta { color: var(--sk-btn-muted); }
+body[data-theme] .action-btn:active { border-color: color-mix(in srgb, var(--accent, #6fe3b8) 70%, transparent); }
+/* значки внутри кнопки тоже живут на её материале: на светлых кнопках
+   они не должны превращаться в бледные пятна */
+body[data-theme] .action-btn .tag,
+body[data-theme] .action-btn .tag__chance,
+body[data-theme] .action-btn .tag__adv {
+  color: var(--sk-btn-text);
+  border-color: color-mix(in srgb, var(--sk-btn-text) 32%, transparent);
+}
+
+/* --- нижний ряд значков --- */
+body[data-theme] .bar-btn {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-muted);
+  border-radius: var(--sk-r-small);
+  box-shadow: var(--sk-btn-shadow);
+}
+body[data-theme] .bar-btn.is-on, body[data-theme] .bar-btn[aria-pressed="true"] {
+  color: var(--sk-btn-text);
+  border-color: color-mix(in srgb, var(--accent, #6fe3b8) 60%, transparent);
+}
+
+/* --- вкладки, чипы, переключатели --- */
+body[data-theme] .tab {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, calc(var(--sk-art-tex-size) * 0.8) calc(var(--sk-art-tex-size) * 0.8), auto;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-muted);
+  border-radius: var(--sk-r-small);
+}
+body[data-theme] .tab.is-active {
+  background-image: var(--sk-primary-gloss), var(--sk-art-tex), var(--sk-primary-paint);
+  background-size: auto, calc(var(--sk-art-tex-size) * 0.8) calc(var(--sk-art-tex-size) * 0.8), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-primary-edge);
+  color: var(--sk-primary-text);
+  box-shadow: var(--sk-primary-shadow);
+}
+body[data-theme] .chip {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, calc(var(--sk-art-tex-size) * 0.7) calc(var(--sk-art-tex-size) * 0.7), auto;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-text);
+  border-radius: var(--sk-r-chip);
+}
+body[data-theme] .chip.is-on {
+  background-image: var(--sk-primary-gloss), var(--sk-art-tex), var(--sk-primary-paint);
+  background-size: auto, calc(var(--sk-art-tex-size) * 0.7) calc(var(--sk-art-tex-size) * 0.7), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-primary-edge);
+  color: var(--sk-primary-text);
+}
+body[data-theme] .rules-btn, body[data-theme] .log-toggle, body[data-theme] .books-filter__chip {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-btn-paint);
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-muted);
+  box-shadow: var(--sk-btn-shadow);
+}
+body[data-theme] .rules-btn.is-on, body[data-theme] .books-filter__chip.is-on {
+  background-image: var(--sk-primary-gloss), var(--sk-primary-paint);
+  border-color: var(--sk-primary-edge);
+  color: var(--sk-primary-text);
+}
+body[data-theme] .mech-chip {
+  background-color: var(--sk-btn-tint);
+  background-image: var(--sk-btn-gloss), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, calc(var(--sk-art-tex-size) * 0.6) calc(var(--sk-art-tex-size) * 0.6), auto;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-btn-edge);
+  color: var(--sk-btn-text);
+  border-radius: var(--sk-r-chip);
+}
+body[data-theme] .mech-chip--use {
+  background-image: var(--sk-btn-gloss), var(--sk-btn-paint),
+    linear-gradient(0deg, color-mix(in srgb, var(--accent, #6fe3b8) 14%, transparent), color-mix(in srgb, var(--accent, #6fe3b8) 14%, transparent));
+  border-color: color-mix(in srgb, var(--accent, #6fe3b8) 50%, transparent);
+}
+body[data-theme] .mech-chip__hint { color: var(--sk-btn-muted); }
+
+/* --- блоки и карточки --- */
+body[data-theme] .book-card,
+body[data-theme] .arch-card,
+body[data-theme] .save-card,
+body[data-theme] .scenario-card,
+body[data-theme] .hero-legacy,
+body[data-theme] .epilogue__stat,
+body[data-theme] .notice,
+body[data-theme] .item-card {
+  background-color: var(--sk-card-tint);
+  background-image: var(--sk-card-gloss), var(--sk-art-tex), var(--sk-card-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-card-edge);
+  border-radius: var(--sk-r-card);
+  box-shadow: var(--sk-card-shadow);
+}
+body[data-theme] .scenario-card { overflow: hidden; }
+body[data-theme] .book-card__title, body[data-theme] .item-card__name { text-shadow: var(--sk-glow); }
+
+/* --- окна: настройки, пролог, эпилог, тосты --- */
+body[data-theme] .modal-box,
+body[data-theme] .prologue__inner,
+body[data-theme] .toast,
+body[data-theme] .loading-box {
+  background-color: var(--sk-card-tint);
+  background-image: var(--sk-card-gloss), var(--sk-art-tex), var(--sk-card-paint);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border-color: var(--sk-card-edge);
+  border-radius: var(--sk-r-card);
+  box-shadow: var(--sk-card-shadow);
+}
+body[data-theme] .modal__title, body[data-theme] .prologue__title, body[data-theme] .prologue__hero { text-shadow: var(--sk-glow); }
+
+/* --- полосы: шапка, подвал с вариантами, полоса механик --- */
+body[data-theme] .game-topbar,
+body[data-theme] .actions,
+body[data-theme] .mech-bar,
+body[data-theme] .footer-bar,
+body[data-theme] .tabs {
+  background-color: transparent;
+  background-image: var(--sk-bar-gloss), var(--sk-scrim-bars), var(--sk-art-tex), var(--sk-bar-paint);
+  background-size: auto, auto, 300px 300px, auto;
+  background-position: center;
+  background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, normal, overlay, normal;
+  border-color: var(--sk-bar-edge);
+  box-shadow: var(--sk-bar-shadow);
+}
+body[data-theme] .game-title { text-shadow: var(--sk-glow); }
+
+/* --- сама сцена: поверх фона темы --- */
+body[data-theme] .panel {
+  background-color: var(--bg);
+  /* материал темы — первым слоем: он виден, затемнение только помогает чтению */
+  background-image: var(--sk-scrim-panel), var(--sk-art-bg),
+    radial-gradient(120% 60% at 50% 0%, var(--wash), transparent 70%);
+  background-size: cover, cover, auto;
+  background-position: center, center, center;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-blend-mode: normal, normal, normal;
+}
+body[data-theme] .screen {
+  background-image: var(--sk-scrim), var(--sk-art-bg);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+}
+/* у меню своя картинка — материал темы её не перекрывает */
+body[data-theme] .screen--menu { background-image: none; }
+body[data-theme] .screen--game {
+  background-image: var(--sk-scrim), var(--sk-art-bg), var(--sk-scene-gloss);
+  background-size: cover, cover, auto;
+}
+
+/* --- волна от касания: цвет темы, а не зелёный по умолчанию --- */
+body[data-theme] .tap-ripple { background: radial-gradient(circle, var(--sk-tap), transparent 70%); }
+
+/* --- прокрутка и мелочи --- */
+body[data-theme] .toast--good { border-color: color-mix(in srgb, var(--good, #6fe3b8) 55%, transparent); }
+body[data-theme] .toast--bad { border-color: color-mix(in srgb, var(--danger, #ff6b6b) 55%, transparent); }
+
+/* ------------------------------------------------------------
+ * 3. Девять материалов. Тема задаёт токены — их подхватывает всё выше.
+ * ------------------------------------------------------------ */
+
+/* --- Ночь: тёмное стекло с мягким кантом --- */
+body[data-theme="night"], .skin-demo[data-tp="night"] {
+  /* материал: ночной туман в фоне и дымчатое стекло на кнопках */
+  --sk-art-bg: url("assets/themes/night-bg.webp");
+  --sk-art-tex: url("assets/themes/night-tex.webp");
+  --sk-art-tex-size: 380px;
+  --sk-scrim: linear-gradient(180deg, rgba(3,6,9,.30), rgba(2,4,7,.70));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(5,8,11,.58), rgba(3,5,8,.82));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(4,7,10,.62), rgba(2,4,6,.76));
+  --sk-r-card: 16px; --sk-r-btn: 14px; --sk-r-small: 12px; --sk-r-chip: 999px;
+  --sk-card-paint: linear-gradient(180deg, rgba(22,32,37,.94), rgba(13,20,24,.92));
+  --sk-card-gloss: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,0) 42%);
+  --sk-card-edge: rgba(145,200,190,.18);
+  --sk-card-shadow: 0 10px 26px rgba(0,0,0,.42);
+  --sk-btn-paint: linear-gradient(180deg, rgba(26,38,43,.95), rgba(15,23,27,.95));
+  --sk-btn-gloss: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 48%);
+  --sk-btn-edge: rgba(145,200,190,.26);
+  --sk-btn-shadow: 0 2px 6px rgba(0,0,0,.32);
+  --sk-btn-text: #e6eef5; --sk-btn-muted: #8d9aa8;
+  --sk-primary-paint: linear-gradient(180deg, #6fe3b8, #34b98a);
+  --sk-primary-text: #04231a; --sk-primary-edge: rgba(255,255,255,.25);
+  --sk-bar-paint: linear-gradient(180deg, rgba(12,19,22,.98), rgba(9,15,18,.92));
+  --sk-bar-edge: rgba(145,200,190,.14);
+  --sk-bar-shadow: 0 -6px 20px rgba(0,0,0,.32);
+  --sk-tap: rgba(150,245,214,.32);
+}
+
+/* --- Материальная: плоские карточки, тени, никаких рамок --- */
+body[data-theme="material"], .skin-demo[data-tp="material"] {
+  /* материал: светлая бумага — фон и мелкое зерно на кнопках */
+  --sk-art-bg: url("assets/themes/material-bg.webp");
+  --sk-art-tex: url("assets/themes/material-tex.webp");
+  --sk-art-tex-size: 520px;
+  --sk-scrim: linear-gradient(180deg, rgba(247,245,252,.36), rgba(233,230,242,.58));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(255,255,255,.55), rgba(246,244,251,.70));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(250,249,253,.70), rgba(240,238,246,.80));
+  --sk-r-card: 20px; --sk-r-btn: 20px; --sk-r-small: 14px; --sk-r-chip: 999px;
+  --sk-card-paint: linear-gradient(180deg, #ffffff, #fbfaff);
+  --sk-card-gloss: none; --sk-card-tint: #ffffff;
+  --sk-card-edge: rgba(28,27,31,0);
+  --sk-card-shadow: 0 1px 2px rgba(28,27,31,.10), 0 4px 14px rgba(28,27,31,.10);
+  --sk-btn-paint: none; --sk-btn-tint: #ffffff; --sk-btn-gloss: none;
+  --sk-btn-edge: rgba(28,27,31,0);
+  --sk-btn-shadow: 0 1px 2px rgba(28,27,31,.12), 0 2px 8px rgba(28,27,31,.08);
+  --sk-btn-text: #1c1b1f; --sk-btn-muted: #5f5b6b;
+  --sk-primary-paint: linear-gradient(180deg, #7d66c1, #6750a4);
+  --sk-primary-gloss: none; --sk-primary-tint: #6750a4;
+  --sk-primary-text: #ffffff; --sk-primary-edge: rgba(0,0,0,0);
+  --sk-primary-shadow: 0 3px 10px rgba(103,80,164,.34);
+  --sk-bar-paint: linear-gradient(180deg, #ffffff, #f6f4fb);
+  --sk-bar-edge: rgba(28,27,31,.08);
+  --sk-bar-shadow: 0 -1px 0 rgba(28,27,31,.06), 0 -8px 24px rgba(28,27,31,.06);
+  --sk-scene-gloss: radial-gradient(140% 70% at 50% 0%, rgba(103,80,164,.06), rgba(103,80,164,0) 70%);
+  --sk-tap: rgba(103,80,164,.22);
+}
+
+/* --- Киберпанк: сканлайны, неоновая кромка, свечение --- */
+body[data-theme="neon"], .skin-demo[data-tp="neon"] {
+  /* материал: мокрый неон и шлифованный металл */
+  --sk-art-bg: url("assets/themes/neon-bg.webp");
+  --sk-art-tex: url("assets/themes/neon-tex.webp");
+  --sk-art-tex-size: 300px;
+  --sk-scrim: linear-gradient(180deg, rgba(6,4,16,.42), rgba(3,2,10,.78));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(12,6,28,.60), rgba(6,4,18,.82));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(8,5,20,.74), rgba(4,3,12,.84));
+  --sk-r-card: 6px; --sk-r-btn: 4px; --sk-r-small: 6px; --sk-r-chip: 4px;
+  --sk-card-paint: linear-gradient(180deg, rgba(30,16,58,.92), rgba(16,12,36,.94));
+  --sk-card-gloss: repeating-linear-gradient(0deg, rgba(73,224,255,.06) 0 1px, rgba(73,224,255,0) 1px 4px),
+    linear-gradient(180deg, rgba(255,92,240,.14), rgba(255,92,240,0) 40%);
+  --sk-card-edge: rgba(73,224,255,.42);
+  --sk-card-shadow: 0 0 0 1px rgba(255,92,240,.16) inset, 0 10px 30px rgba(73,224,255,.16);
+  --sk-btn-paint: linear-gradient(180deg, rgba(38,20,74,.92), rgba(18,12,40,.94));
+  --sk-btn-gloss: repeating-linear-gradient(0deg, rgba(73,224,255,.07) 0 1px, rgba(73,224,255,0) 1px 3px);
+  --sk-btn-edge: rgba(73,224,255,.5);
+  --sk-btn-shadow: 0 0 12px rgba(73,224,255,.18), 0 0 0 1px rgba(73,224,255,.12) inset;
+  --sk-btn-text: #eae6ff; --sk-btn-muted: #9a95c4;
+  --sk-primary-paint: linear-gradient(180deg, #49e0ff, #2a9fd6);
+  --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.16) 0 1px, rgba(255,255,255,0) 1px 4px);
+  --sk-primary-text: #06121c; --sk-primary-edge: rgba(255,92,240,.55);
+  --sk-primary-shadow: 0 0 18px rgba(73,224,255,.5);
+  --sk-bar-paint: linear-gradient(180deg, rgba(14,10,30,.98), rgba(10,7,22,.94));
+  --sk-bar-edge: rgba(73,224,255,.35);
+  --sk-bar-shadow: 0 -1px 0 rgba(73,224,255,.25), 0 -10px 30px rgba(73,224,255,.12);
+  --sk-scene-gloss: repeating-linear-gradient(0deg, rgba(73,224,255,.035) 0 1px, rgba(0,0,0,0) 1px 3px);
+  --sk-glow: 0 0 12px rgba(73,224,255,.55);
+  --sk-tap: rgba(73,224,255,.4);
+}
+
+/* --- Терминал: фосфор, пунктирные рамки, сканлайны --- */
+body[data-theme="terminal"], .skin-demo[data-tp="terminal"] {
+  /* материал: фосфорный экран и строки развёртки */
+  --sk-art-bg: url("assets/themes/terminal-bg.webp");
+  --sk-art-tex: url("assets/themes/terminal-tex.webp");
+  --sk-art-tex-size: 240px;
+  --sk-scrim: linear-gradient(180deg, rgba(2,7,4,.62), rgba(1,4,2,.88));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(3,10,6,.70), rgba(2,6,4,.86));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(2,6,4,.84), rgba(1,4,2,.90));
+  --sk-r-card: 4px; --sk-r-btn: 3px; --sk-r-small: 4px; --sk-r-chip: 3px;
+  --sk-card-paint: linear-gradient(180deg, rgba(6,22,13,.94), rgba(4,14,9,.95));
+  --sk-card-gloss: linear-gradient(180deg, rgba(120,255,170,.09), rgba(120,255,170,0) 45%),
+    repeating-linear-gradient(0deg, rgba(120,255,170,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
+  --sk-card-edge: rgba(120,255,170,.45);
+  --sk-card-shadow: 0 0 0 1px rgba(120,255,170,.06) inset, 0 0 18px rgba(120,255,170,.10);
+  --sk-btn-paint: linear-gradient(180deg, rgba(9,30,18,.94), rgba(4,14,9,.95));
+  --sk-btn-gloss: repeating-linear-gradient(0deg, rgba(120,255,170,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
+  --sk-btn-edge: rgba(120,255,170,.5);
+  --sk-btn-shadow: 0 0 10px rgba(120,255,170,.14);
+  --sk-btn-text: #c8ffdd; --sk-btn-muted: #6fae8a;
+  --sk-primary-paint: linear-gradient(180deg, #63ff9e, #12a052);
+  --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.12) 0 1px, rgba(255,255,255,0) 1px 4px);
+  --sk-primary-text: #04170c; --sk-primary-edge: rgba(120,255,170,.6);
+  --sk-primary-shadow: 0 0 16px rgba(99,255,158,.4);
+  --sk-bar-paint: linear-gradient(180deg, rgba(5,16,10,.98), rgba(3,10,6,.95));
+  --sk-bar-edge: rgba(120,255,170,.4);
+  --sk-bar-shadow: 0 -1px 0 rgba(120,255,170,.3);
+  --sk-scene-gloss: repeating-linear-gradient(0deg, rgba(120,255,170,.05) 0 1px, rgba(0,0,0,0) 1px 3px);
+  --sk-glow: 0 0 10px rgba(99,255,158,.5);
+  --sk-tap: rgba(99,255,158,.35);
+}
+/* консольные рамки: единственная тема, где кромка пунктирная */
+body[data-theme="terminal"] .btn,
+body[data-theme="terminal"] .action-btn,
+body[data-theme="terminal"] .chip,
+body[data-theme="terminal"] .bar-btn,
+body[data-theme="terminal"] .tab,
+body[data-theme="terminal"] .rules-btn,
+body[data-theme="terminal"] .book-card,
+body[data-theme="terminal"] .arch-card,
+body[data-theme="terminal"] .save-card,
+body[data-theme="terminal"] .scenario-card,
+body[data-theme="terminal"] .modal-box { border-style: dashed; }
+
+/* --- Пергамент: бумажные листы на тёмном столе, кромка неровная --- */
+body[data-theme="parchment"], .skin-demo[data-tp="parchment"] {
+  /* материал: состаренный лист — фон и волокна бумаги на кнопках */
+  --sk-art-bg: url("assets/themes/parchment-bg.webp");
+  --sk-art-tex: url("assets/themes/parchment-tex.webp");
+  --sk-art-tex-size: 480px;
+  --sk-scrim: linear-gradient(180deg, rgba(28,20,10,.26), rgba(16,11,5,.62));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(40,28,14,.40), rgba(24,17,8,.62));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(30,21,11,.62), rgba(18,13,6,.76));
+  --sk-r-card: 14px 6px 16px 8px; --sk-r-btn: 12px 5px 14px 6px;
+  --sk-r-small: 8px 4px 10px 5px; --sk-r-chip: 10px 5px 12px 6px;
+  --sk-card-paint: linear-gradient(180deg, #f7edd6, #e9d9b6);
+  --sk-card-gloss: repeating-linear-gradient(93deg, rgba(160,120,60,.05) 0 2px, rgba(160,120,60,0) 2px 6px),
+    radial-gradient(120% 80% at 50% 120%, rgba(150,110,50,.18), rgba(150,110,50,0) 60%);
+  --sk-card-tint: transparent;
+  --sk-card-edge: rgba(120,86,40,.45);
+  --sk-card-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 6px 16px rgba(60,40,14,.34);
+  --sk-btn-paint: linear-gradient(180deg, #f8f0db, #e6d4ad);
+  --sk-btn-gloss: radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,.75), rgba(255,255,255,0) 55%);
+  --sk-btn-edge: rgba(120,86,40,.5);
+  --sk-btn-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 3px 10px rgba(60,40,14,.28);
+  --sk-btn-text: #3a2a14; --sk-btn-muted: rgba(58,42,20,.72);
+  --sk-primary-paint: linear-gradient(180deg, #c9903f, #9a6a26);
+  --sk-primary-gloss: radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,.45), rgba(255,255,255,0) 60%);
+  --sk-primary-text: #2a1c08; --sk-primary-edge: rgba(70,46,14,.55);
+  --sk-primary-shadow: 0 6px 16px rgba(90,60,20,.32);
+  --sk-bar-paint: linear-gradient(180deg, rgba(26,20,11,.96), rgba(16,12,7,.94));
+  --sk-bar-edge: rgba(215,180,120,.3);
+  --sk-bar-shadow: 0 -8px 22px rgba(0,0,0,.45);
+  --sk-glow: none;
+  --sk-tap: rgba(180,140,80,.3);
+}
+/* на ледяных кнопках подписи и значки — холодный синий, как иней в тени */
+body[data-theme="ice"] .tag--stat,
+body[data-theme="ice"] .tag--chance,
+body[data-theme="ice"] .tag__chance,
+body[data-theme="ice"] .action-btn__meta,
+body[data-theme="ice"] .mech-chip__hint { color: #2c5a7a; border-color: rgba(44,90,122,.35); }
+body[data-theme="ice"] .tag__adv { color: #1f6b8f; }
+
+/* на бумажных кнопках пояснения и значки читаются тёмным, а не светлым */
+body[data-theme="parchment"] .tag--stat,
+body[data-theme="parchment"] .tag--chance,
+body[data-theme="parchment"] .tag__chance { color: #5a3f18; border-color: rgba(120,86,40,.4); }
+body[data-theme="parchment"] .tag__adv { color: #7a4a12; }
+
+/* --- Тушь и медь: прямые углы, медная кромка, заклёпки по углам --- */
+body[data-theme="ink"], .skin-demo[data-tp="ink"] {
+  /* материал: тёмный дуб — фон, кованая медь — фактура кнопок */
+  --sk-art-bg: url("assets/themes/ink-bg.webp");
+  --sk-art-tex: url("assets/themes/ink-tex.webp");
+  --sk-art-tex-size: 560px;
+  --sk-scrim: linear-gradient(180deg, rgba(10,8,6,.50), rgba(6,5,3,.80));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(16,13,10,.58), rgba(9,7,5,.80));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(12,10,8,.72), rgba(7,6,4,.82));
+  --sk-r-card: 3px; --sk-r-btn: 2px; --sk-r-small: 3px; --sk-r-chip: 2px;
+  --sk-card-paint: linear-gradient(180deg, rgba(26,26,28,.95), rgba(16,16,18,.96));
+  --sk-card-gloss:
+    radial-gradient(7px 7px at 7px 7px, rgba(217,167,106,.5), rgba(217,167,106,0) 70%),
+    radial-gradient(7px 7px at calc(100% - 7px) 7px, rgba(217,167,106,.5), rgba(217,167,106,0) 70%),
+    radial-gradient(7px 7px at 7px calc(100% - 7px), rgba(217,167,106,.5), rgba(217,167,106,0) 70%),
+    radial-gradient(7px 7px at calc(100% - 7px) calc(100% - 7px), rgba(217,167,106,.5), rgba(217,167,106,0) 70%);
+  --sk-card-edge: rgba(217,167,106,.42);
+  --sk-card-shadow: 0 0 0 1px rgba(217,167,106,.10) inset, 0 6px 18px rgba(0,0,0,.5);
+  --sk-btn-paint: linear-gradient(180deg, rgba(34,33,32,.96), rgba(20,20,21,.96));
+  --sk-btn-gloss:
+    radial-gradient(5px 5px at 5px 50%, rgba(217,167,106,.42), rgba(217,167,106,0) 75%),
+    radial-gradient(5px 5px at calc(100% - 5px) 50%, rgba(217,167,106,.42), rgba(217,167,106,0) 75%);
+  --sk-btn-edge: rgba(217,167,106,.45);
+  --sk-btn-shadow: 0 0 0 1px rgba(217,167,106,.12) inset, 0 2px 6px rgba(0,0,0,.5);
+  --sk-btn-text: #ece9e3; --sk-btn-muted: #9b968c;
+  --sk-primary-paint: linear-gradient(180deg, #e0b378, #b07f3c);
+  --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 55%);
+  --sk-primary-text: #1b1206; --sk-primary-edge: rgba(255,235,200,.35);
+  --sk-primary-shadow: 0 4px 14px rgba(180,130,60,.3);
+  --sk-bar-paint: linear-gradient(180deg, rgba(16,16,18,.98), rgba(10,10,11,.95));
+  --sk-bar-edge: rgba(217,167,106,.3);
+  --sk-bar-shadow: 0 -1px 0 rgba(217,167,106,.18);
+  --sk-glow: none;
+  --sk-tap: rgba(217,167,106,.3);
+}
+
+/* --- Закат: тёплые градиенты и мягкое свечение --- */
+body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
+  /* материал: настоящий закат — небо в фоне, тёплый лён на кнопках */
+  --sk-art-bg: url("assets/themes/sunset-bg.webp");
+  --sk-art-tex: url("assets/themes/sunset-tex.webp");
+  --sk-art-tex-size: 420px;
+  --sk-scrim: linear-gradient(180deg, rgba(26,12,20,.36), rgba(10,6,12,.72));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(40,17,30,.62), rgba(20,9,18,.80));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(24,11,20,.66), rgba(14,7,16,.78));
+  --sk-r-card: 22px; --sk-r-btn: 20px; --sk-r-small: 14px; --sk-r-chip: 999px;
+  --sk-card-paint: linear-gradient(172deg, rgba(78,30,66,.94), rgba(40,18,44,.95));
+  --sk-card-gloss: radial-gradient(120% 90% at 15% -20%, rgba(255,154,92,.5), rgba(255,154,92,0) 55%),
+    radial-gradient(100% 80% at 85% 120%, rgba(180,80,180,.35), rgba(180,80,180,0) 60%);
+  --sk-card-edge: rgba(255,170,130,.4);
+  --sk-card-shadow: 0 10px 28px rgba(255,120,90,.18);
+  --sk-btn-paint: linear-gradient(172deg, rgba(96,38,76,.95), rgba(48,22,50,.95));
+  --sk-btn-gloss: radial-gradient(120% 100% at 12% -20%, rgba(255,180,120,.45), rgba(255,180,120,0) 58%);
+  --sk-btn-edge: rgba(255,170,130,.45);
+  --sk-btn-shadow: 0 3px 12px rgba(255,120,90,.2);
+  --sk-btn-text: #ffe9e0; --sk-btn-muted: #c39aa8;
+  --sk-primary-paint: linear-gradient(180deg, #ffb066, #e2703a);
+  --sk-primary-gloss: radial-gradient(120% 100% at 20% -20%, rgba(255,235,200,.6), rgba(255,235,200,0) 60%);
+  --sk-primary-text: #2b1206; --sk-primary-edge: rgba(255,220,180,.5);
+  --sk-primary-shadow: 0 10px 26px rgba(255,140,80,.35);
+  --sk-bar-paint: linear-gradient(180deg, rgba(44,20,48,.98), rgba(28,13,32,.95));
+  --sk-bar-edge: rgba(255,170,130,.35);
+  --sk-bar-shadow: 0 -8px 26px rgba(255,120,90,.14);
+  --sk-scene-gloss: radial-gradient(120% 70% at 50% 110%, rgba(255,140,90,.18), rgba(255,140,90,0) 60%);
+  --sk-glow: 0 0 16px rgba(255,154,92,.4);
+  --sk-tap: rgba(255,154,92,.35);
+}
+
+/* --- Лёд: кнопки и блоки покрыты наледью --- */
+body[data-theme="ice"], .skin-demo[data-tp="ice"] {
+  /* материал: настоящий лёд — фон и фактура кнопок */
+  --sk-art-bg: url("assets/themes/ice-bg.webp");
+  --sk-art-tex: url("assets/themes/ice-tex.webp");
+  --sk-art-tex-size: 700px;
+  --sk-scrim: linear-gradient(180deg, rgba(238,246,252,.42), rgba(212,230,245,.66));
+  --sk-scrim-bars: linear-gradient(180deg, rgba(255,255,255,.60), rgba(238,246,252,.72));
+  --sk-scrim-panel: linear-gradient(180deg, rgba(247,251,255,.72), rgba(233,242,250,.80));
+  --sk-r-card: 18px; --sk-r-btn: 16px; --sk-r-small: 12px; --sk-r-chip: 999px;
+  /* наледь: снежные шапки по верхним углам, холодный низ, морозные лучики */
+  --sk-card-paint: linear-gradient(168deg, #fdfeff, #e4f1fc 42%, #cbe1f4 100%);
+  --sk-card-gloss:
+    radial-gradient(120% 80% at 12% -14%, rgba(255,255,255,.98), rgba(255,255,255,0) 55%),
+    radial-gradient(90% 70% at 92% -18%, rgba(255,255,255,.85), rgba(255,255,255,0) 52%),
+    radial-gradient(70% 60% at 50% 120%, rgba(150,205,238,.55), rgba(150,205,238,0) 62%),
+    repeating-linear-gradient(112deg, rgba(255,255,255,.45) 0 1px, rgba(255,255,255,0) 1px 9px);
+  --sk-card-edge: rgba(255,255,255,.92);
+  --sk-card-shadow: 0 1px 0 rgba(255,255,255,.95) inset,
+    0 -7px 14px rgba(120,180,220,.35) inset, 0 8px 22px rgba(60,120,170,.22);
+  --sk-btn-paint: linear-gradient(170deg, #f6fcff, #d5e9fa 52%, #bad6ee);
+  --sk-btn-gloss:
+    radial-gradient(120% 90% at 10% -22%, rgba(255,255,255,1), rgba(255,255,255,0) 58%),
+    radial-gradient(70% 60% at 88% 118%, rgba(150,205,238,.5), rgba(150,205,238,0) 60%),
+    repeating-linear-gradient(118deg, rgba(255,255,255,.5) 0 1px, rgba(255,255,255,0) 1px 8px);
+  --sk-btn-edge: rgba(255,255,255,.95);
+  --sk-btn-shadow: 0 1px 0 #ffffff inset, 0 -4px 10px rgba(130,185,225,.35) inset,
+    0 6px 16px rgba(60,120,170,.2);
+  --sk-btn-text: #123244; --sk-btn-muted: #3d627b;
+  --sk-primary-paint: linear-gradient(170deg, #9ad8ff, #3f92cd 55%, #1f6da3);
+  --sk-primary-gloss:
+    radial-gradient(120% 90% at 12% -22%, rgba(255,255,255,.9), rgba(255,255,255,0) 60%),
+    repeating-linear-gradient(118deg, rgba(255,255,255,.28) 0 1px, rgba(255,255,255,0) 1px 9px);
+  --sk-primary-text: #04222f; --sk-primary-edge: rgba(255,255,255,.85);
+  --sk-primary-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 6px 18px rgba(50,125,180,.35);
+  --sk-bar-paint: linear-gradient(180deg, rgba(255,255,255,.99), rgba(232,242,250,.96));
+  --sk-bar-gloss: repeating-linear-gradient(112deg, rgba(255,255,255,.5) 0 1px, rgba(255,255,255,0) 1px 10px);
+  --sk-bar-edge: rgba(255,255,255,.9);
+  --sk-bar-shadow: 0 -1px 0 rgba(255,255,255,.9) inset, 0 -8px 22px rgba(60,120,170,.14);
+  --sk-scene-gloss: radial-gradient(120% 60% at 50% -10%, rgba(255,255,255,.5), rgba(255,255,255,0) 60%);
+  --sk-glow: 0 1px 0 rgba(255,255,255,.9);
+  --sk-tap: rgba(120,190,235,.45);
+}
+/* наледь по кромке: сосульки висят с шапки над кадром и с подвала игры.
+   Сосульки кладём поверх тёмного кадра — там их видно, а на светлой шапке
+   остаётся только морозный иней по краю. */
+body[data-theme="ice"] .game-topbar,
+body[data-theme="ice"] .actions,
+body[data-theme="ice"] .modal-box,
+body[data-theme="ice"] .prologue__inner,
+body[data-theme="ice"] .scene-media { position: relative; }
+body[data-theme="ice"] .scene-media::after,
+body[data-theme="ice"] .actions::after,
+body[data-theme="ice"] .modal-box::after,
+body[data-theme="ice"] .prologue__inner::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0; height: 28px;
+  z-index: 2;
+  pointer-events: none;
+  background-repeat: repeat-x;
+  background-size: 38px 28px;
+  background-image:
+    radial-gradient(8px 26px at 19px 0, rgba(206,234,255,.97), rgba(206,234,255,0) 100%),
+    radial-gradient(6px 17px at 5px 0, rgba(228,244,255,.95), rgba(228,244,255,0) 100%),
+    radial-gradient(5px 11px at 32px 0, rgba(222,240,255,.9), rgba(222,240,255,0) 100%),
+    radial-gradient(4px 7px at 11px 0, rgba(240,250,255,.85), rgba(240,250,255,0) 100%),
+    linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,0) 45%);
+}
+/* сам кадр в морозной рамке: края подёрнуты инеем, середина чистая */
+body[data-theme="ice"] .scene-media::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(130% 110% at 50% 50%, rgba(210,236,255,0) 52%, rgba(210,236,255,.42) 100%),
+    linear-gradient(180deg, rgba(255,255,255,.5), rgba(255,255,255,0) 22%);
+}
+body[data-theme="ice"] .actions::after { top: auto; bottom: 0; transform: scaleY(-1); }
+body[data-theme="ice"] .modal-box::after,
+body[data-theme="ice"] .prologue__inner::after { height: 16px; background-size: 30px 16px; opacity: .75; }
+body[data-theme="ice"] .mech-bar { box-shadow: 0 -1px 0 rgba(255,255,255,.9) inset, 0 -6px 16px rgba(60,120,170,.12); }
+
+/* --- Чёрная: только контур, ничего лишнего --- */
+body[data-theme="oled"], .skin-demo[data-tp="oled"] {
+  --sk-r-card: 8px; --sk-r-btn: 8px; --sk-r-small: 6px; --sk-r-chip: 6px;
+  --sk-card-paint: none; --sk-card-tint: #000000; --sk-card-gloss: none;
+  --sk-card-edge: rgba(255,255,255,.14);
+  --sk-card-shadow: none;
+  --sk-btn-paint: none; --sk-btn-tint: #000000; --sk-btn-gloss: none;
+  --sk-btn-edge: rgba(255,255,255,.24);
+  --sk-btn-shadow: none;
+  --sk-btn-text: #f2f2f2; --sk-btn-muted: #9a9a9a;
+  --sk-primary-paint: none; --sk-primary-tint: #f2f2f2;
+  --sk-primary-gloss: none; --sk-primary-edge: rgba(255,255,255,.4);
+  --sk-primary-text: #000000; --sk-primary-shadow: none;
+  --sk-bar-paint: #000000; --sk-bar-edge: rgba(255,255,255,.12); --sk-bar-shadow: none;
+  --sk-scene-gloss: none; --sk-glow: none;
+  --sk-tap: rgba(255,255,255,.18);
+}
+
+/* ------------------------------------------------------------
+ * 4. Это не только внутри игры: тот же материал видно в настройках,
+ *    рядом с названием темы — маленький образец кнопки и карточки.
+ * ------------------------------------------------------------ */
+.skin-demo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 44px;
+  height: 22px;
+  flex: 0 0 auto;
+  margin-right: 7px;
+  vertical-align: middle;
+  background-color: var(--sk-card-tint, transparent);
+  background-image: var(--sk-card-gloss, none), var(--sk-art-tex, none), var(--sk-card-paint, none);
+  background-size: auto, 96px 96px, auto;
+  background-position: center, center, center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border: 1px solid var(--sk-card-edge, var(--line));
+  border-radius: var(--sk-r-card, 16px);
+  box-shadow: var(--sk-card-shadow, none);
+}
+.skin-demo__btn {
+  display: block;
+  flex: 1 1 auto;
+  height: 12px;
+  margin: 0 3px;
+  background-color: var(--sk-btn-tint, transparent);
+  background-image: var(--sk-btn-gloss, none), var(--sk-art-tex, none), var(--sk-btn-paint, none);
+  background-size: auto, 42px 42px, auto;
+  background-position: center, center, center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  border: 1px solid var(--sk-btn-edge, var(--line-strong));
+  border-radius: var(--sk-r-btn, 14px);
+  box-shadow: var(--sk-btn-shadow, none);
+}
+/* образец «Авто»: половинка светлая, половинка тёмная — тема выбирается по жанру */
+.skin-demo[data-tp="auto"] {
+  background-image: linear-gradient(90deg, #e9e6f2 0 50%, #0a0f14 50% 100%);
+  border-color: var(--line);
+}
+.skin-demo[data-tp="auto"] .skin-demo__btn {
+  background-image: linear-gradient(90deg, #6750a4 0 50%, #34b98a 50% 100%);
+  border-color: var(--line-strong);
+}
+/* в строке правил образец идёт первым, текст — следом */
+.rules-btn .skin-demo { pointer-events: none; }

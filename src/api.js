@@ -777,6 +777,47 @@
     } finally { t.done(); }
   }
 
+  /* ---------------------------------------------------------- */
+  /* Забег дня: чужие результаты живут в облаке (если оно есть)   */
+  /* ---------------------------------------------------------- */
+
+  /** Что показали другие в этот день: сколько прошли и с каким счётом. */
+  async function dailyBoard(date) {
+    const server = await probeBackend();
+    if (!server) return { ok: false, reason: 'облако молчит' };
+    const t = withTimeout(9000);
+    try {
+      const res = await fetch(serverUrl('api/daily?date=' + encodeURIComponent(String(date || ''))), { signal: t.signal });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status);
+      return { ok: true, board: data };
+    } catch (err) {
+      log('забег дня: доска не ответила', String(err && err.message || err));
+      return { ok: false, reason: String(err && err.message || err) };
+    } finally { t.done(); }
+  }
+
+  /** Отдать свой результат забега и получить место среди прошедших. */
+  async function dailySubmit(entry) {
+    const server = await probeBackend();
+    if (!server) return { ok: false, reason: 'облако молчит' };
+    const t = withTimeout(12000);
+    try {
+      const res = await fetch(serverUrl('api/daily'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(entry),
+        signal: t.signal
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'HTTP ' + res.status);
+      return { ok: true, board: data };
+    } catch (err) {
+      log('забег дня: результат не ушёл', String(err && err.message || err));
+      return { ok: false, reason: String(err && err.message || err) };
+    } finally { t.done(); }
+  }
+
   function prefetch(url) {
     if (!url) return;
     try { const i = new Image(); i.src = url; } catch (e) { /* noop */ }
@@ -791,6 +832,6 @@
     setMistralKey, getMistralKey,
     setGlmKey, getGlmKey,
     setHfKey, getHfKey,
-    cloudPut, cloudGet
+    cloudPut, cloudGet, dailyBoard, dailySubmit
   };
 });

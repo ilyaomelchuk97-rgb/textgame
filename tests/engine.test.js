@@ -287,7 +287,8 @@ test('новая игра v3 создаётся корректно', () => {
   assert.ok(g.hero.raceName && g.hero.originName);
   assert.strictEqual(Object.keys(g.hero.stats).length, 7);
   assert.strictEqual(g.hero.hp, g.hero.maxHp);
-  assert.ok(g.hero.inventory.includes(E.originById('smuggler').item));
+  assert.ok(g.hero.inventory.some(i => i.name === E.originById('smuggler').item), 'стартовый предмет из происхождения');
+  assert.ok(g.hero.inventory.every(i => i.kind && i.icon && i.id), 'у предмета есть эффект, иконка и метка');
   assert.strictEqual(g.hero.hooks.length, 2);
   assert.ok(g.hero.ability && g.hero.ability.ready);
   assert.strictEqual(g.turn, 0);
@@ -361,7 +362,7 @@ test('эффекты зажимаются в безопасные границы
   assert.strictEqual(g.hero.hp, 0, 'здоровье не уходит в минус');
   assert.strictEqual(g.over, false, 'решение о смерти принимает ход игры, а не эффекты');
   assert.strictEqual(g.hero.hp, 0);
-  assert.ok(g.hero.inventory[g.hero.inventory.length - 1].length <= 40, 'предмет обрезан');
+  assert.ok(g.hero.inventory[g.hero.inventory.length - 1].name.length <= 40, 'название предмета обрезано');
   assert.strictEqual(g.questDone, true);
   E.applyEffects(g, { hp: 99 });
   assert.strictEqual(g.hero.hp, g.hero.maxHp, 'лечение не превышает максимум');
@@ -803,7 +804,8 @@ test('придуманный мастером герой играется: ст�
   assert.strictEqual(g.hero.stats.wit, 1 + 2 + 1, 'бонусы класса и происхождения сложились');
   assert.ok(g.hero.maxHp >= 8, 'здоровье посчитано: ' + g.hero.maxHp);
   assert.strictEqual(g.hero.ability.name, 'Зелье «Кошка»', 'приём мастера достался герою');
-  assert.deepStrictEqual(g.hero.inventory, ['медальон волка']);
+  assert.deepStrictEqual(g.hero.inventory.map(i => i.name), ['медальон волка']);
+  assert.strictEqual(g.hero.inventory[0].kind, 'advantage', 'медальон даёт преимущество');
   assert.ok(g.hero.hooks.join(' ').includes('чародейка'), 'крючок происхождения в деле');
   const turn = E.offlineTurn(g, { text: 'Идти по следу', stat: 'wit' }, { outcome: 'success', roll: 15 });
   assert.strictEqual(turn.ok, true, 'ход с таким героем проходит');
@@ -1034,7 +1036,7 @@ test('герой от мастера попадает в игру целиком
   assert.strictEqual(g.hero.originName, 'Детектив сети');
   assert.strictEqual(g.hero.stats.int, 1 + 2, 'бонус класса дошёл до статов');
   assert.strictEqual(g.hero.ability.name, 'Обрыв сети');
-  assert.deepStrictEqual(g.hero.inventory, ['датчик перехвата']);
+  assert.deepStrictEqual(g.hero.inventory.map(i => i.name), ['датчик перехвата']);
   const turn = E.offlineTurn(g, { text: 'Взломать дверь', stat: 'int' }, { outcome: 'success', roll: 13 });
   assert.strictEqual(turn.ok, true, 'с таким героем ход проходит');
 });
@@ -1102,7 +1104,7 @@ test('арт-стиль выбирается по игре и один для в
 
 test('поражение с ценой: герой теряет вещь и часть сил, а не игру', () => {
   const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'warrior' });
-  g.hero.inventory = ['меч', 'фляга'];
+  g.hero.inventory = E.normalizeInventory(['меч', 'фляга']);
   g.hero.hp = 0;
   const res = E.resolveDefeat(g);
   assert.strictEqual(res.kind, 'setback', 'первый провал — не конец');
@@ -1182,7 +1184,7 @@ test('наследие прошлых кампаний открывает вар
   assert.strictEqual(g2.legacy.runs, 3, 'игра помнит прошлые кампании');
   const notes = E.applyLegacyGifts(g2.hero, g2, ['relic', 'stat']);
   assert.ok(notes.length >= 2, 'дары наследия применились');
-  assert.ok(g2.hero.inventory.includes('реликвия прошлой жизни'));
+  assert.ok(g2.hero.inventory.some(i => i.name === 'реликвия прошлой жизни'));
 });
 
 test('победа: цель взята — финал с ценой, +3 пепла и «дошёл до конца» в летописи', () => {

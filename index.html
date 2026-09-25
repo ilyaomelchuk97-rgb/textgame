@@ -14,6 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="src/styles.css">
+  <link rel="stylesheet" href="src/skins.css">
 </head>
 <body data-screen="menu">
   <div id="app">
@@ -34,7 +35,9 @@
           <button class="btn btn--ghost" type="button" data-act="my-games">
             Мои игры <span class="badge" id="menu-saves-count" hidden></span>
           </button>
-          <button class="btn btn--quiet" type="button" data-act="open-books">📖 Книга-игра без ИИ</button>
+          <button class="btn btn--ghost" type="button" data-act="daily-run">
+            🗓 Забег дня <span class="badge" id="menu-daily-badge" hidden></span>
+          </button>
         </div>
 
         <div class="menu-stage" id="menu-critters" aria-hidden="true"></div>
@@ -59,7 +62,7 @@
         <button class="tab is-active" type="button" data-mode="random">Случайные</button>
         <button class="tab" type="button" data-mode="games">По играм</button>
         <button class="tab" type="button" data-mode="custom">Свой мир</button>
-        <button class="tab" type="button" data-mode="books">📖 Книги</button>
+        <button class="tab" type="button" data-mode="books">📖 Истории</button>
       </div>
 
       <div class="scroll" id="scenario-scroll">
@@ -86,8 +89,10 @@
         <!-- книги-игры: главы написаны вручную, ИИ не нужен -->
         <div id="pane-books" hidden>
           <div class="notice notice--info">
-            📖 Книги играются без ИИ и без сети: главы написаны вручную, выборы меняют концовку.
+            📖 Восемь историй без ИИ и без сети: главы написаны вручную, выборы копятся в улики,
+            расчёты и знакомства — от них зависит, какая концовка достанется герою.
           </div>
+          <div class="books-filter" id="books-filter" role="tablist" aria-label="Жанры историй"></div>
           <div id="books-list"></div>
         </div>
 
@@ -171,6 +176,11 @@
           <button class="link-btn" type="button" id="hero-reroll" data-act="reroll-hero">🎲 Другой набор</button>
         </div>
 
+        <div class="hint hint--pick" id="hero-pick-note" hidden>
+          <span class="hint__text" id="hero-pick-text"></span>
+          <button class="link-btn" type="button" id="hero-pick-change">сменить</button>
+        </div>
+
         <div id="section-class">
           <div class="section-title" id="label-class">Класс</div>
           <div class="arch-list" id="class-list"></div>
@@ -232,13 +242,29 @@
         <div class="scene-chapter" id="scene-chapter" hidden></div>
         <div class="scene-text__body" id="scene-text" role="status" aria-live="polite" aria-atomic="false"></div>
         <div class="scene-npc" id="scene-npc" hidden></div>
-        <div class="log-bar">
-          <button class="log-toggle" type="button" id="log-toggle">История</button>
-          <button class="log-toggle" type="button" data-act="open-journal">🗒 Журнал</button>
-          <button class="log-toggle" type="button" data-act="open-map">🗺 Карта</button>
-          <button class="log-toggle" type="button" data-act="open-run">🎯 Забег</button>
-          <button class="log-toggle" type="button" id="prologue-btn" data-act="open-prologue" hidden>Пролог</button>
-          <button class="log-toggle" type="button" id="speak-btn" data-act="speak-scene" aria-pressed="false">🔊 Озвучить</button>
+        <!-- Кнопки-иконки одинаковой ширины: ряд ровный, палец попадает с первого раза -->
+        <div class="log-bar" id="game-bar">
+          <button class="bar-btn log-toggle" type="button" id="log-toggle" aria-label="История хода">
+            <span class="bar-btn__icon" aria-hidden="true">🕘</span><span class="bar-btn__label">История</span>
+          </button>
+          <button class="bar-btn log-toggle" type="button" data-act="open-bag" aria-label="Сумка героя">
+            <span class="bar-btn__icon" aria-hidden="true">🎒</span><span class="bar-btn__label">Сумка</span>
+          </button>
+          <button class="bar-btn log-toggle" type="button" data-act="open-journal" aria-label="Журнал">
+            <span class="bar-btn__icon" aria-hidden="true">🗒</span><span class="bar-btn__label">Журнал</span>
+          </button>
+          <button class="bar-btn log-toggle" type="button" data-act="open-map" aria-label="Карта мест">
+            <span class="bar-btn__icon" aria-hidden="true">🗺</span><span class="bar-btn__label">Карта</span>
+          </button>
+          <button class="bar-btn log-toggle" type="button" data-act="open-run" aria-label="Забег: ходы и броски">
+            <span class="bar-btn__icon" aria-hidden="true">🎯</span><span class="bar-btn__label">Забег</span>
+          </button>
+          <button class="bar-btn log-toggle" type="button" id="prologue-btn" data-act="open-prologue" hidden aria-label="Пролог кампании">
+            <span class="bar-btn__icon" aria-hidden="true">📜</span><span class="bar-btn__label">Пролог</span>
+          </button>
+          <button class="bar-btn log-toggle" type="button" id="speak-btn" data-act="speak-scene" aria-pressed="false" aria-label="Озвучка сцены">
+            <span class="bar-btn__icon" aria-hidden="true">🔊</span><span class="bar-btn__label">Озвучить</span>
+          </button>
         </div>
         <div class="log-wrap" id="log-wrap" hidden>
           <div id="log-list"></div>
@@ -281,6 +307,12 @@
         </div>
       </div>
 
+      <!-- Механики блока B под рукой: припасы, состояния и полезные действия.
+           Строка чипов — только сведения, строка кнопок — что можно сделать сейчас. -->
+      <div class="mech-bar" id="mech-bar" hidden>
+        <div class="mech-chips" id="mech-chips" role="status" aria-live="polite"></div>
+      </div>
+
       <!-- Умение класса + кнопки выбора действия -->
       <div class="actions" id="actions"></div>
     </section>
@@ -319,6 +351,19 @@
     </section>
 
     <!-- ============ ЭКРАН 5: МОИ ИГРЫ ============ -->
+    <!-- ============ ЭКРАН: ЗАБЕГ ДНЯ ============ -->
+    <section class="screen" id="screen-daily" hidden>
+      <header class="sub-header">
+        <button class="icon-btn" type="button" data-act="back" aria-label="Назад">‹</button>
+        <h2>Забег дня</h2>
+        <button class="icon-btn" type="button" data-act="daily-why" aria-label="Как это работает">?</button>
+      </header>
+      <div class="scroll" id="daily-body"></div>
+      <div class="footer-bar" id="daily-footer">
+        <button class="btn btn--primary" type="button" data-act="daily-start">🗓 Начать забег дня</button>
+      </div>
+    </section>
+
     <section class="screen" id="screen-saves" hidden>
       <header class="sub-header">
         <button class="icon-btn" type="button" data-act="back" aria-label="Назад">‹</button>
@@ -390,6 +435,8 @@
   <input type="file" id="file-input" accept=".json,application/json" multiple hidden>
 
   <script src="src/metrics.js"></script>
+  <script src="src/stories.js"></script>
+  <script src="src/daily.js"></script>
   <script src="src/books.js"></script>
   <script src="src/engine.js"></script>
   <script src="src/backdrop.js"></script>

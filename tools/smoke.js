@@ -55,30 +55,31 @@ async function main() {
     return { url, ok };
   });
   if (!menuBg.ok) problems.push('фон меню не загрузился: ' + menuBg.url);
-  // рыцарь с дракошей: нарисованы кодом, бегают и останавливаются вне меню
+  // отряд главного экрана: фигуры рисуются кодом, бегают парами и меняются
   const critterFirst = await page.evaluate(() => {
-    const k = document.querySelector('#menu-critters .critter--knight');
-    const d = document.querySelector('#menu-critters .critter--dragon');
-    if (!k || !d) return null;
+    const items = Array.from(document.querySelectorAll('#menu-critters .critter'));
+    if (items.length < 2) return null;
     return {
-      knightX: Math.round(k.getBoundingClientRect().x),
-      dragonX: Math.round(d.getBoundingClientRect().x),
-      running: k.classList.contains('is-running') && d.classList.contains('is-running'),
-      hasDragonClass: d.querySelectorAll('.art-dragon, .art-wing, .art-horn').length,
-      hasKnightClass: k.querySelectorAll('.art-shield, .art-star, .art-steel').length
+      ids: items.map(el => el.dataset.role),
+      xs: items.map(el => Math.round(el.getBoundingClientRect().x)),
+      running: items.every(el => el.classList.contains('is-running')),
+      drawn: items.map(el => el.querySelectorAll('svg *').length),
+      kinds: items.map(el => (el.dataset.kind || ''))
     };
   });
-  if (!critterFirst) problems.push('на главном экране нет рыцаря и дракоши');
+  if (!critterFirst) problems.push('на главном экране нет отряда');
   else {
-    if (!critterFirst.running) problems.push('герои не бегают');
-    if (!critterFirst.hasDragonClass) problems.push('дракоша не нарисован');
-    if (!critterFirst.hasKnightClass) problems.push('рыцарь не нарисован');
+    if (!critterFirst.running) problems.push('фигуры в меню не бегают');
+    if (critterFirst.drawn.some(n => n < 8)) problems.push('фигура нарисована пустой: ' + critterFirst.drawn.join(', '));
     await page.waitForTimeout(1200);
-    const moved = await page.evaluate(x => Math.abs(
-      Math.round(document.querySelector('#menu-critters .critter--knight').getBoundingClientRect().x) - x
-    ), critterFirst.knightX);
-    console.log('   герои меню: сдвиг рыцаря за 1.2 с =', moved, 'px');
-    if (moved < 20) problems.push('рыцарь не двигается по экрану (сдвиг ' + moved + 'px)');
+    const moved = await page.evaluate(before => {
+      const items = Array.from(document.querySelectorAll('#menu-critters .critter'));
+      return items.reduce((sum, el, i) => sum + Math.abs(Math.round(el.getBoundingClientRect().x) - before[i]), 0);
+    }, critterFirst.xs);
+    console.log('   отряд меню: ' + critterFirst.ids.join(' + ') + ', сдвиг за 1.2 с =', moved, 'px');
+    if (moved < 20) problems.push('отряд стоит на месте (сдвиг ' + moved + 'px)');
+    const roster = await page.evaluate(() => (window.DTCritters ? window.DTCritters.ROSTER.length : 0));
+    if (roster < 10) problems.push('в отряде всего ' + roster + ' фигур');
   }
 
   const btnBox = await page.locator('#screen-menu [data-act="new-game"]').boundingBox();

@@ -7,6 +7,8 @@
  *   3. GET  /api/image — прокси к генератору картинок.
  *   4. GET  /api/health — сообщает клиенту, какие каналы доступны.
  *   5. GET  /api/tts   — нейросетевая озвучка сцены (нейронный голос, mp3).
+ *   6. GET/POST /api/daily — забег дня: одинаковый мир и броски у всех,
+ *      сюда приходят только очки (без имён и сейвов), отсюда — «сколько прошли».
  *
  * Прокси нужен потому, что браузерные запросы к text.pollinations.ai
  * сейчас требуют Cloudflare Turnstile, а серверные — нет.
@@ -522,20 +524,20 @@ const GLM_LAST_MODEL = { name: '', at: 0 };
 /* ---------------------------------------------------------- */
 /**
  * Hugging Face. Ключ hf_… берётся бесплатно в настройках профиля (Fine-grained →
- * «Make calls to Inference Providers»). Им можно и вести игру (роутер отдаёт
- * 137 моделей у 14 провайдеров), и рисовать кадры: те же открытые Space'ы,
- * но по имени, а не анонимно.
+ * «Make calls to Inference Providers»). Им можно вести игру (роутер отдаёт
+ * 137 моделей у 14 провайдеров) и рисовать кадры теми же открытыми Space'ами.
  *
- * У бесплатного аккаунта кредиты на Inference Providers крошечные (около десяти
- * центов в месяц) — когда они кончились, роутер отвечает 402, и канал должен
- * уступать место, а не держать игрока. Поэтому состояние «кредиты кончились»
- * запоминается и показывается в health.
+ * Вшитого ключа у проекта НЕТ: прежний токен истёк, и он удалён по просьбе игрока.
+ * Ключ приходит либо из окружения сервера (HF_API_KEY / HUGGING_FACE_TOKEN /
+ * HF_BUILTIN_KEY), либо из настроек игры — поле «ключ Hugging Face (hf_…)».
+ * Без ключа канал честно уступает место другому мастеру, а кадры рисуют Space'ы.
+ *
+ * Когда кредиты кончаются, роутер отвечает 402: состояние «кредиты кончились»
+ * запоминается и показывается в health, чтобы канал не держал игрока.
  */
 const HF_BASE = (process.env.HF_BASE_URL || 'https://router.huggingface.co/v1').replace(/\/$/, '');
 const HF_ENV_KEY = String(process.env.HF_API_KEY || process.env.HUGGING_FACE_TOKEN || '').trim();
-const HF_BUILTIN_KEY = process.env.HF_BUILTIN_KEY === undefined
-  ? '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'
-  : String(process.env.HF_BUILTIN_KEY || '').trim();
+const HF_BUILTIN_KEY = String(process.env.HF_BUILTIN_KEY || '').trim();   // только из окружения
 const HF_BASE_KEY = HF_ENV_KEY || HF_BUILTIN_KEY;
 /** Быстрые и толковые модели роутера (проверены живыми ходами: 1.5–2.7 с на ход). */
 const HF_MODEL_CHAIN = String(process.env.HF_MODEL_CHAIN ||
@@ -1060,12 +1062,11 @@ function masterChoices() {
   out.push({
     id: 'hf',
     title: 'Hugging Face (137 моделей)',
-    hint: 'GLM-5.3-Flash и DeepSeek отвечают за 1.5–3 с; у бесплатного ключа кредиты крошечные',
+    hint: 'GLM-5.3-Flash и DeepSeek отвечают за 1.5–3 с; нужен свой ключ hf_…',
     available: hfKeyReady({}),
     detail: hfCreditsFresh()
       ? 'кредиты бесплатного ключа кончились — вставьте свой ключ (поле ниже)'
-      : (HF_ENV_KEY ? 'ключ задан на сервере'
-        : (HF_BUILTIN_KEY ? 'ключ вшит в игру' : 'нужен свой ключ (поле ниже)'))
+      : (HF_BASE_KEY ? 'ключ задан на сервере' : 'нужен свой ключ (поле ниже)')
   });
   if (process.env.GROQ_API_KEY) out.push({ id: 'groq', title: 'Groq', hint: 'Llama 3.3 70B, очень быстрый', available: true, detail: 'ключ задан' });
   if (process.env.GEMINI_API_KEY) out.push({ id: 'gemini', title: 'Gemini', hint: 'Google, щедрая бесплатная квота', available: true, detail: 'ключ задан' });
@@ -1525,6 +1526,54 @@ function cloudSaveAll(all) {
 }
 let CLOUD_MEM = null;
 function cloudAll() { if (!CLOUD_MEM) CLOUD_MEM = cloudLoad(); return CLOUD_MEM; }
+
+/* --- Забег дня: только числа. Ни имён, ни сейвов, ни текста ---------- */
+const DAILY_FILE = path.join(CLOUD_DIR, 'daily-runs.json');
+const DAILY_TTL_MS = Number(process.env.DAILY_TTL_MS || 60 * 24 * 60 * 60 * 1000);   // 60 дней
+const DAILY_MAX_PER_DAY = Number(process.env.DAILY_MAX_PER_DAY || 2000);
+const DAILY_MAX_DAYS = Number(process.env.DAILY_MAX_DAYS || 120);
+const DAILY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function dailyLoad() {
+  try { return JSON.parse(fs.readFileSync(DAILY_FILE, 'utf8')) || {}; } catch (e) { return {}; }
+}
+function dailySaveAll(all) {
+  const now = Date.now();
+  const days = Object.keys(all)
+    .filter(d => DAILY_DATE_RE.test(d) && (now - (all[d].at || 0)) < DAILY_TTL_MS)
+    .sort()
+    .reverse()
+    .slice(0, DAILY_MAX_DAYS);
+  const fresh = {};
+  days.forEach(d => { fresh[d] = { at: all[d].at || now, runs: (all[d].runs || []).slice(0, DAILY_MAX_PER_DAY) }; });
+  try {
+    fs.mkdirSync(CLOUD_DIR, { recursive: true });
+    fs.writeFileSync(DAILY_FILE, JSON.stringify(fresh));
+  } catch (e) { /* диск может быть только для чтения — живём в памяти */ }
+  DAILY_MEM = fresh;
+  return fresh;
+}
+let DAILY_MEM = null;
+function dailyAll() { if (!DAILY_MEM) DAILY_MEM = dailyLoad(); return DAILY_MEM; }
+/** Один прогон: только числа. Строки и мусор отсекаем, чтобы доска не портилась. */
+function dailyEntry(payload) {
+  const score = Math.max(0, Math.min(100000, Math.round(Number(payload.score) || 0)));
+  const turns = Math.max(1, Math.min(4000, Math.round(Number(payload.turns) || 1)));
+  return { score, turns, victory: !!payload.victory, code: String(payload.code || '').slice(0, 8), at: Date.now() };
+}
+/** Сводка дня: сколько прошли, лучший и средний счёт, место моей строки. */
+function dailyBoard(date, mine) {
+  const day = dailyAll()[date] || { runs: [] };
+  const runs = day.runs || [];
+  if (!runs.length) return { date, runs: 0, best: 0, avg: 0, place: 0, victory: 0 };
+  const scores = runs.map(r => r.score || 0);
+  const sum = scores.reduce((a, b) => a + b, 0);
+  const best = scores.reduce((a, b) => Math.max(a, b), 0);
+  const wins = runs.filter(r => r.victory).length;
+  let place = 0;
+  if (Number.isFinite(Number(mine))) place = scores.filter(x => x > Number(mine)).length + 1;
+  return { date, runs: runs.length, best, avg: Math.round(sum / runs.length), victory: wins, place };
+}
 function cloudCode() {
   let code = '';
   for (let i = 0; i < 6; i++) code += CLOUD_ALPHABET[Math.floor(Math.random() * CLOUD_ALPHABET.length)];
@@ -2149,7 +2198,7 @@ async function handleRequest(req, res) {
       hf: {
         models: HF_MODEL_CHAIN,
         lastModel: HF_LAST_MODEL.name || null,
-        key: HF_ENV_KEY ? 'окружение' : (HF_BUILTIN_KEY ? 'вшит' : 'нет'),
+        key: HF_ENV_KEY ? 'окружение' : (HF_BUILTIN_KEY ? 'сервер' : 'нет'),
         base: HF_BASE,
         credits: hfCreditsFresh() ? { at: HF_CREDITS.at, why: HF_CREDITS.why } : null,
         spaces: HF_SPACES.map(x => x.name)
@@ -2438,6 +2487,41 @@ async function handleRequest(req, res) {
       if (size > 800 * 1024) return sendJson(res, 413, { ok: false, error: 'слишком большое сохранение' });
       const code = cloudPut(String(payload.code || ''), payload.data, payload.settings, payload.meta);
       return sendJson(res, 200, { ok: true, code, savedAt: Date.now(), size });
+    } catch (err) {
+      return sendJson(res, 400, { ok: false, error: String(err && err.message || err).slice(0, 160) });
+    }
+  }
+
+  /* --- Забег дня: доска и отправка результата --------------- */
+  if (pathname === '/api/daily') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'content-type',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+      });
+      return res.end();
+    }
+    const q = new URL(req.url, 'http://localhost').searchParams;
+    if (req.method === 'GET') {
+      const date = String(q.get('date') || '');
+      if (!DAILY_DATE_RE.test(date)) return sendJson(res, 400, { ok: false, error: 'date=ГГГГ-ММ-ДД' });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify(Object.assign({ ok: true }, dailyBoard(date))));
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use GET or POST' });
+    try {
+      const payload = JSON.parse((await readBody(req, 16 * 1024)) || '{}');
+      const date = String((payload && payload.date) || '');
+      if (!DAILY_DATE_RE.test(date)) return sendJson(res, 400, { ok: false, error: 'нужна дата забега' });
+      const all = dailyAll();
+      const day = all[date] || (all[date] = { at: Date.now(), runs: [] });
+      day.at = Date.now();
+      const entry = dailyEntry(payload);
+      day.runs.push(entry);
+      if (day.runs.length > DAILY_MAX_PER_DAY) day.runs = day.runs.slice(-DAILY_MAX_PER_DAY);
+      dailySaveAll(all);
+      return sendJson(res, 200, Object.assign({ ok: true, accepted: entry }, dailyBoard(date, entry.score)));
     } catch (err) {
       return sendJson(res, 400, { ok: false, error: String(err && err.message || err).slice(0, 160) });
     }

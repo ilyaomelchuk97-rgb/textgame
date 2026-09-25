@@ -23,7 +23,9 @@ COVERS = ["menu-bg", "sc-forest", "sc-ocean", "sc-space", "sc-noir", "sc-waste",
 
 
 def data_uri(path: pathlib.Path) -> str:
-    mime = "image/jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
+    suffix = path.suffix.lower()
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+            ".png": "image/png"}.get(suffix, "image/png")
     return "data:%s;base64,%s" % (mime, base64.b64encode(path.read_bytes()).decode("ascii"))
 
 
@@ -64,9 +66,22 @@ def asset_uri(name: str, path: pathlib.Path) -> str:
 
 def main() -> int:
     html = (ROOT / "index.html").read_text(encoding="utf-8")
-    css = (SRC / "styles.css").read_text(encoding="utf-8")
+    # скины тем: тот же интерфейс, другой материал (см. src/skins.css)
+    css = (SRC / "styles.css").read_text(encoding="utf-8")\
+        + "\n" + (SRC / "skins.css").read_text(encoding="utf-8")
+    # материалы тем: картинки фактур вшиваются прямо в CSS (data:image/webp)
+    themed = []
+    for art in sorted((ASSETS / "themes").glob("*.webp")):
+        token = "assets/themes/%s" % art.name
+        if token in css:
+            css = css.replace(token, data_uri(art))
+            themed.append(art)
+    if themed:
+        print("материалы тем: %d файлов, %.0f КБ"
+              % (len(themed), sum(f.stat().st_size for f in themed) / 1024.0))
+
     js_parts = [(SRC / name).read_text(encoding="utf-8")
-                for name in ("metrics.js", "books.js", "engine.js", "backdrop.js",
+                for name in ("metrics.js", "stories.js", "daily.js", "books.js", "engine.js", "backdrop.js",
                              "critters.js", "api.js", "app.js")]
 
     # 1. Встроить картинки меню/сценариев (и в CSS, и в JS-карту ассетов)
@@ -93,7 +108,8 @@ def main() -> int:
 
     # 2. Встроить CSS и JS
     html = html.replace(
-        '<link rel="stylesheet" href="src/styles.css">',
+        '<link rel="stylesheet" href="src/styles.css">\n'
+        '  <link rel="stylesheet" href="src/skins.css">',
         "<style>\n%s\n</style>" % css,
     )
     scripts = "\n".join("<script>\n%s\n</script>" % js for js in js_parts)

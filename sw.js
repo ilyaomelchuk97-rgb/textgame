@@ -8,7 +8,7 @@
  * ------------------------------------------------------------------ */
 'use strict';
 
-const VERSION = 'dt2-v7';
+const VERSION = 'dt2-v13';
 const SHELL_CACHE = VERSION + '-shell';
 const SHELL = [
   './',
@@ -16,12 +16,15 @@ const SHELL = [
   './game.html',
   './manifest.webmanifest',
   './src/styles.css',
+  './src/skins.css',
   './src/engine.js',
   './src/backdrop.js',
   './src/critters.js',
   './src/api.js',
   './src/app.js',
   './src/books.js',
+  './src/stories.js',
+  './src/daily.js',
   './src/metrics.js',
   './assets/menu-bg.jpg',
   './assets/icon-192.png'

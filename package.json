@@ -1,6 +1,6 @@
 {
   "name": "dice-tales",
-  "version": "18.0.0",
+  "version": "23.1.0",
   "private": true,
   "description": "Кости и Судьбы — мобильная текстовая RPG с ИИ-мастером, генерацией картинок и бросками кубика",
   "main": "server.js",
@@ -16,7 +16,7 @@
     "smoke:live": "node tools/smoke.js http://localhost:3000/game.html --live",
     "smoke:mock": "node tools/smoke.js http://localhost:8123/index.html",
     "layout": "node tools/layout.js http://localhost:3000/game.html",
-    "check": "node --check src/engine.js && node --check src/books.js && node --check src/metrics.js && node --check src/backdrop.js && node --check src/api.js && node --check src/app.js && node --check server.js && node --test tests/ && node tools/layout.js http://localhost:3000/game.html",
+    "check": "node --check src/engine.js && node --check src/stories.js && node --check src/daily.js && node --check src/books.js && node --check src/metrics.js && node --check src/backdrop.js && node --check src/api.js && node --check src/app.js && node --check server.js && node --test tests/ && node tools/layout.js http://localhost:3000/game.html",
     "live": "node tools/smoke.js http://localhost:3000/game.html --live",
     "long": "node tools/long-run.js http://localhost:3000/game.html --turns=30",
     "fonts": "node tools/fonts.js http://localhost:3000/game.html",
@@ -25,7 +25,7 @@
     "round": "node tools/round.js http://localhost:3000/game.html",
     "round2": "node tools/round2.js http://localhost:3000/game.html",
     "offline": "node tools/offline.js http://localhost:3000/game.html",
-    "checkall": "npm run check && npm run smoke && npm run round && npm run round2 && npm run offline && npm run screens && npm run cloud && npm run pack && npm run frame && npm run touch && npm run mistral && npm run glm && npm run hf",
+    "checkall": "npm run check && npm run smoke && npm run round && npm run round2 && npm run offline && npm run screens && npm run cloud && npm run pack && npm run frame && npm run touch && npm run v20 && npm run books && npm run skins && npm run daily && npm run mistral && npm run glm && npm run hf",
     "pack": "node tools/pack.js http://localhost:3000/game.html",
     "frame": "MOCK_PNG_B64=\"$(cat tools/_mock-png.txt)\" node tools/frame.js http://localhost:3000/game.html",
     "touch": "MOCK_PNG_B64=\"$(cat tools/_mock-png.txt)\" node tools/touch.js http://localhost:3000/game.html",
@@ -36,8 +36,13 @@
     "turns:live": "node tools/mistral-live.js http://localhost:3000 --turns=2",
     "glm:live": "node tools/glm-live.js http://localhost:3000 --turns=2",
     "hf:live": "node tools/hf-live.js http://localhost:3000",
+    "v20": "node tools/v20.js http://localhost:3000/game.html",
     "glm:game": "CHANNEL=glm SHOT=v17-glm node tools/glm-browser.js http://localhost:3000/game.html",
-    "hf:game": "CHANNEL=hf SHOT=v18-hf node tools/glm-browser.js http://localhost:3000/game.html"
+    "hf:game": "CHANNEL=hf SHOT=v18-hf node tools/glm-browser.js http://localhost:3000/game.html",
+    "books": "node tools/books.js http://localhost:3000/game.html",
+    "skins": "node tools/skins.js http://localhost:3000/game.html",
+    "daily": "node tools/daily.js",
+    "themes": "python3 tools/themes.py"
   },
   "devDependencies": {
     "playwright": "^1.47.2"
