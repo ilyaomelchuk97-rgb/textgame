@@ -20,6 +20,8 @@ OUT = ROOT / "game.html"
 
 COVERS = ["menu-bg", "sc-forest", "sc-ocean", "sc-space", "sc-noir", "sc-waste",
           "gw-azeroth", "gw-nightcity", "gw-runes", "gw-custom"]
+CRITTERS = ["knight", "dragon", "engineer", "necro", "cyber", "orc", "mage",
+            "assassin", "golem", "wolf", "drone", "ghost", "zombie", "pirate"]
 
 
 def data_uri(path: pathlib.Path) -> str:
@@ -93,10 +95,21 @@ def main() -> int:
             return 1
         assets_map[name] = asset_uri(name, path)
 
-    # картинки подставляются через window.DT_ASSETS, поэтому правки CSS не нужны
+    critter_assets = {}
+    for name in CRITTERS:
+        path = ASSETS / "critters" / (name + "-run.webp")
+        if not path.exists():
+            print("! нет sprite sheet %s" % path, file=sys.stderr)
+            return 1
+        critter_assets[name] = data_uri(path)
 
-    assets_js = "<script>window.DT_ASSETS={%s};</script>" % ",".join(
-        '"%s":"%s"' % (name, uri) for name, uri in assets_map.items()
+    # Меню использует эти карты для обложек и локальных спрайтов персонажей.
+    assets_js = (
+        "<script>window.DT_ASSETS={%s};window.DT_CRITTER_SPRITES={%s};</script>"
+        % (
+            ",".join('"%s":"%s"' % (name, uri) for name, uri in assets_map.items()),
+            ",".join('"%s":"%s"' % (name, uri) for name, uri in critter_assets.items()),
+        )
     )
 
     # 1b. Иконки приложения — тоже внутрь файла

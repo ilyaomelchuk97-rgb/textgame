@@ -646,7 +646,7 @@
     if (!clean) return null;
     const server = await probeBackend();
     if (!server) return null;
-    const t = withTimeout(hooks.timeoutMs || 30000);
+    const t = withTimeout(hooks.timeoutMs || 50000);
     try {
       const q = ['text=' + encodeURIComponent(clean)];
       if (hooks.mood) q.push('mood=' + encodeURIComponent(hooks.mood));

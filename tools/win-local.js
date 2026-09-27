@@ -33,6 +33,7 @@ const stamp = () => new Date().toISOString().slice(14, 19) + 'с';
   await page.waitForTimeout(600);
 
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForTimeout(400);
   await page.click('#pane-random .scenario-card');
   await page.waitForSelector('#hero-name', { timeout: 8000 });

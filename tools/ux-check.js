@@ -146,6 +146,7 @@ const openSettings = async page => {
   await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(600);
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.click('#mode-tabs .tab[data-mode="custom"]');
   await page.waitForSelector('#pane-custom:not([hidden]) #wc-genres .chip', { timeout: 6000 });
   await page.fill('#wc-title', 'Пепел Астры');
@@ -194,6 +195,7 @@ const openSettings = async page => {
   // второй заход в тот же мир
   console.log('экран перед вторым заходом: ' + await page.evaluate(() => document.body.dataset.screen));
   await page.evaluate(() => { const b = document.querySelector('#screen-menu [data-act="new-game"]'); if (b) b.click(); });
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForTimeout(500);
   console.log('экран миров: ' + await page.evaluate(() => document.body.dataset.screen +
     ' · вкладок ' + document.querySelectorAll('#mode-tabs .tab').length));

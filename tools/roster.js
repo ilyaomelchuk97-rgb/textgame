@@ -4,7 +4,7 @@
  * Пункт 5: персонажи на главном экране должны меняться, а их должно быть много
  * (герои и монстры, в том числе из знакомых игр). Проверяем в браузере:
  *   • в меню стоят две фигуры и обе бегут по экрану;
- *   • фигуры рисуются (у каждой видимая коробка и непустой SVG);
+ *   • фигуры рисуются (видимый SVG или спрайт с CSS-анимацией);
  *   • при заходе в игровой экран и обратно пара меняется;
  *   • за 12 заходов в меню показано не меньше 6 разных фигур;
  *   • снимки пар для отчёта.
@@ -25,12 +25,18 @@ const readPair = page => page.evaluate(() => {
   const items = Array.from(host.querySelectorAll('.critter'));
   return {
     ids: items.map(el => el.dataset.role),
-    shapes: items.map(el => ({
-      id: el.dataset.role,
-      box: (() => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })(),
-      drawn: el.querySelectorAll('svg *').length,
-      running: el.classList.contains('is-running')
-    }))
+    shapes: items.map(el => {
+      const sprite = el.querySelector('.critter__sprite');
+      return {
+        id: el.dataset.role,
+        box: (() => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })(),
+        drawn: el.querySelectorAll('svg *').length,
+        sprite: !!sprite,
+        background: sprite ? getComputedStyle(sprite).backgroundImage : '',
+        animation: sprite ? getComputedStyle(sprite).animationName : '',
+        running: el.classList.contains('is-running')
+      };
+    })
   };
 });
 
@@ -54,7 +60,10 @@ const readPair = page => page.evaluate(() => {
 
   // 1. первые две фигуры: нарисованы и бегут
   first.shapes.forEach(s => {
-    if (s.drawn < 8) problems.push('фигура ' + s.id + ' почти пустая (' + s.drawn + ' деталей)');
+    const empty = s.sprite
+      ? (s.background === 'none' || s.animation !== 'critterSpriteRun')
+      : s.drawn < 8;
+    if (empty) problems.push('фигура ' + s.id + ' не отрисовалась');
     if (s.box[0] < 40 || s.box[1] < 40) problems.push('фигура ' + s.id + ' не видна: ' + s.box.join('×'));
     if (!s.running) problems.push('фигура ' + s.id + ' не бежит');
   });
@@ -74,6 +83,8 @@ const readPair = page => page.evaluate(() => {
   // 3. заход в игру и обратно меняет пару
   for (let i = 0; i < ROUNDS; i++) {
     await page.click('#screen-menu [data-act="new-game"]');
+    await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
+    await page.waitForSelector('#screen-scenarios:not([hidden])', { timeout: 4000 });
     await page.waitForTimeout(260);
     // возврат в меню — кнопка «Назад» на экране миров
     await page.evaluate(() => {

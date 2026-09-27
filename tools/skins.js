@@ -34,6 +34,7 @@ async function openBook(page, theme) {
   await page.goto(BASE, { waitUntil: 'load' });
   await page.waitForTimeout(500);
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.click('#mode-tabs .tab[data-mode="books"]');
   await page.waitForSelector('#books-list .book-card', { timeout: 8000 });
   await page.click('#books-list .book-card:nth-child(3) .btn');   // «Соляной тракт»

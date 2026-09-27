@@ -1,11 +1,13 @@
 /**
- * Тесты мультяшных героев главного экрана (src/critters.js).
+ * Тесты персонажей главного экрана (src/critters.js).
  * Проверяем, что фигур в отряде много, рисунки на месте, пары не повторяются
  * и что модуль не зависит от DOM при загрузке (важно для однофайловой сборки
  * и песочницы).
  */
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const C = require('../src/critters.js');
 
 // детали, по которым видно, что фигура нарисована, а не пустая заготовка
@@ -43,6 +45,16 @@ test('в отряде есть и герои, и монстры', () => {
     assert.ok(r.name && r.name.length > 2, 'у фигуры ' + r.id + ' нет имени');
     assert.ok(r.line && r.line.length > 3, 'у фигуры ' + r.id + ' нет реплики');
     assert.match(r.id, /^[a-z]+$/, 'роль ' + r.id + ' не похожа на метку');
+  });
+});
+
+test('у всех 14 человечков подключён локальный sprite sheet', () => {
+  assert.strictEqual(C.ROSTER.length, 14, 'ожидалось 14 бегущих персонажей');
+  C.ROSTER.forEach(r => {
+    assert.strictEqual(r.sprite, r.id + '-run.webp', r.id + ': нет имени спрайта');
+    const file = path.join(__dirname, '..', 'assets', 'critters', r.sprite);
+    assert.ok(fs.existsSync(file), r.id + ': sprite sheet не найден: ' + file);
+    assert.ok(fs.statSync(file).size > 1000, r.id + ': sprite sheet пустой');
   });
 });
 

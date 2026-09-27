@@ -4,11 +4,10 @@
  * экран и за край, а за ним по пятам несётся погоня — иногда
  * наоборот, первым бежит монстр.
  *
- * Фигур целый отряд (12), и пара выбирается заново каждый раз,
- * когда игрок возвращается в меню: рыцарь с драконом, космо-инженер
- * с некроморфом, кибер-самурай с дроном, орк с големом и так далее.
- * Названия отсылают к знакомым играм, но нарисованы все своими
- * руками — встроенным SVG, без сети и без чужих картинок.
+ * В ростере 14 персонажей; случайная пара меняется при каждом
+ * возвращении в меню. Для всех созданы локальные четырёхкадровые
+ * sprite sheets с прозрачностью; старые SVG-функции сохранены
+ * для совместимости интерфейса модуля. Всё работает офлайн.
  *
  * Публичный интерфейс:
  *   DTCritters.mount(el, { onTap }) → { start, stop, destroy, els, pickPair, pair }
@@ -400,6 +399,9 @@
     { id: 'pirate',   kind: 'hero',  svg: pirateSvg,   name: 'Пират',         line: '«Йо-хо-хо и бутылка»',
       skin: { '--coat': '#6b3f2e', '--hat': '#2f2a26', '--sash': '#b8434a', '--skin': '#e0b48c', '--beard': '#e6e0d2', '--wood': '#8a6a3c', '--steel2': '#cfdae6', '--visor2': '#1b222b' } }
   ];
+  // Все участники меню используют свои локальные анимированные спрайты.
+  ROSTER.forEach(entry => { entry.sprite = entry.id + '-run.webp'; });
+
   const ROLES = ROSTER.map(r => r.id);
   const byId = id => ROSTER.find(r => r.id === id) || null;
 
@@ -462,16 +464,28 @@
     function applyPair(pair) {
       state.pair = pair;
       clearAll();
+      const spriteAssets = (typeof window !== 'undefined' && window.DT_CRITTER_SPRITES) || {};
+      const spriteUrl = entry => entry.sprite
+        ? (spriteAssets[entry.id] || ('assets/critters/' + entry.sprite))
+        : '';
       container.innerHTML = pair.map(entry => {
         const skin = Object.keys(entry.skin || {})
           .map(k => k + ':' + entry.skin[k]).join(';');
-        return '<div class="critter critter--' + entry.id + '" data-role="' + entry.id + '" style="' + skin + '">' +
-          entry.svg() + '</div>';
+        const hasSprite = !!spriteUrl(entry);
+        const classes = 'critter critter--' + entry.id + (hasSprite ? ' critter--generated' : '');
+        const art = hasSprite
+          ? '<span class="critter__sprite" aria-hidden="true"></span>'
+          : entry.svg();
+        return '<div class="' + classes + '" data-role="' + entry.id + '" style="' + skin + '">' +
+          art + '</div>';
       }).join('');
       state.els = {};
       pair.forEach(entry => {
         const el = container.querySelector('[data-role="' + entry.id + '"]');
         state.els[entry.id] = el;
+        if (entry.sprite && el && el.style) {
+          el.style.setProperty('--critter-sheet', 'url("' + spriteUrl(entry) + '")');
+        }
         el.addEventListener('click', () => hop(el));
       });
       if (reduced) Object.keys(state.els).forEach(id => state.els[id].classList.add('critter--still'));

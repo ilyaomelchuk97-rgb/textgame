@@ -35,6 +35,7 @@ const { chromium } = require('playwright');
 
   const menuOk = await page.isVisible('#screen-menu [data-act="new-game"]');
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForSelector('#pane-random .scenario-card', { timeout: 8000 });
   await page.click('#pane-random .scenario-card:first-child');
   await page.waitForSelector('#hero-name');

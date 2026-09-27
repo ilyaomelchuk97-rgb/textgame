@@ -1660,7 +1660,8 @@ function edgeSpeech(text, opts) {
       } });
     } catch (err) { return reject(err); }
     const chunks = [];
-    const timer = setTimeout(() => { try { ws.terminate(); } catch (e) { /* noop */ } reject(new Error('таймаут 25с')); }, 25000);
+    const timeoutMs = Math.max(1000, Number(o.timeoutMs) || 25000);
+    const timer = setTimeout(() => { try { ws.terminate(); } catch (e) { /* noop */ } reject(new Error('таймаут ' + Math.round(timeoutMs / 1000) + 'с')); }, timeoutMs);
     const esc = t => String(t).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
     ws.on('open', () => {
       const ts = new Date().toISOString();
@@ -1735,55 +1736,94 @@ async function synthesize(text, voice, mood, gender) {
   const key = [voice || GEN_TTS_VOICE, m.mood, m.rate, m.pitch, gender || 'f', text].join('|');
   const hit = TTS_CACHE.get(key);
   if (hit && Date.now() - hit.ts < TTS_CACHE_TTL) return { body: hit.body, cached: true, source: hit.source || 'cache' };
-  if (!genReady()) {
-    // ключ шлюза отдыхает: сначала нейронные голоса Edge, потом «переводчик»
+  const remember = (body, source) => {
+    TTS_CACHE.set(key, { body, ts: Date.now(), source });
+    if (TTS_CACHE.size > TTS_CACHE_MAX) {
+      const oldest = Array.from(TTS_CACHE.keys()).sort((a, b) => TTS_CACHE.get(a).ts - TTS_CACHE.get(b).ts);
+      oldest.slice(0, TTS_CACHE.size - TTS_CACHE_MAX).forEach(k => TTS_CACHE.delete(k));
+    }
+    return { body, cached: false, source };
+  };
+
+  // Основной шлюз может вернуть 401/402/5xx или зависнуть. Ошибка одного
+  // провайдера больше не обрывает озвучку: всегда переходим к Edge, затем Google.
+  if (genReady()) {
     try {
-      const voiceName = EDGE_TTS_VOICES[gender] || (gender === 'm' ? EDGE_TTS_VOICES.male : EDGE_TTS_VOICES.female);
-      const r = await edgeSpeech(text, { voice: voiceName, rate: m.rate, pitch: m.pitch });
-      TTS_CACHE.set(key, { body: r.body, ts: Date.now(), source: r.source });
-      return { body: r.body, cached: false, source: r.source };
+      const res = await fetchWithTimeout(GEN_BASE + '/v1/audio/speech', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + GEN_KEY_ACTIVE },
+        body: JSON.stringify({
+          model: GEN_TTS_MODEL,
+          input: text,
+          voice: voice || GEN_TTS_VOICE,
+          response_format: 'mp3'
+        })
+      }, 10000);
+      if (!res.ok) {
+        let detail = '';
+        try { detail = (await res.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (e) { /* noop */ }
+        if ([401, 402, 403].includes(res.status)) genKeyRest('tts HTTP ' + res.status);
+        throw new Error('HTTP ' + res.status + (detail ? ' ' + detail : ''));
+      }
+      const body = Buffer.from(await res.arrayBuffer());
+      if (!body.length) throw new Error('пустая озвучка');
+      return remember(body, 'fish:' + (voice || GEN_TTS_VOICE));
     } catch (err) {
-      console.log('[tts] Edge не вышло:', String(err && err.message || err).slice(0, 120));
-      return googleSpeech(text, key);
+      console.log('[tts] Fish не вышло, пробуем Edge:', String(err && err.message || err).slice(0, 120));
     }
   }
-  const res = await fetchWithTimeout(GEN_BASE + '/v1/audio/speech', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + GEN_KEY_ACTIVE },
-    body: JSON.stringify({
-      model: GEN_TTS_MODEL,
-      input: text,
-      voice: voice || GEN_TTS_VOICE,
-      response_format: 'mp3'
-    })
-  }, 45000);
-  if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (e) { /* noop */ }
-    throw new Error('HTTP ' + res.status + (detail ? ' ' + detail : ''));
+
+  try {
+    const voiceName = EDGE_TTS_VOICES[gender] || (gender === 'm' ? EDGE_TTS_VOICES.male : EDGE_TTS_VOICES.female);
+    const r = await edgeSpeech(text, { voice: voiceName, rate: m.rate, pitch: m.pitch, timeoutMs: 12000 });
+    return remember(r.body, r.source || 'edge:' + voiceName);
+  } catch (err) {
+    console.log('[tts] Edge не вышло, пробуем Google:', String(err && err.message || err).slice(0, 120));
   }
-  const body = Buffer.from(await res.arrayBuffer());
-  if (!body.length) throw new Error('пустая озвучка');
-  TTS_CACHE.set(key, { body, ts: Date.now() });
-  if (TTS_CACHE.size > TTS_CACHE_MAX) {
-    const oldest = Array.from(TTS_CACHE.keys()).sort((a, b) => TTS_CACHE.get(a).ts - TTS_CACHE.get(b).ts);
-    oldest.slice(0, TTS_CACHE.size - TTS_CACHE_MAX).forEach(k => TTS_CACHE.delete(k));
-  }
-  return { body, cached: false };
+
+  return googleSpeech(text, key);
 }
 
 /**
  * Резервный голос без ключа: Google Translate TTS, один спокойный женский голос.
  * Звучит ровнее, чем голос устройства, и отвечает за десятые доли секунды.
  */
+function splitGoogleText(text, maxChars = 190) {
+  let rest = String(text || '').replace(/\s+/g, ' ').trim();
+  const chunks = [];
+  while (rest.length > maxChars) {
+    const head = rest.slice(0, maxChars + 1);
+    const boundary = /[.!?…;:,]\s+/g;
+    let match, cut = 0;
+    while ((match = boundary.exec(head))) {
+      const end = match.index + match[0].trimEnd().length;
+      if (end >= Math.floor(maxChars * 0.55) && end <= maxChars) cut = end;
+    }
+    if (!cut) {
+      const space = head.lastIndexOf(' ', maxChars);
+      cut = space >= Math.floor(maxChars * 0.55) ? space : maxChars;
+    }
+    chunks.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
+
 async function googleSpeech(text, cacheKey) {
-  const chunk = String(text).replace(/\s+/g, ' ').trim().slice(0, 200);
-  const url = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q=' + encodeURIComponent(chunk);
-  const res = await fetchWithTimeout(url, {
-    headers: { referer: 'https://translate.google.com/', 'user-agent': 'Mozilla/5.0' }
-  }, 15000);
-  if (!res.ok) throw new Error('резервная озвучка: HTTP ' + res.status);
-  const body = Buffer.from(await res.arrayBuffer());
+  const chunks = splitGoogleText(text);
+  const bodies = [];
+  for (const chunk of chunks) {
+    const url = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q=' + encodeURIComponent(chunk);
+    const res = await fetchWithTimeout(url, {
+      headers: { referer: 'https://translate.google.com/', 'user-agent': 'Mozilla/5.0' }
+    }, 8000);
+    if (!res.ok) throw new Error('резервная озвучка: HTTP ' + res.status);
+    const part = Buffer.from(await res.arrayBuffer());
+    if (!part.length) throw new Error('резервная озвучка пуста');
+    bodies.push(part);
+  }
+  const body = Buffer.concat(bodies);
   if (!body.length) throw new Error('резервная озвучка пуста');
   if (cacheKey) {
     TTS_CACHE.set(cacheKey, { body, ts: Date.now(), source: 'google:резерв' });

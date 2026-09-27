@@ -2,7 +2,7 @@
  * tools/roster-sheet.js — обзорный лист отряда: все фигуры главного экрана рядом.
  *
  * Нужен, чтобы глазами проверить рисунки: в игре фигуры бегут и разглядеть
- * их трудно. Здесь каждая стоит на месте, подписана своим именем и ролью.
+ * их трудно. Здесь первые кадры спрайтов всех персонажей стоят на месте, с подписями.
  *
  *   node tools/roster-sheet.js [url]
  */
@@ -37,8 +37,18 @@ const OUT = path.join(__dirname, '..', 'shots', 'v19-roster-sheet.png');
       const art = document.createElement('div');
       art.className = 'menu-stage';
       art.style.cssText = 'width:150px;height:150px;position:relative;' + skin;
-      art.innerHTML = '<div class="critter critter--' + item.id + '" style="position:absolute;left:8px;bottom:0;' +
-        'height:120px;transform:none">' + item.svg() + '</div>';
+      const spriteMap = window.DT_CRITTER_SPRITES || {};
+      const sprite = item.sprite
+        ? (spriteMap[item.id] || ('assets/critters/' + item.sprite))
+        : '';
+      const classes = 'critter critter--' + item.id + (sprite ? ' critter--generated' : '');
+      const content = sprite
+        ? '<span class="critter__sprite" aria-hidden="true"></span>'
+        : item.svg();
+      const spriteSize = sprite ? 'width:150px;' : '';
+      art.innerHTML = '<div class="' + classes + '" style="position:absolute;left:0;bottom:0;' +
+        'height:120px;transform:none;' + spriteSize + '">' + content + '</div>';
+      if (sprite) art.querySelector('.critter--generated').style.setProperty('--critter-sheet', 'url("' + sprite + '")');
       const title = document.createElement('div');
       title.textContent = item.name + ' · ' + (item.kind === 'hero' ? 'герой' : 'монстр');
       title.style.cssText = 'color:#cfe9e1;text-align:center';

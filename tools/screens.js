@@ -144,6 +144,7 @@ const TURN = {
     localStorage.setItem('dt2:settings', JSON.stringify(s));
   });
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForSelector('#pane-random .scenario-card');
   await page.click('#pane-random .scenario-card:first-child');
   await page.waitForSelector('#hero-name');
@@ -197,6 +198,7 @@ const TURN = {
   });
   // истории живут во вкладке «Истории» экрана «Новая игра»
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForSelector('#mode-tabs .tab[data-mode="books"]', { timeout: 8000 });
   await page.click('#mode-tabs .tab[data-mode="books"]');
   await page.waitForSelector('#books-list .book-card', { timeout: 8000 });

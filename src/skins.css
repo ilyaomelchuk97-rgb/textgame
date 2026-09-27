@@ -59,6 +59,8 @@
   --sk-art-bg: none;
   --sk-art-tex: none;
   --sk-art-tex-size: 340px;
+  --sk-art-btn: none;
+  --sk-art-btn-blend: soft-light;
   --sk-scrim: none;
   --sk-scrim-bars: none;
   --sk-scrim-panel: none;
@@ -287,14 +289,14 @@ body[data-theme] .panel {
   /* материал темы — первым слоем: он виден, затемнение только помогает чтению */
   background-image: var(--sk-scrim-panel), var(--sk-art-bg),
     radial-gradient(120% 60% at 50% 0%, var(--wash), transparent 70%);
-  background-size: cover, cover, auto;
+  background-size: 100% 100%, 100% 100%, auto;
   background-position: center, center, center;
   background-repeat: no-repeat, no-repeat, no-repeat;
   background-blend-mode: normal, normal, normal;
 }
 body[data-theme] .screen {
   background-image: var(--sk-scrim), var(--sk-art-bg);
-  background-size: cover, cover;
+  background-size: 100% 100%, 100% 100%;
   background-position: center, center;
   background-repeat: no-repeat, no-repeat;
 }
@@ -302,7 +304,7 @@ body[data-theme] .screen {
 body[data-theme] .screen--menu { background-image: none; }
 body[data-theme] .screen--game {
   background-image: var(--sk-scrim), var(--sk-art-bg), var(--sk-scene-gloss);
-  background-size: cover, cover, auto;
+  background-size: 100% 100%, 100% 100%, auto;
 }
 
 /* --- волна от касания: цвет темы, а не зелёный по умолчанию --- */
@@ -319,7 +321,9 @@ body[data-theme] .toast--bad { border-color: color-mix(in srgb, var(--danger, #f
 /* --- Ночь: тёмное стекло с мягким кантом --- */
 body[data-theme="night"], .skin-demo[data-tp="night"] {
   /* материал: ночной туман в фоне и дымчатое стекло на кнопках */
-  --sk-art-bg: url("assets/themes/night-bg.webp");
+  --sk-art-bg: url("assets/themes/night-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/night-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-art-tex: url("assets/themes/night-tex.webp");
   --sk-art-tex-size: 380px;
   --sk-scrim: linear-gradient(180deg, rgba(3,6,9,.30), rgba(2,4,7,.70));
@@ -336,7 +340,7 @@ body[data-theme="night"], .skin-demo[data-tp="night"] {
   --sk-btn-shadow: 0 2px 6px rgba(0,0,0,.32);
   --sk-btn-text: #e6eef5; --sk-btn-muted: #8d9aa8;
   --sk-primary-paint: linear-gradient(180deg, #6fe3b8, #34b98a);
-  --sk-primary-text: #04231a; --sk-primary-edge: rgba(255,255,255,.25);
+  --sk-primary-text: #f5fbff; --sk-primary-edge: rgba(255,255,255,.25);
   --sk-bar-paint: linear-gradient(180deg, rgba(12,19,22,.98), rgba(9,15,18,.92));
   --sk-bar-edge: rgba(145,200,190,.14);
   --sk-bar-shadow: 0 -6px 20px rgba(0,0,0,.32);
@@ -346,7 +350,9 @@ body[data-theme="night"], .skin-demo[data-tp="night"] {
 /* --- Материальная: плоские карточки, тени, никаких рамок --- */
 body[data-theme="material"], .skin-demo[data-tp="material"] {
   /* материал: светлая бумага — фон и мелкое зерно на кнопках */
-  --sk-art-bg: url("assets/themes/material-bg.webp");
+  --sk-art-bg: url("assets/themes/material-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/material-ui-button.webp");
+  --sk-art-btn-blend: multiply;
   --sk-art-tex: url("assets/themes/material-tex.webp");
   --sk-art-tex-size: 520px;
   --sk-scrim: linear-gradient(180deg, rgba(247,245,252,.36), rgba(233,230,242,.58));
@@ -375,7 +381,9 @@ body[data-theme="material"], .skin-demo[data-tp="material"] {
 /* --- Киберпанк: сканлайны, неоновая кромка, свечение --- */
 body[data-theme="neon"], .skin-demo[data-tp="neon"] {
   /* материал: мокрый неон и шлифованный металл */
-  --sk-art-bg: url("assets/themes/neon-bg.webp");
+  --sk-art-bg: url("assets/themes/neon-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/neon-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-art-tex: url("assets/themes/neon-tex.webp");
   --sk-art-tex-size: 300px;
   --sk-scrim: linear-gradient(180deg, rgba(6,4,16,.42), rgba(3,2,10,.78));
@@ -394,7 +402,7 @@ body[data-theme="neon"], .skin-demo[data-tp="neon"] {
   --sk-btn-text: #eae6ff; --sk-btn-muted: #9a95c4;
   --sk-primary-paint: linear-gradient(180deg, #49e0ff, #2a9fd6);
   --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.16) 0 1px, rgba(255,255,255,0) 1px 4px);
-  --sk-primary-text: #06121c; --sk-primary-edge: rgba(255,92,240,.55);
+  --sk-primary-text: #f4f7ff; --sk-primary-edge: rgba(255,92,240,.55);
   --sk-primary-shadow: 0 0 18px rgba(73,224,255,.5);
   --sk-bar-paint: linear-gradient(180deg, rgba(14,10,30,.98), rgba(10,7,22,.94));
   --sk-bar-edge: rgba(73,224,255,.35);
@@ -408,6 +416,8 @@ body[data-theme="neon"], .skin-demo[data-tp="neon"] {
 body[data-theme="terminal"], .skin-demo[data-tp="terminal"] {
   /* материал: фосфорный экран и строки развёртки */
   --sk-art-bg: url("assets/themes/terminal-bg.webp");
+  --sk-art-btn: url("assets/themes/terminal-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-art-tex: url("assets/themes/terminal-tex.webp");
   --sk-art-tex-size: 240px;
   --sk-scrim: linear-gradient(180deg, rgba(2,7,4,.62), rgba(1,4,2,.88));
@@ -426,7 +436,7 @@ body[data-theme="terminal"], .skin-demo[data-tp="terminal"] {
   --sk-btn-text: #c8ffdd; --sk-btn-muted: #6fae8a;
   --sk-primary-paint: linear-gradient(180deg, #63ff9e, #12a052);
   --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.12) 0 1px, rgba(255,255,255,0) 1px 4px);
-  --sk-primary-text: #04170c; --sk-primary-edge: rgba(120,255,170,.6);
+  --sk-primary-text: #eafff0; --sk-primary-edge: rgba(120,255,170,.6);
   --sk-primary-shadow: 0 0 16px rgba(99,255,158,.4);
   --sk-bar-paint: linear-gradient(180deg, rgba(5,16,10,.98), rgba(3,10,6,.95));
   --sk-bar-edge: rgba(120,255,170,.4);
@@ -451,7 +461,9 @@ body[data-theme="terminal"] .modal-box { border-style: dashed; }
 /* --- Пергамент: бумажные листы на тёмном столе, кромка неровная --- */
 body[data-theme="parchment"], .skin-demo[data-tp="parchment"] {
   /* материал: состаренный лист — фон и волокна бумаги на кнопках */
-  --sk-art-bg: url("assets/themes/parchment-bg.webp");
+  --sk-art-bg: url("assets/themes/parchment-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/parchment-ui-button.webp");
+  --sk-art-btn-blend: multiply;
   --sk-art-tex: url("assets/themes/parchment-tex.webp");
   --sk-art-tex-size: 480px;
   --sk-scrim: linear-gradient(180deg, rgba(28,20,10,.26), rgba(16,11,5,.62));
@@ -497,7 +509,9 @@ body[data-theme="parchment"] .tag__adv { color: #7a4a12; }
 /* --- Тушь и медь: прямые углы, медная кромка, заклёпки по углам --- */
 body[data-theme="ink"], .skin-demo[data-tp="ink"] {
   /* материал: тёмный дуб — фон, кованая медь — фактура кнопок */
-  --sk-art-bg: url("assets/themes/ink-bg.webp");
+  --sk-art-bg: url("assets/themes/ink-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/ink-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-art-tex: url("assets/themes/ink-tex.webp");
   --sk-art-tex-size: 560px;
   --sk-scrim: linear-gradient(180deg, rgba(10,8,6,.50), rgba(6,5,3,.80));
@@ -521,7 +535,7 @@ body[data-theme="ink"], .skin-demo[data-tp="ink"] {
   --sk-btn-text: #ece9e3; --sk-btn-muted: #9b968c;
   --sk-primary-paint: linear-gradient(180deg, #e0b378, #b07f3c);
   --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 55%);
-  --sk-primary-text: #1b1206; --sk-primary-edge: rgba(255,235,200,.35);
+  --sk-primary-text: #f4eee4; --sk-primary-edge: rgba(255,235,200,.35);
   --sk-primary-shadow: 0 4px 14px rgba(180,130,60,.3);
   --sk-bar-paint: linear-gradient(180deg, rgba(16,16,18,.98), rgba(10,10,11,.95));
   --sk-bar-edge: rgba(217,167,106,.3);
@@ -533,7 +547,9 @@ body[data-theme="ink"], .skin-demo[data-tp="ink"] {
 /* --- Закат: тёплые градиенты и мягкое свечение --- */
 body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
   /* материал: настоящий закат — небо в фоне, тёплый лён на кнопках */
-  --sk-art-bg: url("assets/themes/sunset-bg.webp");
+  --sk-art-bg: url("assets/themes/sunset-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/sunset-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-art-tex: url("assets/themes/sunset-tex.webp");
   --sk-art-tex-size: 420px;
   --sk-scrim: linear-gradient(180deg, rgba(26,12,20,.36), rgba(10,6,12,.72));
@@ -552,7 +568,7 @@ body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
   --sk-btn-text: #ffe9e0; --sk-btn-muted: #c39aa8;
   --sk-primary-paint: linear-gradient(180deg, #ffb066, #e2703a);
   --sk-primary-gloss: radial-gradient(120% 100% at 20% -20%, rgba(255,235,200,.6), rgba(255,235,200,0) 60%);
-  --sk-primary-text: #2b1206; --sk-primary-edge: rgba(255,220,180,.5);
+  --sk-primary-text: #fff1e8; --sk-primary-edge: rgba(255,220,180,.5);
   --sk-primary-shadow: 0 10px 26px rgba(255,140,80,.35);
   --sk-bar-paint: linear-gradient(180deg, rgba(44,20,48,.98), rgba(28,13,32,.95));
   --sk-bar-edge: rgba(255,170,130,.35);
@@ -565,7 +581,9 @@ body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
 /* --- Лёд: кнопки и блоки покрыты наледью --- */
 body[data-theme="ice"], .skin-demo[data-tp="ice"] {
   /* материал: настоящий лёд — фон и фактура кнопок */
-  --sk-art-bg: url("assets/themes/ice-bg.webp");
+  --sk-art-bg: url("assets/themes/ice-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/ice-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-art-tex: url("assets/themes/ice-tex.webp");
   --sk-art-tex-size: 700px;
   --sk-scrim: linear-gradient(180deg, rgba(238,246,252,.42), rgba(212,230,245,.66));
@@ -649,6 +667,9 @@ body[data-theme="ice"] .mech-bar { box-shadow: 0 -1px 0 rgba(255,255,255,.9) ins
 
 /* --- Чёрная: только контур, ничего лишнего --- */
 body[data-theme="oled"], .skin-demo[data-tp="oled"] {
+  --sk-art-bg: url("assets/themes/oled-ui-bg.webp");
+  --sk-art-btn: url("assets/themes/oled-ui-button.webp");
+  --sk-art-btn-blend: normal;
   --sk-r-card: 8px; --sk-r-btn: 8px; --sk-r-small: 6px; --sk-r-chip: 6px;
   --sk-card-paint: none; --sk-card-tint: #000000; --sk-card-gloss: none;
   --sk-card-edge: rgba(255,255,255,.14);
@@ -659,7 +680,7 @@ body[data-theme="oled"], .skin-demo[data-tp="oled"] {
   --sk-btn-text: #f2f2f2; --sk-btn-muted: #9a9a9a;
   --sk-primary-paint: none; --sk-primary-tint: #f2f2f2;
   --sk-primary-gloss: none; --sk-primary-edge: rgba(255,255,255,.4);
-  --sk-primary-text: #000000; --sk-primary-shadow: none;
+  --sk-primary-text: #ffffff; --sk-primary-shadow: none;
   --sk-bar-paint: #000000; --sk-bar-edge: rgba(255,255,255,.12); --sk-bar-shadow: none;
   --sk-scene-gloss: none; --sk-glow: none;
   --sk-tap: rgba(255,255,255,.18);
@@ -714,3 +735,50 @@ body[data-theme="oled"], .skin-demo[data-tp="oled"] {
 }
 /* в строке правил образец идёт первым, текст — следом */
 .rules-btn .skin-demo { pointer-events: none; }
+
+/* ------------------------------------------------------------
+ * 5. Иллюстрированные кнопки: полноразмерные изображения-пластины.
+ *    Текст остаётся HTML-текстом для доступности; картинка задаёт только материал.
+ * ------------------------------------------------------------ */
+body[data-theme] .btn:not(.btn--quiet),
+body[data-theme] .icon-btn,
+body[data-theme] .action-btn,
+body[data-theme] .bar-btn,
+body[data-theme] .tab,
+body[data-theme] .chip,
+body[data-theme] .rules-btn,
+body[data-theme] .log-toggle,
+body[data-theme] .books-filter__chip,
+body[data-theme] .mech-chip {
+  background-image: var(--sk-btn-gloss), var(--sk-art-btn), var(--sk-art-tex), var(--sk-btn-paint);
+  background-size: auto, 100% 100%, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, var(--sk-art-btn-blend, soft-light), overlay, normal;
+}
+body[data-theme] .btn--primary,
+body[data-theme] .tab.is-active,
+body[data-theme] .chip.is-on,
+body[data-theme] .rules-btn.is-on,
+body[data-theme] .books-filter__chip.is-on {
+  background-image: var(--sk-primary-gloss), var(--sk-art-btn), var(--sk-art-tex), var(--sk-primary-paint);
+  background-size: auto, 100% 100%, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, var(--sk-art-btn-blend, soft-light), overlay, normal;
+}
+body[data-theme] .mech-chip--use {
+  background-image: var(--sk-btn-gloss), var(--sk-art-btn), var(--sk-art-tex), var(--sk-btn-paint),
+    linear-gradient(0deg, color-mix(in srgb, var(--accent, #6fe3b8) 14%, transparent), color-mix(in srgb, var(--accent, #6fe3b8) 14%, transparent));
+  background-size: auto, 100% 100%, var(--sk-art-tex-size) var(--sk-art-tex-size), auto, auto;
+  background-position: center;
+  background-repeat: no-repeat, no-repeat, repeat, no-repeat, no-repeat;
+  background-blend-mode: normal, var(--sk-art-btn-blend, soft-light), overlay, normal, normal;
+}
+.skin-demo__btn {
+  background-image: var(--sk-btn-gloss, none), var(--sk-art-btn, none), var(--sk-art-tex, none), var(--sk-btn-paint, none);
+  background-size: auto, 100% 100%, 42px 42px, auto;
+  background-position: center;
+  background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, var(--sk-art-btn-blend, soft-light), overlay, normal;
+}

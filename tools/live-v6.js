@@ -24,6 +24,7 @@ const shot = (page, name) => page.screenshot({ path: 'shots/' + name, fullPage: 
   await page.waitForTimeout(700);
 
   await page.click('[data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForTimeout(500);
   await page.click('[data-mode="custom"]');
   await page.waitForTimeout(300);

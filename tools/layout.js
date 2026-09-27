@@ -40,6 +40,7 @@ const TARGETS = [
     await page.goto(base, { waitUntil: 'load' });
     await page.waitForTimeout(700);
     await page.click('#screen-menu [data-act="new-game"]');
+    await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
     await page.waitForSelector('#pane-random .scenario-card');
     await page.click('#pane-random .scenario-card:first-child');
     await page.waitForSelector('#hero-name');

@@ -793,6 +793,147 @@
     show('scenarios');
   }
 
+  let scenarioDiceFlightActive = false;
+
+  /** Кубик с логотипа закрывает экран и приземляется в кнопке «Другие миры». */
+  async function openScenariosWithDiceFlight() {
+    if (scenarioDiceFlightActive) return;
+    const source = $('.menu-dice');
+    const target = $('#screen-scenarios [data-act="reroll-scenarios"]');
+    if (!source || !target || Settings.data.motion === false || prefersReducedMotion() ||
+        typeof source.animate !== 'function' || document.body.dataset.screen !== 'menu') {
+      openScenarios();
+      return;
+    }
+
+    const sourceBox = source.getBoundingClientRect();
+    if (sourceBox.width < 1 || sourceBox.height < 1) {
+      openScenarios();
+      return;
+    }
+
+    scenarioDiceFlightActive = true;
+    const sourceStyle = window.getComputedStyle(source);
+    const sourceFont = parseFloat(sourceStyle.fontSize) || 42;
+    const tileSize = Math.max(sourceBox.width, sourceBox.height, sourceFont);
+    const startX = sourceBox.left + sourceBox.width / 2;
+    const startY = sourceBox.top + sourceBox.height / 2;
+    const viewW = document.documentElement.clientWidth || window.innerWidth;
+    const viewH = window.innerHeight || document.documentElement.clientHeight;
+    const coverScale = Math.max(1, Math.hypot(viewW, viewH) * 1.75 / tileSize);
+    const px = n => (Math.round(n * 100) / 100) + 'px';
+    const frame = (x, y, scale, rotation, offset) => ({
+      left: px(x - tileSize / 2),
+      top: px(y - tileSize / 2),
+      transform: 'scale(' + scale + ') rotate(' + rotation + 'deg)',
+      offset,
+      easing: 'cubic-bezier(.2,.72,.32,1)'
+    });
+    const waitForAnimations = animations => Promise.all(
+      animations.map(animation => animation.finished.catch(() => null))
+    );
+    let layer = null;
+    let switched = false;
+
+    try {
+      layer = document.createElement('div');
+      layer.className = 'dice-transition-layer';
+      layer.setAttribute('aria-hidden', 'true');
+
+      const die = document.createElement('div');
+      die.className = 'dice-transition__die';
+      die.style.width = tileSize + 'px';
+      die.style.height = tileSize + 'px';
+      die.style.left = px(startX - tileSize / 2);
+      die.style.top = px(startY - tileSize / 2);
+
+      const face = document.createElement('span');
+      face.className = 'dice-transition__face';
+      const glyph = document.createElement('span');
+      glyph.className = 'dice-transition__glyph';
+      glyph.textContent = source.textContent.trim() || '🎲';
+      glyph.style.fontFamily = sourceStyle.fontFamily;
+      glyph.style.fontSize = sourceFont + 'px';
+      glyph.style.fontWeight = sourceStyle.fontWeight;
+      // Небольшая тень сохраняет объём, не раздуваясь в огромный ореол при зуме.
+      const flightFilter = 'drop-shadow(0 2px 4px rgba(5, 20, 24, 0.25))';
+      glyph.style.filter = flightFilter;
+      die.appendChild(face);
+      die.appendChild(glyph);
+      layer.appendChild(die);
+      document.body.appendChild(layer);
+      document.body.classList.add('dice-transition-active');
+      source.classList.add('is-launching');
+
+      const coverX = viewW / 2;
+      const coverY = viewH / 2;
+      const launchFrames = [
+        frame(startX, startY, 1, 0, 0),
+        frame(startX - viewW * 0.08, startY + viewH * 0.015, 1.55, 240, 0.14),
+        frame(viewW * 0.17, viewH * 0.30, coverScale * 0.24, 480, 0.40),
+        frame(viewW * 0.25, viewH * 0.64, coverScale * 0.72, 780, 0.70),
+        frame(coverX, coverY, coverScale, 1080, 0.88),
+        frame(coverX, coverY, coverScale, 1080, 1)
+      ];
+      const launch = die.animate(launchFrames, { duration: 760, easing: 'linear', fill: 'forwards' });
+      const launchFace = face.animate([
+        { opacity: 0, offset: 0 },
+        { opacity: 0.12, offset: 0.18 },
+        { opacity: 0.62, offset: 0.52 },
+        { opacity: 1, offset: 0.88 },
+        { opacity: 1, offset: 1 }
+      ], { duration: 760, easing: 'linear', fill: 'forwards' });
+      await waitForAnimations([launch, launchFace]);
+
+      // В этот момент большой кубик уже непрозрачно закрывает меню.
+      openScenarios();
+      switched = true;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const targetBox = target.getBoundingClientRect();
+      if (targetBox.width < 1 || targetBox.height < 1) return;
+      const targetStyle = window.getComputedStyle(target);
+      const targetFont = parseFloat(targetStyle.fontSize) || 17;
+      const landingScale = Math.max(0.18, Math.min(
+        targetBox.width / tileSize,
+        targetBox.height / tileSize,
+        targetFont / sourceFont
+      ));
+      const targetX = targetBox.left + targetBox.width / 2;
+      const targetY = targetBox.top + targetBox.height / 2;
+      const landingFrames = [
+        frame(coverX, coverY, coverScale, 1080, 0),
+        frame(viewW * 0.66, viewH * 0.42, coverScale * 0.84, 1260, 0.18),
+        frame(viewW * 0.83, viewH * 0.25, coverScale * 0.34, 1440, 0.50),
+        frame(targetX - viewW * 0.04, targetY + viewH * 0.045, Math.max(landingScale * 2.7, 2.5), 1620, 0.80),
+        frame(targetX, targetY, landingScale, 1800, 1)
+      ];
+      const landing = die.animate(landingFrames, { duration: 740, easing: 'linear', fill: 'forwards' });
+      const landingFace = face.animate([
+        { opacity: 1, offset: 0 },
+        { opacity: 1, offset: 0.20 },
+        { opacity: 0.82, offset: 0.48 },
+        { opacity: 0.32, offset: 0.80 },
+        { opacity: 0, offset: 1 }
+      ], { duration: 740, easing: 'linear', fill: 'forwards' });
+      const landingGlow = glyph.animate([
+        { filter: flightFilter, offset: 0 },
+        { filter: 'none', offset: 1 }
+      ], { duration: 740, easing: 'ease-out', fill: 'forwards' });
+      await waitForAnimations([landing, landingFace, landingGlow]);
+    } catch (error) {
+      if (!switched) {
+        openScenarios();
+        switched = true;
+      }
+    } finally {
+      if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+      source.classList.remove('is-launching');
+      document.body.classList.remove('dice-transition-active');
+      scenarioDiceFlightActive = false;
+    }
+  }
+
   function setWorldMode(mode) {
     State.worldMode = mode;
     $$('#mode-tabs .tab').forEach(t => t.classList.toggle('is-active', t.dataset.mode === mode));
@@ -3021,6 +3162,8 @@
   let speakEpoch = 0;
   const speakAborts = new Set();
   const speakLog = [];           // след чтения для прогонов: что и когда ушло в голос
+  let speakAudio = null;         // mp3 текущей очереди сцены
+  let speakAudioUrl = null;
 
   /** Новый номер сцены: прошлая озвучка (и всё, что не успело зазвучать) отменяется. */
   function speakFresh() {
@@ -3043,100 +3186,41 @@
     /**
      * Озвучка в два слоя. Первый — нейросетевой голос с сервера (mp3):
      * он заметно живее браузерного и одинаково звучит на всех устройствах.
-     * Второй — синтез браузера: он есть всегда, поэтому игра не остаётся
-     * без голоса ни в подземке, ни на выключенном сервере.
+     * Второй — системный синтез браузера, если устройство его поддерживает:
+     * при недоступности сервера очередь переходит к нему, не обрывая сцену.
      */
-    // Подача голоса: те же имена, что на сервере (sceneMood). Браузерный синтез
-    // умеет только rate/pitch — ими и передаём настроение, чтобы голос не был «ровным роботом».
-    const MOOD_VOICE = {
-      book:    { rate: 0.98, pitch: 1.0 },
-      dark:    { rate: 0.9,  pitch: 0.9 },
-      dread:   { rate: 0.8,  pitch: 0.8 },
-      hurt:    { rate: 0.87, pitch: 0.85 },
-      tense:   { rate: 1.06, pitch: 1.05 },
-      triumph: { rate: 1.06, pitch: 1.14 },
-      ironic:  { rate: 1.02, pitch: 1.04 },
-      soft:    { rate: 0.92, pitch: 1.02 },
-      heroic:  { rate: 1.0,  pitch: 1.07 },
-      hard:    { rate: 1.02, pitch: 0.93 }
-    };
-    function prosodyFor(mood) {
-      const names = String(mood || 'book').split('+').filter(x => MOOD_VOICE[x]);
-      if (!names.length) return { rate: 0.98, pitch: 1.0 };
-      const sum = names.reduce((acc, n) => ({
-        rate: acc.rate + MOOD_VOICE[n].rate, pitch: acc.pitch + MOOD_VOICE[n].pitch
-      }), { rate: 0, pitch: 0 });
-      return { rate: sum.rate / names.length, pitch: sum.pitch / names.length };
-    }
-
-    const supported = (typeof window !== 'undefined' && 'speechSynthesis' in window &&
-      typeof window.SpeechSynthesisUtterance === 'function') || typeof window !== 'undefined';
-    let ruVoice = null;
-    let audio = null;          // текущее воспроизведение серверной озвучки
-    let audioUrl = null;
-    let speakId = 0;           // прерываем прошлую озвучку, если пришла новая сцена
-
-    function pick() {
-      if (!(typeof window !== 'undefined' && 'speechSynthesis' in window)) return null;
-      let list = [];
-      try { list = window.speechSynthesis.getVoices() || []; } catch (e) { list = []; }
-      // На телефонах есть голоса получше системных: ищем их первыми
-      const prefer = ['siri', 'google', 'premium', 'enhanced', 'natural'];
-      const ru = list.filter(v => /^ru(-|_)?/i.test(v.lang) || /rus/i.test(v.name));
-      return ru.find(v => prefer.some(p => new RegExp(p, 'i').test(v.name))) || ru[0] || null;
-    }
+    const supported = typeof window !== 'undefined' && (
+      (('speechSynthesis' in window) && typeof window.SpeechSynthesisUtterance === 'function') ||
+      typeof window.Audio === 'function'
+    );
     function stopBrowser() {
       if (!(typeof window !== 'undefined' && 'speechSynthesis' in window)) return;
       try { window.speechSynthesis.cancel(); } catch (e) { /* noop */ }
     }
     function stop() {
-      speakId += 1;
       stopBrowser();
-      if (audio) { try { audio.pause(); } catch (e) { /* noop */ } audio = null; }
-      if (audioUrl) { try { URL.revokeObjectURL(audioUrl); } catch (e) { /* noop */ } audioUrl = null; }
-      // очередь абзацев и уже начатые куски прекращаются вместе с плеером
+      if (speakAudio) { try { speakAudio.pause(); speakAudio.currentTime = 0; } catch (e) { /* noop */ } speakAudio = null; }
+      if (speakAudioUrl) { try { URL.revokeObjectURL(speakAudioUrl); } catch (e) { /* noop */ } speakAudioUrl = null; }
+      // очередь абзацев, системный голос и уже начатые mp3 прекращаются вместе
       speakFresh();
     }
-    function sayBrowser(text, mood) {
-      if (!(typeof window !== 'undefined' && 'speechSynthesis' in window)) return false;
-      const clean = String(text || '')
-        .replace(/[«»""„“*_#`]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 900);
-      if (!clean) return false;
-      if (!ruVoice) ruVoice = pick();
-      const parts = clean.match(/[^.!?…]+[.!?…]*/g) || [clean];
-      parts.forEach(part => {
-        const piece = part.trim();
-        if (!piece) return;
-        const u = new window.SpeechSynthesisUtterance(piece);
-        if (ruVoice) u.voice = ruVoice;
-        u.lang = ruVoice ? ruVoice.lang : 'ru-RU';
-        const p = prosodyFor(mood);
-        u.rate = p.rate;        // медленнее в страхе и боли, быстрее в победе
-        u.pitch = p.pitch;      // ниже голос в мрачном, выше в триумфе
-        try { window.speechSynthesis.speak(u); } catch (e) { /* noop */ }
-      });
+    /** Все реплики используют одну очередь и общий резервный путь. */
+    function say(text, mood, voiceOverride) {
+      return read(text, mood, voiceOverride);
+    }
+    /** Полное чтение текущего текста: прерывает старое и ставит все фрагменты в очередь. */
+    function read(text, mood, voiceOverride) {
+      const clean = String(text || '').trim();
+      if (!clean || !Settings.data.voice || !supported) return false;
+      stop();
+      speakParagraphs(clean, mood || 'book', voiceOverride || Settings.data.voiceGender || 'female');
       return true;
     }
-    /** Речь с сервера: тянем mp3 и играем. Не вышло — читаем голосом браузера. */
-    function say(text, mood, voiceOverride) {
-      const clean = String(text || '').replace(/\s+/g, ' ').trim();
-      if (!clean) return false;
-      stop();
-      const myId = speakId;
-      const gender = voiceOverride || Settings.data.voiceGender || 'female';
-      API.speakScene(clean, { mood: mood || 'book', gender }).then(url => {
-        if (myId !== speakId) { if (url) URL.revokeObjectURL(url); return; }   // сцена уже сменилась
-        if (!url) { sayBrowser(clean, mood); return; }
-        audioUrl = url;
-        const el = new window.Audio(url);
-        audio = el;
-        el.onended = () => { if (audio === el) { try { URL.revokeObjectURL(url); } catch (e) {} audio = null; audioUrl = null; } };
-        el.onerror = () => { if (audio === el) { try { URL.revokeObjectURL(url); } catch (e) {} audio = null; audioUrl = null; } sayBrowser(clean, mood); };
-        el.play().catch(() => sayBrowser(clean, mood));
-      }).catch(() => { if (myId === speakId) sayBrowser(clean, mood); });
+    /** Добавляет реплику в конец текущей сцены, не обрывая рассказчика. */
+    function enqueue(text, mood, voiceOverride) {
+      const clean = String(text || '').trim();
+      if (!clean || !Settings.data.voice || !supported) return false;
+      speakParagraphs(clean, mood || 'book', voiceOverride || Settings.data.voiceGender || 'female');
       return true;
     }
     function syncButton() {
@@ -3163,30 +3247,30 @@
         syncButton();
         if (want) {
           const g = State.game;
-          if (g && g.scene && g.scene.text) say(g.scene.text);
+          if (g && g.scene && g.scene.text) read(g.scene.text);
         } else stop();
       },
       toggle() { this.set(!this.on); },
-      /**
-       * Новая сцена: читаем абзацами, каждому — своя подача (описание, реплика,
-       * ранение). Так сцена слушается как аудиокнига, а не как ровный текст.
-       */
+      read,
+      enqueue,
+      /** Новая сцена: прерываем старую и ставим чтение абзацев в очередь. */
       scene(text, mood) {
         if (!this.on) return;
-        speakFresh();                        // старые абзацы потеряли право голоса
         stop();
         speakParagraphs(text, mood, Settings.data.voiceGender);
       },
       stop,
       /** Состояние для прогонов: номер сцены, очередь чтения, играет ли звук. */
       state() {
+        let browserSpeaking = false;
+        try { browserSpeaking = !!(window.speechSynthesis && window.speechSynthesis.speaking); } catch (e) { /* noop */ }
         return {
           on: !!Settings.data.voice && supported,
-          epoch: speakEpoch,             // номер озвучиваемой сцены
-          aborts: speakAborts.size,      // сколько кусков ещё ждёт очереди
-          playing: !!audio,              // звучит ли серверный mp3 прямо сейчас
-          chain: !!speakChain,           // цепочка абзацев жива
-          log: speakLog.slice(-12),      // что ушло в голос и когда
+          epoch: speakEpoch,
+          aborts: speakAborts.size,
+          playing: !!speakAudio || browserSpeaking,
+          chain: speakAborts.size > 0,
+          log: speakLog.slice(-12),
           now: Date.now()
         };
       }
@@ -3237,75 +3321,247 @@
    * экране и только пока включён в настройках — выключается одной галочкой.
    */
   const Ambient = (function () {
-    const PROFILES = {
-      grimwood: { drone: 74, wind: 240, gain: 0.045 },
-      neon: { drone: 58, wind: 190, gain: 0.04 },
-      parchment: { drone: 92, wind: 320, gain: 0.045 },
-      cosmos: { drone: 46, wind: 150, gain: 0.038 },
-      desert: { drone: 68, wind: 300, gain: 0.05 },
-      noir: { drone: 52, wind: 210, gain: 0.04 }
+    // Место — главный голос амбиента; стиль, погода, время суток и очаг — слои.
+    const ENV = {
+      forest:   { low: 120, high: 1500, bed: .105, rumble: .018, gust: .022, gustHz: .045, events: ['bird', 'rustle'], interval: [9000, 16000], master: .42 },
+      swamp:    { low: 100, high: 1250, bed: .09,  rumble: .018, gust: .018, gustHz: .035, events: ['bubble', 'insect'], interval: [8000, 15000], master: .4 },
+      sea:      { low: 75,  high: 1200, bed: .11,  rumble: .025, gust: .045, gustHz: .09,  events: ['wave', 'gull'], interval: [10000, 18000], master: .42 },
+      city:     { low: 90,  high: 900,  bed: .085, rumble: .028, gust: .012, gustHz: .03,  events: ['traffic', 'distant'], interval: [9000, 17000], master: .38 },
+      cyber:    { low: 100, high: 1100, bed: .07,  rumble: .018, gust: .015, gustHz: .04,  events: ['pulse', 'traffic'], interval: [8500, 16000], master: .36 },
+      noir:     { low: 80,  high: 700,  bed: .065, rumble: .025, gust: .012, gustHz: .035, events: ['traffic', 'drip'], interval: [10000, 19000], master: .37 },
+      seaShip:  { low: 65,  high: 850,  bed: .1,   rumble: .03,  gust: .035, gustHz: .075, events: ['creak', 'wave'], interval: [9000, 17000], master: .4 },
+      cave:     { low: 55,  high: 680,  bed: .075, rumble: .035, gust: .014, gustHz: .027, events: ['drip', 'echo'], interval: [8000, 15000], master: .4 },
+      desert:   { low: 100, high: 1050, bed: .085, rumble: .025, gust: .03,  gustHz: .04,  events: ['gust', 'sand'], interval: [10000, 19000], master: .4 },
+      snow:     { low: 150, high: 1900, bed: .07,  rumble: .012, gust: .028, gustHz: .05,  events: ['ice', 'gust'], interval: [11000, 20000], master: .35 },
+      space:    { low: 25,  high: 420,  bed: .035, rumble: .012, gust: .004, gustHz: .025, events: ['space'], interval: [13000, 24000], master: .28 },
+      interior: { low: 100, high: 1000, bed: .045, rumble: .012, gust: .006, gustHz: .03,  events: ['creak', 'room'], interval: [10000, 19000], master: .32 },
+      battle:   { low: 55,  high: 850,  bed: .07,  rumble: .04,  gust: .028, gustHz: .035, events: ['gust', 'low-echo'], interval: [9000, 17000], master: .38 }
     };
-    let ctx = null, nodes = null;
+    const KIND_FAMILY = {
+      forest: 'forest', village: 'forest', swamp: 'swamp',
+      sea: 'sea', port: 'sea', ship: 'seaShip',
+      city: 'city', market: 'city', station: 'city', workshop: 'interior',
+      keep: 'cave', ruins: 'cave', cave: 'cave', temple: 'interior', library: 'interior',
+      tavern: 'interior', interior: 'interior', battlefield: 'battle',
+      road: 'desert', canyon: 'desert', bridge: 'desert', desert: 'desert', snow: 'snow', space: 'space'
+    };
+    let ctx = null, active = null, eventTimer = null;
+    const buffers = {};
 
-    const profile = () => {
-      const id = State.game && State.game.style ? State.game.style.id : 'grimwood';
-      return PROFILES[id] || PROFILES.grimwood;
-    };
     const allowed = () => !!(Settings.data.ambient && !Settings.data.muted && State.game &&
       document.body.dataset.screen === 'game' && !document.hidden);
 
-    function build() {
+    function describe(gameOverride) {
+      const game = gameOverride || State.game || {};
+      const scene = game.scene || {};
+      const narration = [scene.text, scene.npc, scene.place, scene.location, game.place, game.location,
+        game.setting, game.genre, game.scenarioTitle, game.title].filter(Boolean).join(' ');
+      let kind = 'forest', layers = { daypart: 'auto', weather: 'auto', fire: false };
+      try { kind = E.sceneKindFromText(narration); } catch (e) { /* use forest */ }
+      try { layers = E.sceneLayersFromText(narration); } catch (e) { /* use neutral layers */ }
+      const style = (game.style && game.style.id) || 'grimwood';
+      let family = KIND_FAMILY[kind] || 'forest';
+      if (style === 'neon' && ['city', 'market', 'station', 'workshop'].includes(kind)) family = 'cyber';
+      else if (style === 'cosmos' && ['space', 'forest', 'road', 'interior'].includes(kind)) family = 'space';
+      else if (style === 'noir' && ['city', 'market', 'station', 'road', 'interior'].includes(kind)) family = 'noir';
+      else if (style === 'desert' && ['forest', 'road', 'canyon', 'bridge'].includes(kind)) family = 'desert';
+      const mood = String((State.mood && State.mood.mood) || 'book').toLowerCase();
+      const profile = Object.assign({}, ENV[family] || ENV.forest, { events: (ENV[family] || ENV.forest).events.slice() });
+      const weather = layers.weather || 'auto';
+      if (weather === 'rain' || weather === 'storm') profile.rain = true;
+      if (weather === 'storm') profile.thunder = true;
+      if (weather === 'snow' && family !== 'snow') profile.snow = true;
+      if (weather === 'wind') { profile.wind = true; profile.gust *= 1.7; }
+      if (weather === 'fog') profile.fog = true;
+      if (weather === 'ash') profile.ash = true;
+      if (layers.fire) profile.fire = true;
+      if (layers.daypart === 'night' && family === 'forest') {
+        profile.events = ['insect', 'rustle'];
+        profile.interval = [11000, 20000];
+      }
+      if (/dread|hurt|dark/.test(mood)) {
+        profile.events = profile.events.filter(x => !['bird', 'gull'].includes(x));
+        profile.events.push('low-echo');
+        profile.master *= 0.82;
+      }
+      const key = [style, kind, family, weather, layers.daypart || 'auto', !!layers.fire, mood].join('|');
+      return { key, style, kind, family, weather, daypart: layers.daypart || 'auto', fire: !!layers.fire, mood, profile };
+    }
+
+    function context() {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       if (!ctx) ctx = new AC();
-      const p = profile();
-      const master = ctx.createGain();
-      master.gain.value = 0.0001;
-      const oscA = ctx.createOscillator(); oscA.type = 'sine'; oscA.frequency.value = p.drone;
-      const oscB = ctx.createOscillator(); oscB.type = 'triangle'; oscB.frequency.value = p.drone * 1.5;
-      const gB = ctx.createGain(); gB.gain.value = 0.32;
-      const len = Math.floor(ctx.sampleRate * 2);
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-      const data = buf.getChannelData(0);
+      return ctx;
+    }
+
+    function noiseBuffer(color) {
+      if (buffers[color]) return buffers[color];
+      const c = context();
+      if (!c) return null;
+      const len = Math.max(1, Math.floor(c.sampleRate * 4));
+      const buffer = c.createBuffer(1, len, c.sampleRate);
+      const data = buffer.getChannelData(0);
+      if (color === 'brown') {
+        let last = 0;
+        for (let i = 0; i < len; i++) {
+          const white = Math.random() * 2 - 1;
+          last = (last + .018 * white) / 1.018;
+          data[i] = Math.max(-1, Math.min(1, last * 5.8));
+        }
+      } else {
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      }
+      buffers[color] = buffer;
+      return buffer;
+    }
+
+    function addNoiseLayer(state, color, spec) {
+      const c = context(), buffer = noiseBuffer(color);
+      if (!c || !buffer) return;
+      const source = c.createBufferSource(); source.buffer = buffer; source.loop = true;
+      const high = c.createBiquadFilter(); high.type = 'highpass'; high.frequency.value = spec.low || 35; high.Q.value = .45;
+      const low = c.createBiquadFilter(); low.type = 'lowpass'; low.frequency.value = spec.high || 1200; low.Q.value = .5;
+      const gain = c.createGain(); gain.gain.value = spec.gain || .04;
+      source.connect(high).connect(low).connect(gain).connect(state.master);
+      source.start();
+      state.nodes.push(source, high, low, gain);
+      if (spec.gust || spec.sweep) {
+        const lfo = c.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = spec.rate || .04;
+        const mod = c.createGain(); mod.gain.value = spec.gust || 0;
+        lfo.connect(mod).connect(gain.gain); lfo.start();
+        state.nodes.push(lfo, mod);
+      }
+      if (spec.sweep) {
+        const drift = c.createOscillator(); drift.type = 'sine'; drift.frequency.value = (spec.rate || .04) * .61;
+        const driftGain = c.createGain(); driftGain.gain.value = spec.sweep;
+        drift.connect(driftGain).connect(low.frequency); drift.start();
+        state.nodes.push(drift, driftGain);
+      }
+    }
+
+    function build(scene) {
+      const c = context();
+      if (!c) return null;
+      const p = scene.profile;
+      const master = c.createGain(); master.gain.value = .0001; master.connect(c.destination);
+      const state = { key: scene.key, scene, profile: p, master, nodes: [] };
+      addNoiseLayer(state, 'brown', { low: p.low, high: p.high, gain: p.bed, gust: p.gust, rate: p.gustHz, sweep: p.gust ? p.gust * 2200 : 0 });
+      if (p.rumble) addNoiseLayer(state, 'brown', { low: 28, high: 170, gain: p.rumble, gust: p.gust * .16, rate: .027 });
+      if (p.rain) addNoiseLayer(state, 'white', { low: 650, high: 6200, gain: .052, gust: .018, rate: .075 });
+      if (p.snow) addNoiseLayer(state, 'white', { low: 950, high: 5200, gain: .018, gust: .007, rate: .05 });
+      if (p.fog) addNoiseLayer(state, 'brown', { low: 190, high: 760, gain: .02, gust: .006, rate: .025 });
+      if (p.ash) addNoiseLayer(state, 'brown', { low: 180, high: 1800, gain: .023, gust: .009, rate: .035 });
+      return state;
+    }
+
+    function toneEvent(state, startHz, endHz, duration, peak, type, delay) {
+      const c = context();
+      if (!c || active !== state) return;
+      const now = c.currentTime + (delay || 0);
+      const osc = c.createOscillator(), env = c.createGain(), filter = c.createBiquadFilter();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(Math.max(30, startHz), now);
+      if (endHz) osc.frequency.exponentialRampToValueAtTime(Math.max(30, endHz), now + duration * .78);
+      filter.type = 'lowpass'; filter.frequency.value = Math.max(450, Math.max(startHz, endHz || startHz) * 2.8);
+      env.gain.setValueAtTime(.0001, now);
+      env.gain.linearRampToValueAtTime(peak, now + Math.min(.08, duration * .22));
+      env.gain.exponentialRampToValueAtTime(.0001, now + duration);
+      osc.connect(filter).connect(env).connect(state.master);
+      osc.start(now); osc.stop(now + duration + .03);
+    }
+
+    function noiseEvent(state, duration, peak, lowpassHz, delay) {
+      const c = context();
+      if (!c || active !== state) return;
+      const now = c.currentTime + (delay || 0);
+      const len = Math.max(2, Math.floor(c.sampleRate * duration));
+      const buffer = c.createBuffer(1, len, c.sampleRate), data = buffer.getChannelData(0);
       for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
-      const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true;
-      const filter = ctx.createBiquadFilter(); filter.type = 'bandpass';
-      filter.frequency.value = p.wind; filter.Q.value = 0.7;
-      const noiseGain = ctx.createGain(); noiseGain.gain.value = 0.22;
-      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.05;
-      const lfoGain = ctx.createGain(); lfoGain.gain.value = p.gain * 0.4;
-      lfo.connect(lfoGain).connect(master.gain);
-      oscA.connect(master);
-      oscB.connect(gB).connect(master);
-      noise.connect(filter).connect(noiseGain).connect(master);
-      master.connect(ctx.destination);
-      oscA.start(); oscB.start(); noise.start(); lfo.start();
-      return { master, p };
+      const source = c.createBufferSource(); source.buffer = buffer;
+      const filter = c.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = lowpassHz || 2400;
+      const env = c.createGain(); env.gain.setValueAtTime(.0001, now);
+      env.gain.linearRampToValueAtTime(peak, now + Math.min(.08, duration * .25));
+      env.gain.exponentialRampToValueAtTime(.0001, now + duration);
+      source.connect(filter).connect(env).connect(state.master);
+      source.start(now); source.stop(now + duration + .03);
+    }
+
+    function playEvent(name, state) {
+      if (active !== state) return;
+      switch (name) {
+        case 'bird': toneEvent(state, 1700, 2650, .24, .008, 'sine'); toneEvent(state, 2300, 1900, .19, .006, 'sine', .22); break;
+        case 'insect': toneEvent(state, 2600, 2850, .38, .0035, 'sine'); break;
+        case 'gull': toneEvent(state, 430, 760, .62, .0055, 'sine'); break;
+        case 'drip': toneEvent(state, 980, 470, .15, .01, 'sine'); break;
+        case 'bubble': toneEvent(state, 240, 110, .32, .008, 'sine'); break;
+        case 'ice': toneEvent(state, 1850, 1220, .48, .0045, 'sine'); break;
+        case 'space': toneEvent(state, 360, 620, .9, .0025, 'sine'); break;
+        case 'pulse': toneEvent(state, 440, 520, .12, .0035, 'sine'); break;
+        case 'crackle': noiseEvent(state, .075, .025, 1750); break;
+        case 'thunder': noiseEvent(state, 2.3, .035, 190); break;
+        case 'wave': noiseEvent(state, .6, .009, 850); break;
+        case 'rustle': case 'sand': case 'gust': noiseEvent(state, .65, .012, 1150); break;
+        case 'traffic': noiseEvent(state, .85, .009, 520); break;
+        case 'distant': noiseEvent(state, .42, .006, 1600); break;
+        case 'echo': toneEvent(state, 180, 120, .85, .006, 'sine'); break;
+        case 'low-echo': toneEvent(state, 95, 58, .8, .005, 'sine'); break;
+        case 'creak': toneEvent(state, 280, 190, .5, .0045, 'triangle'); break;
+        case 'room': noiseEvent(state, .75, .0045, 700); break;
+      }
+    }
+
+    function scheduleEvents(state) {
+      if (eventTimer) clearTimeout(eventTimer);
+      if (active !== state) return;
+      const [min, max] = state.profile.interval || [10000, 18000];
+      eventTimer = setTimeout(() => {
+        if (active !== state || !allowed()) return;
+        const events = state.profile.events || [];
+        if (events.length) playEvent(events[Math.floor(Math.random() * events.length)], state);
+        if (state.scene.fire && Math.random() < .78) playEvent('crackle', state);
+        if (state.profile.thunder && Math.random() < .16) playEvent('thunder', state);
+        scheduleEvents(state);
+      }, min + Math.random() * Math.max(1, max - min));
+    }
+
+    function stop(instant) {
+      if (eventTimer) { clearTimeout(eventTimer); eventTimer = null; }
+      if (!active || !ctx) return;
+      const old = active; active = null;
+      const t = ctx.currentTime, fade = instant ? .045 : .55;
+      try {
+        old.master.gain.cancelScheduledValues(t);
+        old.master.gain.setValueAtTime(Math.max(.0001, old.master.gain.value), t);
+        old.master.gain.linearRampToValueAtTime(.0001, t + fade);
+      } catch (e) { /* noop */ }
+      setTimeout(() => old.nodes.forEach(n => {
+        try { if (typeof n.stop === 'function') n.stop(); } catch (e) { /* already stopped */ }
+        try { n.disconnect(); } catch (e) { /* noop */ }
+      }), fade * 1000 + 80);
     }
 
     function start() {
-      if (!allowed()) return;
-      if (!nodes) nodes = build();
-      if (!nodes || !ctx) return;
-      if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) { /* noop */ } }
-      const t = ctx.currentTime;
-      const g = nodes.master.gain;
-      g.cancelScheduledValues(t);
-      g.setValueAtTime(Math.max(0.0001, g.value), t);
-      g.exponentialRampToValueAtTime(nodes.p.gain, t + 2.4);
+      if (!allowed()) { stop(true); return; }
+      const c = context();
+      if (!c) return;
+      const scene = describe();
+      if (active && active.key === scene.key) {
+        if (c.state === 'suspended') { try { c.resume().catch(() => {}); } catch (e) {} }
+        return;
+      }
+      stop(false);
+      const state = build(scene);
+      if (!state) return;
+      active = state;
+      if (c.state === 'suspended') { try { c.resume().catch(() => {}); } catch (e) {} }
+      const t = c.currentTime;
+      state.master.gain.setValueAtTime(.0001, t);
+      state.master.gain.linearRampToValueAtTime(scene.profile.master, t + 1.7);
+      scheduleEvents(state);
     }
-    function stop(instant) {
-      if (!nodes || !ctx) return;
-      const t = ctx.currentTime;
-      const g = nodes.master.gain;
-      g.cancelScheduledValues(t);
-      g.setValueAtTime(Math.max(0.0001, g.value), t);
-      g.exponentialRampToValueAtTime(0.0001, t + (instant ? 0.05 : 1.1));
-    }
-    return {
-      sync() { if (allowed()) start(); else stop(true); },
-      stop() { stop(true); }
-    };
+
+    return { sync: start, stop() { stop(true); }, describe };
   })();
 
   /** Стиль игры: палитра для локального фона (мастер выбрал его один раз на кампанию). */
@@ -3824,20 +4080,14 @@
     if (!State.portrait && g.hero) refreshPortrait(false);
     Sound.scene(State.mood && State.mood.mood);
     Voice.scene(turn.scene, (State.mood && State.mood.voice) || 'book');
-    // знакомый говорит своим тембром — сцена звучит как разговор, а не как чтение
+    // Реплика знакомого добавляется в конец очереди сцены: не прерываем рассказчика.
     if (Settings.data.npcVoices !== false && turn.npc && Voice.on) {
       const key = npcVoiceKey(turn);
       const line = E.npcLine(turn);
-      const npcEpoch = speakEpoch;          // сцена, к которой относится реплика
-      if (key) {
-        setTimeout(() => {
-          // игрок уже ушёл вперёд — прошлая реплика не звучит вдогонку
-          if (npcEpoch !== speakEpoch || !Voice.on) return;
-          Voice.say((line && line.line) || turn.npc, 'book', key);
-        }, 1200);
-      }
+      if (key) Voice.enqueue((line && line.line) || turn.npc, 'book', key);
     }
     Ambient.sync();
+    Music.start(State.game); // перестраиваем редкую тему вслед за новой локацией
     if (g.over || g.ending === 'victory') setTimeout(showEpilogue, 950);
   }
 
@@ -4609,12 +4859,12 @@
       ], Settings.data.voiceGender || 'female', id => {
         Settings.set({ voiceGender: id });
         openSettings({ keep: true });
-        if (Voice.on && State.game && State.game.scene) Voice.say(State.game.scene.text, (State.mood && State.mood.voice) || 'book');
+        if (Voice.on && State.game && State.game.scene) Voice.read(State.game.scene.text, (State.mood && State.mood.voice) || 'book');
       }),
       h('p', { class: 'muted small', text: 'Тон рассказа меняет подачу голоса: в страхе он тише и медленнее, в победе — быстрее и выше.' }),
       choiceRow([
-        { id: 'amb-on', title: '🌫 Фоновый звук', hint: 'тихий гул и ветер под стиль игры' },
-        { id: 'amb-off', title: '🔇 Тишина', hint: 'совсем без фона' }
+        { id: 'amb-on', title: '🌫 Амбиент сцены', hint: 'ветер, дождь, вода, лес и другие звуки по месту и погоде' },
+        { id: 'amb-off', title: '🔇 Тишина', hint: 'совсем без фоновых звуков' }
       ], Settings.data.ambient !== false ? 'amb-on' : 'amb-off', id => {
         Settings.set({ ambient: id === 'amb-on' });
         Ambient.sync();
@@ -4630,10 +4880,10 @@
       }),
 
       h('div', { class: 'section-title', text: 'Музыка и звуки' }),
-      h('p', { class: 'muted small', text: 'Звук синтезируется тут же: файлов нет, вес игры не растёт.' }),
+      h('p', { class: 'muted small', text: 'Амбиент меняется по месту, погоде и времени суток; музыкальные ноты звучат редко и тихо.' }),
       choiceRow([
-        { id: 'music-on', title: '🎵 Музыка по жанру', hint: 'тихий луп под мир: фэнтези, кибер, пустошь' },
-        { id: 'music-off', title: 'без музыки', hint: 'только голос и звуки' }
+        { id: 'music-on', title: '🎵 Тихая музыкальная тема', hint: 'редкие мягкие ноты по локации — без постоянного жужжания' },
+        { id: 'music-off', title: 'без музыкальной темы', hint: 'амбиент сцены можно оставить включённым отдельно' }
       ], Settings.data.music ? 'music-on' : 'music-off', id => {
         Settings.set({ music: id === 'music-on' });
         if (Settings.data.music) Music.start(State.game); else Music.stop();
@@ -5503,67 +5753,162 @@
 
   let speakChain = Promise.resolve();
   const PARAGRAPH_PAUSE = 220;
+  const SPEECH_CHUNK_CHARS = 560; // ниже лимитов сервера и мобильного браузерного синтеза
+
+  /** Делит длинную реплику по границе фразы, затем по словам — без потери хвоста. */
+  function splitSpeechText(text, maxChars = SPEECH_CHUNK_CHARS) {
+    let rest = String(text || '').replace(/\s+/g, ' ').trim();
+    const chunks = [];
+    while (rest.length > maxChars) {
+      const head = rest.slice(0, maxChars + 1);
+      const boundary = /[.!?…;:,]\s+/g;
+      let match, cut = 0;
+      while ((match = boundary.exec(head))) {
+        const end = match.index + match[0].trimEnd().length;
+        if (end >= Math.floor(maxChars * 0.55) && end <= maxChars) cut = end;
+      }
+      if (!cut) {
+        const space = head.lastIndexOf(' ', maxChars);
+        cut = space >= Math.floor(maxChars * 0.55) ? space : maxChars;
+      }
+      chunks.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) chunks.push(rest);
+    return chunks;
+  }
+
   /** Одно чтение с ожиданием конца: серверный mp3 или голос браузера. */
   function speakPiece(text, mood, voice, epoch) {
     return new Promise(resolve => {
       const clean = String(text || '').replace(/\s+/g, ' ').trim();
       if (!clean) { resolve(false); return; }
-      const done = (() => {
-        let called = false;
-        return value => { if (!called) { called = true; resolve(value); } };
-      })();
-      // смена сцены обрывает кусок сразу: очередь не должна ждать конца mp3
-      const abort = () => done(false);
-      speakAborts.add(abort);
-      speakLog.push({ epoch: epoch === undefined ? speakEpoch : epoch, chars: clean.length, at: Date.now() });
-      if (speakLog.length > 60) speakLog.shift();
-      const finish = value => { speakAborts.delete(abort); done(value); };
+      let settled = false, fallbackStarted = false, el = null, objectUrl = null, utterance = null, watchdog = null;
       const alive = () => epoch === undefined || epoch === speakEpoch;
+      const entry = { epoch: epoch === undefined ? speakEpoch : epoch, chars: clean.length, at: Date.now(), status: 'requesting' };
+      speakLog.push(entry);
+      if (speakLog.length > 60) speakLog.shift();
+
+      const cleanupAudio = pause => {
+        const oldEl = el, oldUrl = objectUrl;
+        el = null; objectUrl = null;
+        if (oldEl) {
+          oldEl.onended = null;
+          oldEl.onerror = null;
+          if (pause) { try { oldEl.pause(); oldEl.currentTime = 0; } catch (e) { /* noop */ } }
+        }
+        if (oldUrl) { try { URL.revokeObjectURL(oldUrl); } catch (e) { /* noop */ } }
+        if (speakAudio === oldEl) speakAudio = null;
+        if (speakAudioUrl === oldUrl) speakAudioUrl = null;
+      };
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        if (watchdog) clearTimeout(watchdog);
+        speakAborts.delete(abort);
+        cleanupAudio(false);
+        entry.status = value ? 'played' : 'fallback-unavailable';
+        resolve(!!value);
+      };
+      const abort = () => {
+        if (utterance) {
+          try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* noop */ }
+        }
+        cleanupAudio(true);
+        finish(false);
+      };
+      speakAborts.add(abort);
       const gender = voice || Settings.data.voiceGender || 'female';
-      API.speakScene(clean, { mood: mood || 'book', gender }).then(url => {
+      const startBrowser = () => {
+        if (settled || fallbackStarted) return;
+        fallbackStarted = true;
+        if (!alive()) { finish(false); return; }
+        cleanupAudio(true);
+        speakBrowserPiece(clean, mood, gender, u => { utterance = u; })
+          .then(finish).catch(() => finish(false));
+      };
+
+      API.speakScene(clean, { mood: mood || 'book', gender, timeoutMs: 50000 }).then(url => {
+        if (settled) { if (url) { try { URL.revokeObjectURL(url); } catch (e) {} } return; }
         if (!alive()) { if (url) { try { URL.revokeObjectURL(url); } catch (e) {} } return finish(false); }
-        if (!url) { return finish(speakBrowserPiece(clean, mood, gender)); }
-        const el = new window.Audio(url);
-        el.onended = () => { try { URL.revokeObjectURL(url); } catch (e) {} finish(true); };
-        el.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} finish(speakBrowserPiece(clean, mood, gender)); };
-        el.play().catch(() => finish(speakBrowserPiece(clean, mood, gender)));
-      }).catch(() => finish(speakBrowserPiece(clean, mood, gender)));
-      // страховка: не застреваем навсегда, очередь должна идти дальше
-      setTimeout(() => finish(true), 30000);
+        if (!url) return startBrowser();
+        objectUrl = url;
+        try { el = new window.Audio(url); }
+        catch (e) { return startBrowser(); }
+        speakAudio = el;
+        speakAudioUrl = objectUrl;
+        el.onended = () => finish(true);
+        el.onerror = startBrowser;
+        let playing;
+        try { playing = el.play(); } catch (e) { return startBrowser(); }
+        if (playing && typeof playing.catch === 'function') playing.catch(startBrowser);
+      }).catch(startBrowser);
+
+      // Учитываем время запроса и воспроизведения длинного фрагмента, но не ждём бесконечно.
+      watchdog = setTimeout(abort, 50000 + Math.max(20000, clean.length * 110));
     });
   }
 
-  /** Тот же текст голосом устройства: тон и темп — по настроению абзаца. */
-  function speakBrowserPiece(text, mood, voice) {
-    if (!(typeof window !== 'undefined' && 'speechSynthesis' in window)) return false;
-    try {
-      const u = new window.SpeechSynthesisUtterance(String(text || '').slice(0, 600));
-      u.lang = 'ru-RU';
-      const base = { book: { rate: .98, pitch: 1 }, dark: { rate: .9, pitch: .94 }, dread: { rate: .82, pitch: .86 },
-        hurt: { rate: .86, pitch: .84 }, tense: { rate: 1.06, pitch: 1.05 }, heroic: { rate: 1.02, pitch: 1.1 },
-        ironic: { rate: 1.02, pitch: 1.06 } };
-      const p = base[mood] || base.book;
-      u.rate = p.rate;
-      u.pitch = voice === 'female' || voice === 'ava' ? p.pitch + 0.12 : p.pitch - 0.06;
-      window.speechSynthesis.speak(u);
-      return true;
-    } catch (e) { return false; }
+  function pickRussianBrowserVoice() {
+    if (!(typeof window !== 'undefined' && window.speechSynthesis)) return null;
+    let voices = [];
+    try { voices = window.speechSynthesis.getVoices() || []; } catch (e) { /* noop */ }
+    const russian = voices.filter(v => /^ru(?:-|$)/i.test(v.lang || '') || /rus/i.test(v.name || ''));
+    const preferred = ['siri', 'google', 'premium', 'enhanced', 'natural'];
+    return russian.find(v => preferred.some(p => new RegExp(p, 'i').test(v.name || ''))) || russian[0] || null;
   }
 
-  /**
-   * Сцена по абзацам: описание — тёмным голосом, реплика — живым, ранение —
-   * глухим. Плюс короткая пауза между абзацами, как в аудиокниге.
-   */
+  /** Тот же текст голосом устройства; ждём завершения, чтобы фрагменты не накладывались. */
+  function speakBrowserPiece(text, mood, voice, onUtterance) {
+    if (!(typeof window !== 'undefined' && 'speechSynthesis' in window &&
+      typeof window.SpeechSynthesisUtterance === 'function')) return Promise.resolve(false);
+    return new Promise(resolve => {
+      let utterance = null, timer = null, settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (utterance) { utterance.onend = null; utterance.onerror = null; }
+        resolve(!!value);
+      };
+      try {
+        utterance = new window.SpeechSynthesisUtterance(String(text || ''));
+        const russianVoice = pickRussianBrowserVoice();
+        if (russianVoice) { utterance.voice = russianVoice; utterance.lang = russianVoice.lang || 'ru-RU'; }
+        else utterance.lang = 'ru-RU';
+        const base = { book: { rate: .98, pitch: 1 }, dark: { rate: .9, pitch: .94 }, dread: { rate: .82, pitch: .86 },
+          hurt: { rate: .86, pitch: .84 }, tense: { rate: 1.06, pitch: 1.05 }, heroic: { rate: 1.02, pitch: 1.1 },
+          ironic: { rate: 1.02, pitch: 1.06 } };
+        const p = base[mood] || base.book;
+        utterance.rate = p.rate;
+        utterance.pitch = voice === 'female' || voice === 'ava' ? p.pitch + 0.12 : p.pitch - 0.06;
+        utterance.onend = () => finish(true);
+        utterance.onerror = () => finish(false);
+        if (onUtterance) onUtterance(utterance);
+        window.speechSynthesis.speak(utterance);
+        timer = setTimeout(() => {
+          try { window.speechSynthesis.cancel(); } catch (e) { /* noop */ }
+          finish(false);
+        }, Math.max(15000, String(text || '').length * 100 + 5000));
+      } catch (e) { finish(false); }
+    });
+  }
+
+  /** Сцена по абзацам и кускам: не режем длинные фрагменты по лимиту запроса. */
   function speakParagraphs(text, mood, voice) {
     const parts = E.paragraphMoods(text);
     if (!parts.length) return;
-    const epoch = speakEpoch;               // сцена, которую читаем
+    const epoch = speakEpoch;
     speakChain = speakChain.then(async () => {
       for (const part of parts) {
-        if (!speakStill(epoch)) return;     // игрок ушёл дальше — дальше не читаем
-        await speakPiece(part.text, mood || part.mood, voice, epoch);
-        if (!speakStill(epoch)) return;     // пауза не должна тянуть старую сцену
-        await new Promise(r => setTimeout(r, PARAGRAPH_PAUSE));
+        const chunks = splitSpeechText(part.text);
+        for (const chunk of chunks) {
+          if (!speakStill(epoch)) return;
+          await speakPiece(chunk, mood || part.mood, voice, epoch);
+          if (!speakStill(epoch)) return;
+          const pause = chunks.length > 1 ? 90 : (part.pause || PARAGRAPH_PAUSE);
+          await new Promise(r => setTimeout(r, pause));
+        }
       }
     }).catch(() => { /* цепочка не должна ломаться */ });
   }
@@ -5582,65 +5927,93 @@
   };
 
   const Music = (function () {
-    let ctx = null;
-    let nodes = [];
-    let playing = false;
-    const PATTERNS = {
-      fantasy: { root: 110, steps: [1, 1.5, 2, 1.5], wave: 'sine', gain: 0.028, beat: 1.6 },
-      cyber:   { root: 82, steps: [1, 1.2, 1.5, 1.8, 1.5, 1.2], wave: 'square', gain: 0.018, beat: 0.42 },
-      waste:   { root: 65, steps: [1, 1, 1.25, 1], wave: 'triangle', gain: 0.026, beat: 2.4 }
+    // Не луп из осцилляторов, а редкие тихие ноты: постоянный писк/гул убран.
+    const SCALES = {
+      forest:   { root: 196, notes: [0, 3, 5, 7, 10], gap: [12000, 21000] },
+      swamp:    { root: 164.81, notes: [0, 3, 5, 7, 10], gap: [13000, 22000] },
+      sea:      { root: 174.61, notes: [0, 2, 5, 7, 9], gap: [13000, 22000] },
+      seaShip:  { root: 146.83, notes: [0, 3, 5, 7, 10], gap: [14000, 24000] },
+      city:     { root: 174.61, notes: [0, 3, 7, 10, 12], gap: [11000, 19000] },
+      cyber:    { root: 164.81, notes: [0, 3, 7, 10, 12], gap: [10000, 18000] },
+      noir:     { root: 146.83, notes: [0, 3, 5, 7, 10], gap: [14000, 24000] },
+      cave:     { root: 130.81, notes: [0, 3, 5, 7, 10], gap: [15000, 25000] },
+      desert:   { root: 164.81, notes: [0, 2, 5, 7, 10], gap: [14000, 24000] },
+      snow:     { root: 220, notes: [0, 2, 5, 7, 9], gap: [16000, 26000] },
+      space:    { root: 110, notes: [0, 5, 7, 12], gap: [18000, 28000] },
+      interior: { root: 196, notes: [0, 3, 5, 7, 10], gap: [15000, 25000] },
+      battle:   { root: 130.81, notes: [0, 3, 5, 7], gap: [13000, 22000] }
     };
-    function genreFor(game) {
-      const s = (game && (game.setting || game.genre)) || '';
-      const hay = [s, game && game.title, game && game.scenarioTitle].filter(Boolean).join(' ').toLowerCase();
-      if (/кибер|неон|cyber|sci|косм|station|найт-сити/.test(hay)) return 'cyber';
-      if (/пустош|waste|зона|метро|постапок|пост-апок/.test(hay)) return 'waste';
-      return 'fantasy';
-    }
+    let ctx = null, master = null, playing = false, timer = null, sceneKey = '', tones = [];
+
     function stop() {
-      nodes.forEach(n => { try { n.stop(); } catch (e) {} });
-      nodes = [];
-      playing = false;
+      playing = false; sceneKey = '';
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (ctx) {
+        const t = ctx.currentTime;
+        tones.forEach(x => {
+          try {
+            x.gain.gain.cancelScheduledValues(t);
+            x.gain.gain.setTargetAtTime(.0001, t, .04);
+            x.osc.stop(t + .22);
+          } catch (e) { /* already stopped */ }
+        });
+        const oldMaster = master;
+        master = null;
+        if (oldMaster) setTimeout(() => { try { oldMaster.disconnect(); } catch (e) { /* noop */ } }, 280);
+      }
+      tones = [];
     }
+
+    function playTone(freq, delay, duration, level) {
+      if (!ctx || !master || !playing) return;
+      const now = ctx.currentTime + (delay || 0);
+      const osc = ctx.createOscillator(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      filter.type = 'lowpass'; filter.frequency.value = 1350; filter.Q.value = .45;
+      gain.gain.setValueAtTime(.0001, now);
+      gain.gain.linearRampToValueAtTime(level, now + .16);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + duration);
+      osc.connect(filter).connect(gain).connect(master);
+      osc.start(now); osc.stop(now + duration + .04);
+      tones.push({ osc, gain });
+      if (tones.length > 12) tones = tones.slice(-12);
+    }
+
+    function phrase(scene, scale) {
+      if (!playing || !Settings.data.music || Settings.data.muted) return stop();
+      const p = scale || SCALES[scene.family] || SCALES.forest;
+      const degree = p.notes[Math.floor(Math.random() * p.notes.length)];
+      const octave = Math.random() < .25 ? 2 : 1;
+      const freq = p.root * Math.pow(2, degree / 12) * octave;
+      const dark = /dread|hurt|dark/.test(scene.mood || '');
+      playTone(freq, 0, 2.7 + Math.random() * 1.2, dark ? .011 : .016);
+      if (Math.random() < .42) {
+        const harmony = p.notes[Math.floor(Math.random() * p.notes.length)];
+        playTone(p.root * Math.pow(2, harmony / 12) * 2, .42 + Math.random() * .28, 2.1, .007);
+      }
+      const [min, max] = p.gap;
+      timer = setTimeout(() => phrase(scene, p), min + Math.random() * Math.max(1, max - min));
+    }
+
     function start(game) {
-      if (!Settings.data.music || Settings.data.muted) return;
+      if (!Settings.data.music || Settings.data.muted) { stop(); return; }
+      const scene = Ambient.describe(game);
+      if (playing && sceneKey === scene.key) {
+        if (ctx && ctx.state === 'suspended') { try { ctx.resume().catch(() => {}); } catch (e) {} }
+        return;
+      }
+      stop();
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       if (!ctx) ctx = new AC();
-      if (ctx.state === 'suspended') ctx.resume();
-      const pat = PATTERNS[genreFor(game)] || PATTERNS.fantasy;
-      stop();
-      playing = true;
-      const master = ctx.createGain();
-      master.gain.value = pat.gain;
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 900;
-      master.connect(filter).connect(ctx.destination);
-      // луп собираем из коротких нот: файлов нет, вес не растёт
-      const step = () => {
-        if (!playing) return;
-        nodes = nodes.filter(n => n && n.context && n.context.currentTime >= 0);
-        const now = ctx.currentTime;
-        pat.steps.forEach((k, i) => {
-          const osc = ctx.createOscillator();
-          const g = ctx.createGain();
-          osc.type = pat.wave;
-          osc.frequency.value = pat.root * k;
-          g.gain.setValueAtTime(0.0001, now + i * pat.beat);
-          g.gain.exponentialRampToValueAtTime(0.9, now + i * pat.beat + 0.12);
-          g.gain.exponentialRampToValueAtTime(0.0001, now + i * pat.beat + pat.beat * 0.9);
-          osc.connect(g).connect(master);
-          osc.start(now + i * pat.beat);
-          osc.stop(now + i * pat.beat + pat.beat);
-          nodes.push(osc);
-        });
-      };
-      step();
-      clearInterval(Music.timer);
-      Music.timer = setInterval(step, pat.steps.length * pat.beat * 1000);
+      if (ctx.state === 'suspended') { try { ctx.resume().catch(() => {}); } catch (e) {} }
+      master = ctx.createGain(); master.gain.value = .24; master.connect(ctx.destination);
+      sceneKey = scene.key; playing = true;
+      timer = setTimeout(() => phrase(scene, SCALES[scene.family] || SCALES.forest), 2800);
     }
-    return { start, stop, genreFor, get playing() { return playing; }, timer: null };
+
+    return { start, stop, get playing() { return playing; } };
   })();
 
   /* ---------------------------------------------------------- */
@@ -5953,7 +6326,11 @@
       const act = btn.dataset.act;
       Sound.unlock();
       switch (act) {
-        case 'new-game': Sound.tap(); openScenarios(); break;
+        case 'new-game':
+          Sound.tap();
+          if (document.body.dataset.screen === 'menu') openScenariosWithDiceFlight();
+          else openScenarios();
+          break;
         case 'my-games': Sound.tap(); show('saves'); break;
         case 'daily-run': Sound.tap(); openDaily(); break;
         case 'daily-start': startDaily(); break;
@@ -6042,7 +6419,7 @@
           if (Voice.on && State.game && State.game.scene) {
             // ручное включение читает текущую сцену тем же тоном, что и автоозвучка
             const moodNow = (State.mood && State.mood.voice) || 'book';
-            Voice.say(State.game.scene.text, moodNow);
+            Voice.read(State.game.scene.text, moodNow);
             toast('Читаю сцену вслух · ' + (State.mood && State.mood.note || 'ровно'), { timeout: 2000 });
           }
           break;

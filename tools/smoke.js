@@ -55,7 +55,7 @@ async function main() {
     return { url, ok };
   });
   if (!menuBg.ok) problems.push('фон меню не загрузился: ' + menuBg.url);
-  // отряд главного экрана: фигуры рисуются кодом, бегают парами и меняются
+  // Отряд главного экрана: у всех 14 персонажей sprite sheets, все бегают парами.
   const critterFirst = await page.evaluate(() => {
     const items = Array.from(document.querySelectorAll('#menu-critters .critter'));
     if (items.length < 2) return null;
@@ -63,14 +63,24 @@ async function main() {
       ids: items.map(el => el.dataset.role),
       xs: items.map(el => Math.round(el.getBoundingClientRect().x)),
       running: items.every(el => el.classList.contains('is-running')),
-      drawn: items.map(el => el.querySelectorAll('svg *').length),
-      kinds: items.map(el => (el.dataset.kind || ''))
+      art: items.map(el => {
+        const sprite = el.querySelector('.critter__sprite');
+        if (sprite) return {
+          type: 'sprite',
+          background: getComputedStyle(sprite).backgroundImage,
+          animation: getComputedStyle(sprite).animationName
+        };
+        return { type: 'svg', parts: el.querySelectorAll('svg *').length };
+      })
     };
   });
   if (!critterFirst) problems.push('на главном экране нет отряда');
   else {
     if (!critterFirst.running) problems.push('фигуры в меню не бегают');
-    if (critterFirst.drawn.some(n => n < 8)) problems.push('фигура нарисована пустой: ' + critterFirst.drawn.join(', '));
+    const blank = critterFirst.art.filter(a => a.type === 'sprite'
+      ? (a.background === 'none' || a.animation !== 'critterSpriteRun')
+      : a.parts < 8);
+    if (blank.length) problems.push('не отрисовались персонажи: ' + JSON.stringify(blank));
     await page.waitForTimeout(1200);
     const moved = await page.evaluate(before => {
       const items = Array.from(document.querySelectorAll('#menu-critters .critter'));
@@ -88,6 +98,7 @@ async function main() {
 
   console.log('2. Выбор сценария');
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForSelector('#pane-random .scenario-card', { timeout: 5000 });
   await page.waitForTimeout(700);
   await shot(page, 'scenarios');

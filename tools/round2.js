@@ -71,6 +71,7 @@ const URL = process.argv[2] || 'http://localhost:3000/game.html';
 
   // 1. Библиотека миров: тот же мир — новый герой
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForTimeout(600);
   const lib = await page.evaluate(() => {
     const titles = Array.from(document.querySelectorAll('#saved-worlds .save-card__title')).map(e => e.textContent.trim());

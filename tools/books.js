@@ -70,6 +70,7 @@ const PNG = Buffer.from(
 
   /* ---------- 2. вкладка «Истории»: восемь историй и жанры ---------- */
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForSelector('#mode-tabs .tab[data-mode="books"]', { timeout: 8000 });
   await page.click('#mode-tabs .tab[data-mode="books"]');
   await page.waitForSelector('#books-list .book-card', { timeout: 8000 });
@@ -202,6 +203,7 @@ const PNG = Buffer.from(
   await page.click('#screen-scenarios [data-act="back"]');
   await page.waitForSelector('#screen-menu:not([hidden])', { timeout: 8000 });
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.waitForSelector('#mode-tabs .tab[data-mode="books"]', { timeout: 8000 });
   await page.click('#mode-tabs .tab[data-mode="books"]');
   await page.waitForSelector('#books-list .book-card', { timeout: 8000 });

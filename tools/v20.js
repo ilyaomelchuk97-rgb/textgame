@@ -51,6 +51,7 @@ const PNG = Buffer.from(
 
   /* ---------- начинаем игру встроенным мастером ---------- */
   await page.click('#screen-menu [data-act="new-game"]');
+  await page.waitForSelector('.dice-transition-layer', { state: 'detached', timeout: 5000 });
   await page.click('#mode-tabs .tab[data-mode="custom"]');
   await page.waitForSelector('#pane-custom:not([hidden]) #wc-genres .chip', { timeout: 8000 });
   await page.fill('#wc-title', 'Кинжал и Пепел');
