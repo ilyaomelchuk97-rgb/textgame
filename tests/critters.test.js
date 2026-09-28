@@ -123,3 +123,52 @@ test('mount требует контейнер и не падает без нег
   assert.strictEqual(C.mount(null), null);
   assert.strictEqual(C.mount(undefined), null);
 });
+
+test('при уменьшении движения случайная пара остаётся видна и не склеивается после stop/start', () => {
+  const oldWindow = global.window;
+  const elements = [];
+  class FakeClassList {
+    constructor(value) { this.values = new Set(String(value || '').split(/\\s+/).filter(Boolean)); }
+    add(...items) { items.forEach(item => this.values.add(item)); }
+    remove(...items) { items.forEach(item => this.values.delete(item)); }
+    contains(item) { return this.values.has(item); }
+  }
+  class FakeElement {
+    constructor(classes, role) {
+      this.classList = new FakeClassList(classes);
+      this.dataset = { role };
+      this.style = { setProperty(name, value) { this[name] = value; } };
+      this.listeners = {};
+    }
+    addEventListener(name, fn) { this.listeners[name] = fn; }
+  }
+  class FakeContainer {
+    constructor() { this.dataset = {}; this.__dtCritters = null; this.nodes = []; }
+    set innerHTML(value) {
+      this.nodes = Array.from(String(value).matchAll(/<div class="([^"]+)" data-role="([^"]+)" style="[^"]*">/g), m => {
+        const el = new FakeElement(m[1], m[2]);
+        elements.push(el);
+        return el;
+      });
+    }
+    querySelector(selector) {
+      const match = /data-role="([^"]+)"/.exec(selector);
+      return match ? this.nodes.find(el => el.dataset.role === match[1]) || null : null;
+    }
+  }
+  try {
+    global.window = { matchMedia: () => ({ matches: true }) };
+    const api = C.mount(new FakeContainer());
+    assert.ok(api && api.reduced);
+    api.start();
+    api.stop();
+    assert.strictEqual(elements.length, 2);
+    assert.ok(elements.every(el => el.classList.contains('critter--still')));
+    assert.ok(elements.some(el => el.style.left === '12px' && el.style.right === 'auto'));
+    assert.ok(elements.some(el => el.style.left === 'auto' && el.style.right === '12px'));
+    assert.ok(elements.every(el => el.style.transform === 'none'));
+  } finally {
+    if (oldWindow === undefined) delete global.window;
+    else global.window = oldWindow;
+  }
+});

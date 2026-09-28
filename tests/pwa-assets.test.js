@@ -12,10 +12,11 @@ function namesFromArray(name) {
   return Array.from(match[1].matchAll(/'([^']+)'/g), item => item[1]);
 }
 
-test('PWA precaches all menu sprites, theme artwork and cover images', () => {
+test('PWA precaches all menu sprites, theme artwork, cover images and transition die', () => {
   const critters = new Set(namesFromArray('CRITTER_IMAGES'));
   const themes = new Set(namesFromArray('THEME_IMAGES'));
   const covers = new Set(namesFromArray('COVER_IMAGES'));
+  const shell = new Set(namesFromArray('SHELL'));
 
   for (const file of fs.readdirSync(path.join(root, 'assets', 'critters'))) {
     if (!file.endsWith('-run.webp')) continue;
@@ -29,5 +30,9 @@ test('PWA precaches all menu sprites, theme artwork and cover images', () => {
     if (!file.endsWith('.jpg')) continue;
     assert.ok(covers.has(file.replace(/\.jpg$/, '')), 'в кэше нет обложки ' + file);
   }
-  assert.match(worker, /const VERSION = 'dt2-v17'/, 'не обновлена версия service worker');
+  assert.ok(shell.has('./assets/dice-transition.png'), 'кубик перехода не попал в precache');
+  const dice = fs.readFileSync(path.join(root, 'assets', 'dice-transition.png'));
+  assert.equal(dice.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'ассет кубика не является PNG');
+  assert.equal(dice[25], 6, 'у кубика должен быть alpha-канал');
+  assert.match(worker, /const VERSION = 'dt2-v24'/, 'не обновлена версия service worker');
 });

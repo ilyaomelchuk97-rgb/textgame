@@ -460,6 +460,20 @@
         : 'translateX(-140px) scaleX(-1)';
     }
 
+    /** При уменьшении движения пара остаётся на виду, а не паркуется за экраном. */
+    function arrangeStill() {
+      (state.pair || []).forEach((entry, index) => {
+        const el = state.els[entry.id];
+        if (!el) return;
+        el.classList.remove('is-running', 'is-hit');
+        el.classList.add('critter--still');
+        el.style.animation = 'none';
+        el.style.transform = 'none';
+        el.style.left = index === 0 ? '12px' : 'auto';
+        el.style.right = index === 0 ? 'auto' : '12px';
+      });
+    }
+
     /** Смена фигур: рисуем новую пару и раздаём роли. */
     function applyPair(pair) {
       state.pair = pair;
@@ -488,7 +502,7 @@
         }
         el.addEventListener('click', () => hop(el));
       });
-      if (reduced) Object.keys(state.els).forEach(id => state.els[id].classList.add('critter--still'));
+      if (reduced) arrangeStill();
       else Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));
     }
 
@@ -508,7 +522,8 @@
     }
 
     function start() {
-      if (state.active || reduced) return;
+      if (state.active) return;
+      if (reduced) { arrangeStill(); return; }
       state.active = true;
       tick();
     }
@@ -516,6 +531,7 @@
     function stop() {
       state.active = false;
       clearAll();
+      if (reduced) { arrangeStill(); return; }
       Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));
     }
 

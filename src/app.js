@@ -256,7 +256,8 @@
       mistralKey: '',                      // бесплатный ключ Mistral: свой ведущий ИИ
       glmKey: '',                          // ключ GLM (Zhipu): ещё один ведущий ИИ
       hfKey: '',                           // ключ Hugging Face: ведущий и очередь картинок
-      imageSource: 'auto',                 // какой генератор рисует кадры
+      imageSource: 'sana',                 // самый быстрый генератор кадров по умолчанию
+      imageSourceDefaultVersion: 1,         // однократный перенос прежнего авто-режима на SANA
       imageStyle: 'auto',                  // стиль кадров на всю кампанию
       npcVoices: true,                     // знакомые говорят своим голосом
       beginQuestion: true,                 // спрашивать, где начинается история
@@ -267,7 +268,15 @@
     return {
       init(storage) {
         store = storage;
-        data = Object.assign(data, store.settings());
+        const saved = store.settings() || {};
+        data = Object.assign(data, saved);
+        // Раньше «Авто» было значением по умолчанию. Переносим старые установки
+        // на быстрый SANA один раз; после этого игрок может свободно выбрать «Авто».
+        if (Number(saved.imageSourceDefaultVersion || 0) < 1) {
+          if (saved.imageSource === 'auto') data.imageSource = 'sana';
+          data.imageSourceDefaultVersion = 1;
+          store.saveSettings(data);
+        }
         if (data.apiKey) API.setApiKey(data.apiKey);
         if (typeof data.mistralKey === 'string') API.setMistralKey(data.mistralKey);
         if (typeof data.glmKey === 'string') API.setGlmKey(data.glmKey);
@@ -799,27 +808,40 @@
 
   let scenarioDiceFlightActive = false;
 
-  /** Кубик с логотипа закрывает экран и приземляется в кнопке «Другие миры». */
-  async function openScenariosWithDiceFlight() {
+  /** Один кубик закрывает экран; вперёд идёт по левой дуге, назад — по правой. */
+  async function openScenariosWithDiceFlight(reverse) {
     if (scenarioDiceFlightActive) return;
-    const source = $('.menu-dice');
-    const target = $('#screen-scenarios [data-act="reroll-scenarios"]');
+    const backward = !!reverse;
+    const source = backward
+      ? $('#screen-scenarios [data-act="reroll-scenarios"]')
+      : $('.menu-dice');
+    const target = backward
+      ? $('.menu-dice')
+      : $('#screen-scenarios [data-act="reroll-scenarios"]');
+    const changeScreen = backward ? () => show('menu') : openScenarios;
+    const expectedScreen = backward ? 'scenarios' : 'menu';
     if (!source || !target || Settings.data.motion === false || prefersReducedMotion() ||
-        typeof source.animate !== 'function' || document.body.dataset.screen !== 'menu') {
-      openScenarios();
+        typeof source.animate !== 'function' || document.body.dataset.screen !== expectedScreen) {
+      changeScreen();
       return;
     }
 
-    const sourceBox = source.getBoundingClientRect();
+    // Измеряем именно рисунок кубика, а не всю кнопку вокруг него.
+    const sourceGlyph = source.querySelector('.dice-icon') || source;
+    const targetGlyph = target.querySelector('.dice-icon') || target;
+    // Кубик «Другие миры» скрыт в соседних вкладках, но справа в шапке его
+    // место сохраняется — измерим рисунок, не оставляя кнопке видимого мигания.
+    const restoreHidden = backward && source.hidden;
+    if (restoreHidden) source.hidden = false;
+    const sourceBox = sourceGlyph.getBoundingClientRect();
+    if (restoreHidden) source.hidden = true;
     if (sourceBox.width < 1 || sourceBox.height < 1) {
-      openScenarios();
+      changeScreen();
       return;
     }
 
     scenarioDiceFlightActive = true;
-    const sourceStyle = window.getComputedStyle(source);
-    const sourceFont = parseFloat(sourceStyle.fontSize) || 42;
-    const tileSize = Math.max(sourceBox.width, sourceBox.height, sourceFont);
+    const tileSize = Math.max(sourceBox.width, sourceBox.height);
     const startX = sourceBox.left + sourceBox.width / 2;
     const startY = sourceBox.top + sourceBox.height / 2;
     const viewW = document.documentElement.clientWidth || window.innerWidth;
@@ -870,12 +892,12 @@
       die.style.left = px(startX - tileSize / 2);
       die.style.top = px(startY - tileSize / 2);
 
-      const glyph = document.createElement('span');
+      const glyph = document.createElement('img');
       glyph.className = 'dice-transition__glyph';
-      glyph.textContent = source.textContent.trim() || '🎲';
-      glyph.style.fontFamily = sourceStyle.fontFamily;
-      glyph.style.fontSize = sourceFont + 'px';
-      glyph.style.fontWeight = sourceStyle.fontWeight;
+      glyph.src = diceTransitionUrl();
+      glyph.alt = '';
+      glyph.decoding = 'async';
+      glyph.draggable = false;
       // Небольшая тень сохраняет объём, не раздуваясь в огромный ореол при зуме.
       const flightFilter = 'drop-shadow(0 2px 4px rgba(5, 20, 24, 0.25))';
       glyph.style.filter = flightFilter;
@@ -884,43 +906,50 @@
       document.body.appendChild(layer);
       document.body.classList.add('dice-transition-active');
       source.classList.add('is-launching');
+      target.classList.add('is-launching');
 
       const coverX = viewW / 2;
       const coverY = viewH / 2;
+      const launchSide = backward ? 1 : -1;
+      const launchControl1X = backward
+        ? Math.min(viewW - tileSize * 0.45, startX + viewW * 0.12)
+        : Math.max(tileSize * 0.45, startX - viewW * 0.12);
+      const spin = backward ? -1 : 1;
       const launchFrames = curveFrames({
         from: { x: startX, y: startY },
-        control1: { x: startX + viewW * 0.34, y: startY + viewH * 0.04 },
-        control2: { x: coverX - viewW * 0.22, y: coverY - viewH * 0.18 },
+        control1: { x: launchControl1X, y: startY + viewH * 0.04 },
+        control2: { x: coverX + viewW * launchSide * 0.22, y: coverY - viewH * 0.18 },
         to: { x: coverX, y: coverY },
         scaleFrom: 1, scaleTo: coverScale,
-        rotationFrom: 0, rotationTo: 1080
+        rotationFrom: 0, rotationTo: spin * 1080
       });
       const launch = die.animate(launchFrames, { duration: 760, easing: 'linear', fill: 'forwards' });
       await waitForAnimations([launch]);
 
-      // В этот момент единственный большой кубик полностью закрывает меню.
-      openScenarios();
+      // В этот момент единственный большой кубик полностью закрывает экран.
+      changeScreen();
       switched = true;
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-      const targetBox = target.getBoundingClientRect();
+      const targetBox = targetGlyph.getBoundingClientRect();
       if (targetBox.width < 1 || targetBox.height < 1) return;
-      const targetStyle = window.getComputedStyle(target);
-      const targetFont = parseFloat(targetStyle.fontSize) || 17;
       const landingScale = Math.max(0.18, Math.min(
         targetBox.width / tileSize,
-        targetBox.height / tileSize,
-        targetFont / sourceFont
+        targetBox.height / tileSize
       ));
       const targetX = targetBox.left + targetBox.width / 2;
       const targetY = targetBox.top + targetBox.height / 2;
       const landingFrames = curveFrames({
         from: { x: coverX, y: coverY },
-        control1: { x: coverX + viewW * 0.32, y: coverY - viewH * 0.18 },
-        control2: { x: targetX - viewW * 0.18, y: targetY + viewH * 0.30 },
+        control1: backward
+          ? { x: coverX + viewW * 0.32, y: coverY + viewH * 0.08 }
+          : { x: coverX + viewW * 0.32, y: coverY - viewH * 0.18 },
+        control2: backward
+          ? { x: targetX + viewW * 0.18, y: targetY + viewH * 0.24 }
+          : { x: targetX - viewW * 0.18, y: targetY + viewH * 0.30 },
         to: { x: targetX, y: targetY },
         scaleFrom: coverScale, scaleTo: landingScale,
-        rotationFrom: 1080, rotationTo: 1800
+        rotationFrom: spin * 1080, rotationTo: spin * 1800
       });
       const landing = die.animate(landingFrames, { duration: 740, easing: 'linear', fill: 'forwards' });
       const landingGlow = glyph.animate([
@@ -930,12 +959,13 @@
       await waitForAnimations([landing, landingGlow]);
     } catch (error) {
       if (!switched) {
-        openScenarios();
+        changeScreen();
         switched = true;
       }
     } finally {
       if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
       source.classList.remove('is-launching');
+      target.classList.remove('is-launching');
       document.body.classList.remove('dice-transition-active');
       scenarioDiceFlightActive = false;
     }
@@ -958,6 +988,9 @@
   function assetUrl(name) {
     const inlined = window.DT_ASSETS && window.DT_ASSETS[name];
     return inlined || ('assets/' + name + '.jpg');
+  }
+  function diceTransitionUrl() {
+    return (window.DT_ASSETS && window.DT_ASSETS['dice-transition']) || 'assets/dice-transition.png';
   }
   const coverUrl = cover => 'url("' + assetUrl(cover) + '")';
 
@@ -4477,7 +4510,7 @@
         h('span', { class: 'tag', text: hh.originIcon + ' ' + hh.originName }),
         h('span', { class: 'tag tag--chance', text: hh.ability.icon + ' ' + hh.ability.name + (hh.ability.ready ? ' готово' : ' (через ' + hh.ability.cooldown + ')') })
       ]),
-      h('div', { class: 'stat-grid' }, E.STATS.map(st => h('div', { class: 'stat-chip' }, [
+      h('div', { class: 'stat-grid stat-grid--chips' }, E.STATS.map(st => h('div', { class: 'stat-chip' }, [
         h('span', { class: 'stat-chip__icon', text: st.icon }),
         h('span', { class: 'stat-chip__name', text: st.short }),
         h('span', { class: 'stat-chip__value', text: '+' + hh.stats[st.id] })
@@ -4844,9 +4877,17 @@
       toast('Ведущий: ' + ((item && item.title) || id), { kind: 'good' });
       openSettings({ keep: true });
     });
-    const imageLive = choiceRowLive(API.imageChoices, Settings.data.imageSource || 'auto', id => {
-      Settings.set({ imageSource: id });
-      const item = (API.imageChoices() || []).find(x => x.id === id);
+    const settingsImageChoices = () => {
+      const live = API.imageChoices() || [];
+      return live.length ? live : [
+        { id: 'sana', title: 'SANA · самый быстрый', hint: 'обычно 2–3 с; доступен и без своего сервера', available: true },
+        { id: 'auto', title: 'Авто', hint: 'серверная гонка генераторов; без сервера — SANA', available: true },
+        { id: 'local', title: 'Только локальный фон', hint: 'мгновенно, без сети', available: true }
+      ];
+    };
+    const imageLive = choiceRowLive(settingsImageChoices, Settings.data.imageSource || 'sana', id => {
+      Settings.set({ imageSource: id, imageSourceDefaultVersion: 1 });
+      const item = settingsImageChoices().find(x => x.id === id);
       toast('Кадры рисует: ' + ((item && item.title) || id), { kind: 'good' });
       openSettings({ keep: true });
     });
@@ -4880,16 +4921,15 @@
         toast(ok ? 'Офлайн-режим включён: игра запускается без сети' : 'Офлайн-режим недоступен в этом браузере', { kind: ok ? 'good' : 'warn' });
       }
     });
-    const statusLine = h('p', { class: 'muted small', text: aiStatusText() });
+    const statusLine = h('p', { class: 'muted small settings-status', text: aiStatusText() });
     const content = h('div', { class: 'settings' }, [
-      h('p', { class: 'muted small', text: 'Игра работает без ключей: мастер — через сервер или запасные каналы, картинки — турбо-генераторы и безключевые запасные, фон рисуется локально мгновенно.' }),
       statusLine,
 
       h('div', { class: 'section-title', text: '🧠 Ведущий мастер' }),
       h('p', { class: 'muted small', text: 'Кто ведёт игру. «Авто» — игра сама берёт лучший доступный канал и тихо переходит на следующий, если тот замолчал.' }),
       masterRow,
       h('div', { class: 'section-title', text: '🎨 Генератор картинок' }),
-      h('p', { class: 'muted small', text: 'Кто рисует кадр. Быстрый генератор важнее качества: сцена должна появиться сразу.' }),
+      h('p', { class: 'muted small', text: 'По умолчанию выбран самый быстрый SANA. Здесь можно переключиться на другой генератор или «Авто».' }),
       imageRow,
       h('div', { class: 'section-title', text: '🖌 Стиль кадров' }),
       h('p', { class: 'muted small', text: 'Один стиль на всю кампанию — тогда сцены выглядят как одна книга.' }),
@@ -5012,16 +5052,15 @@
         openSettings({ keep: true });
       }),
 
-      h('div', { class: 'section-title', text: 'Канал ИИ' }),
-      h('p', { class: 'muted small', text: 'Текущий режим: ' + API.mode() }),
-      h('p', { class: 'muted small', text: 'У Mistral (Франция) есть бесплатный ключ: без карты, нужен только номер телефона. Ключ делается на console.mistral.ai → API Keys, лимит примерно запрос в секунду — для этой игры хватает с запасом.' }),
+      h('div', { class: 'section-title', text: 'Ключи ИИ' }),
+      h('p', { class: 'muted small', text: 'Mistral — дополнительный канал для мастера. Свой ключ: console.mistral.ai → API Keys.' }),
       mistralInput,
-      h('p', { class: 'muted small', text: 'У GLM (Zhipu, Китай) бесплатно отвечает модель glm-4.5-flash: ключ формата «id.secret» делается на open.bigmodel.cn → API Keys, карта не нужна. Ключ уже вшит в игру, поле — для своего.' }),
+      h('p', { class: 'muted small', text: 'GLM (Zhipu) — ещё один текстовый канал; ключ имеет формат id.secret.' }),
       glmInput,
-      h('p', { class: 'muted small', text: 'У Hugging Face один ключ hf_… открывает и ведущего (137 моделей через роутер), и очередь картинок: кадры рисуют открытые Space, а по имени они отвечают охотнее, чем анонимно. Ключ делается в настройках профиля, право «Make calls to Inference Providers».' }),
+      h('p', { class: 'muted small', text: 'Hugging Face (hf_…) может подключить дополнительные модели ведущего и генерации кадров.' }),
       hfInput,
-      h('p', { class: 'muted small', text: 'Ключи остаются в телефоне и уходят только вместе с запросом к мастеру — на сервере они не хранятся.' }),
-      h('div', { class: 'section-title', text: 'Микрофон у мастера' }),
+      h('p', { class: 'muted small', text: 'Ключи хранятся в этом браузере и отправляются выбранному провайдеру только при запросе.' }),
+      h('div', { class: 'section-title', text: 'Начало истории и голоса знакомых' }),
       choiceRow([
         { id: 'ask-on', title: '🎬 Спросить, где начнём', hint: 'три варианта перед первой сценой' },
         { id: 'ask-off', title: '⏩ Пусть решает сам', hint: 'мастер сразу начинает историю' }
@@ -5037,10 +5076,6 @@
         openSettings({ keep: true });
       }),
 
-      h('div', { class: 'section-title', text: '📊 Метрики без слежки' }),
-      h('p', { class: 'muted small', text: MetricsBox.line() }),
-      h('p', { class: 'muted small', text: 'Считается только на этом устройстве: ничего никуда не отправляется.' }),
-
       h('div', { class: 'section-title', text: '📲 Приложение и офлайн' }),
       h('p', { class: 'muted small', text: State.swReg
         ? 'Офлайн-режим готов: игра запускается без сети из кэша.'
@@ -5049,7 +5084,7 @@
 
       h('div', { class: 'section-title', text: 'Ключ Pollinations (по желанию)' }),
       keyInput,
-      h('p', { class: 'muted small', text: 'Ключ хранится только в этом браузере и поднимает лимиты. Получить: enter.pollinations.ai/keys' })
+      h('p', { class: 'muted small', text: 'Сохраняется только в этом браузере; свой ключ может повысить лимит. Получить: enter.pollinations.ai/keys' })
     ]);
     openModal({
       title: 'Настройки', icon: '⚙️', content, cancelLabel: 'Закрыть',
@@ -5397,7 +5432,7 @@
     const prev = Local.get(RUN_KEY, null);
     $('#run-note').textContent = 'Ход ' + Math.max(1, g.turn || 1);
 
-    const grid = h('div', { class: 'stat-grid' });
+    const grid = h('div', { class: 'stat-grid stat-grid--run' });
     const cells = [
       ['🚶', 'Ходы', String(st.turns)],
       ['🎲', 'Броски', String(st.checks)],
@@ -6440,7 +6475,7 @@
         case 'cloud-get': Sound.tap(); cloudGetFlow(); break;
         case 'back':
           if (document.body.dataset.screen === 'daily') show('menu');
-          else if (document.body.dataset.screen === 'scenarios') show('menu');
+          else if (document.body.dataset.screen === 'scenarios') openScenariosWithDiceFlight(true);
           else if (document.body.dataset.screen === 'hero') show('scenarios');
           else if (document.body.dataset.screen === 'saves') show('menu');
           break;
@@ -6609,6 +6644,13 @@
   }
 
   function boot() {
+    const diceArt = diceTransitionUrl();
+    $$('.dice-icon').forEach(icon => {
+      icon.src = diceArt;
+      icon.loading = 'eager';
+      icon.decoding = 'async';
+      icon.draggable = false;
+    });
     watchAppHeight();
     const panel = $('#panel');
     if (panel) panel.addEventListener('scroll', updatePanelFade, { passive: true });

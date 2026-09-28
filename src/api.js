@@ -35,9 +35,9 @@
     backend: null,
     backendChecked: false,
     // Выбор игрока в настройках: кто ведёт игру и кто рисует кадры.
-    // 'auto' — доверяем серверу и его очереди каналов.
+    // Для кадров по умолчанию выбран SANA; 'auto' запускает серверную гонку.
     masterWanted: 'auto',
-    imageSource: 'auto',
+    imageSource: 'sana',
     imageWidth: 448,
     imageHeight: 256,   // генераторы шлюза принимают высоту не меньше 256
     serverBase: ''            // напр. https://dice-tales.onrender.com — для GitHub Pages
@@ -210,11 +210,11 @@
   function masterWanted() { return CONFIG.masterWanted || 'auto'; }
 
   function setImageSource(id) {
-    CONFIG.imageSource = String(id || 'auto');
+    CONFIG.imageSource = String(id || 'sana');
     log('генератор картинок:', CONFIG.imageSource);
   }
 
-  function imageSource() { return CONFIG.imageSource || 'auto'; }
+  function imageSource() { return CONFIG.imageSource || 'sana'; }
 
   /** Доступные варианты: их присылает сервер в /api/health. */
   function masterChoices() {
@@ -668,7 +668,7 @@
   }
 
   async function generateImage({ prompt, style, aspect = '16:9', seed, width, height, onAttempt, hedgeFirstMs = 0 }) {
-    const source = CONFIG.imageSource || 'auto';
+    const source = CONFIG.imageSource || 'sana';
     const built = E.buildImageUrl({
       prompt, style, aspect, seed, source,
       width: width || CONFIG.imageWidth, height: height || CONFIG.imageHeight,

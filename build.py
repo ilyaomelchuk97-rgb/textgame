@@ -44,13 +44,15 @@ def webp_bytes(path: pathlib.Path, max_side: int, quality: int = 72):
     except Exception:
         return None
     try:
-        img = Image.open(path).convert("RGB")
+        source = Image.open(path)
+        has_alpha = "A" in source.getbands() or "transparency" in source.info
+        img = source.convert("RGBA" if has_alpha else "RGB")
         if max(img.size) > max_side:
             k = max_side / float(max(img.size))
             img = img.resize((max(1, int(img.width * k)), max(1, int(img.height * k))), Image.LANCZOS)
         import io
         buf = io.BytesIO()
-        img.save(buf, format="WEBP", quality=quality, method=6)
+        img.save(buf, format="WEBP", quality=quality, method=6, lossless=has_alpha)
         return buf.getvalue()
     except Exception as err:
         print("! WebP не вышел для %s: %s" % (path.name, err), file=sys.stderr)
@@ -58,9 +60,10 @@ def webp_bytes(path: pathlib.Path, max_side: int, quality: int = 72):
 
 
 def asset_uri(name: str, path: pathlib.Path) -> str:
-    """Картинка в data-URI: сначала пробуем WebP, потом честный JPEG."""
-    max_side = MENU_MAX if name == "menu-bg" else WEBP_MAX
-    raw = webp_bytes(path, max_side)
+    """Картинка в data-URI: компактный WebP, если поддерживается, иначе оригинал."""
+    max_side = MENU_MAX if name == "menu-bg" else (1024 if name == "dice-transition" else WEBP_MAX)
+    quality = 90 if name == "dice-transition" else 72
+    raw = webp_bytes(path, max_side, quality)
     if raw:
         return "data:image/webp;base64,%s" % base64.b64encode(raw).decode("ascii")
     return data_uri(path)
@@ -97,6 +100,12 @@ def main() -> int:
             print("! нет файла %s" % path, file=sys.stderr)
             return 1
         assets_map[name] = asset_uri(name, path)
+
+    dice_path = ASSETS / "dice-transition.png"
+    if not dice_path.exists():
+        print("! нет изображения кубика %s" % dice_path, file=sys.stderr)
+        return 1
+    assets_map["dice-transition"] = asset_uri("dice-transition", dice_path)
 
     critter_assets = {}
     for name in CRITTERS:

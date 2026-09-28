@@ -1854,7 +1854,7 @@ function imageCandidateNames() {
 function imageChoices() {
   const out = [
     { id: 'auto', title: 'Авто (быстро)', hint: 'гонка генераторов, побеждает первый', available: true, detail: imageCandidateNames().join(', ') },
-    { id: 'sana', title: 'Старый sana', hint: 'самый быстрый: 2–3 секунды', available: true, detail: 'image.pollinations.ai' }
+    { id: 'sana', title: 'SANA · самый быстрый', hint: 'обычно 2–3 с; есть общий лимит по IP', available: true, detail: 'image.pollinations.ai' }
   ];
   HF_SPACES.forEach(space => {
     out.push({ id: space.name, title: space.name.replace(/^hf:/, '') + ' (HF)', hint: 'открытый Space, качество выше', available: true, detail: space.base.replace('https://', '').split('.')[0] });

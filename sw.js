@@ -10,7 +10,7 @@
 
 // Увеличиваем версию при изменении оболочки: PWA не должна оставаться на
 // закэшированных HTML/CSS/JS и пропускать новые изображения интерфейса.
-const VERSION = 'dt2-v17';
+const VERSION = 'dt2-v24';
 const SHELL_CACHE = VERSION + '-shell';
 const COVER_IMAGES = [
   'menu-bg', 'sc-forest', 'sc-ocean', 'sc-space', 'sc-noir', 'sc-waste',
@@ -49,6 +49,7 @@ const SHELL = [
   './src/daily.js',
   './src/metrics.js',
   ...COVER_IMAGES.map(name => './assets/' + name + '.jpg'),
+  './assets/dice-transition.png',
   ...CRITTER_IMAGES.map(name => './assets/critters/' + name + '-run.webp'),
   ...THEME_IMAGES.map(name => './assets/themes/' + name + '.webp'),
   './assets/icon-180.png',
