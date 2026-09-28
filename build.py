@@ -74,9 +74,12 @@ def main() -> int:
     # материалы тем: картинки фактур вшиваются прямо в CSS (data:image/webp)
     themed = []
     for art in sorted((ASSETS / "themes").glob("*.webp")):
-        token = "assets/themes/%s" % art.name
-        if token in css:
-            css = css.replace(token, data_uri(art))
+        # Модульные CSS-файлы лежат в src/, поэтому их URL идут как ../assets/.
+        # В автономном game.html заменяем весь путь целиком, не оставляя ../ перед data URI.
+        tokens = ("../assets/themes/%s" % art.name, "assets/themes/%s" % art.name)
+        if any(token in css for token in tokens):
+            for token in tokens:
+                css = css.replace(token, data_uri(art))
             themed.append(art)
     if themed:
         print("материалы тем: %d файлов, %.0f КБ"

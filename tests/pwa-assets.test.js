@@ -29,5 +29,5 @@ test('PWA precaches all menu sprites, theme artwork and cover images', () => {
     if (!file.endsWith('.jpg')) continue;
     assert.ok(covers.has(file.replace(/\.jpg$/, '')), 'в кэше нет обложки ' + file);
   }
-  assert.match(worker, /const VERSION = 'dt2-v16'/, 'не обновлена версия service worker');
+  assert.match(worker, /const VERSION = 'dt2-v17'/, 'не обновлена версия service worker');
 });

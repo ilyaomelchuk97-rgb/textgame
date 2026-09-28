@@ -321,10 +321,10 @@ body[data-theme] .toast--bad { border-color: color-mix(in srgb, var(--danger, #f
 /* --- Ночь: тёмное стекло с мягким кантом --- */
 body[data-theme="night"], .skin-demo[data-tp="night"] {
   /* материал: ночной туман в фоне и дымчатое стекло на кнопках */
-  --sk-art-bg: url("assets/themes/night-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/night-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/night-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/night-ui-button.webp");
   --sk-art-btn-blend: normal;
-  --sk-art-tex: url("assets/themes/night-tex.webp");
+  --sk-art-tex: url("../assets/themes/night-tex.webp");
   --sk-art-tex-size: 380px;
   --sk-scrim: linear-gradient(180deg, rgba(3,6,9,.30), rgba(2,4,7,.70));
   --sk-scrim-bars: linear-gradient(180deg, rgba(5,8,11,.58), rgba(3,5,8,.82));
@@ -350,10 +350,10 @@ body[data-theme="night"], .skin-demo[data-tp="night"] {
 /* --- Материальная: плоские карточки, тени, никаких рамок --- */
 body[data-theme="material"], .skin-demo[data-tp="material"] {
   /* материал: светлая бумага — фон и мелкое зерно на кнопках */
-  --sk-art-bg: url("assets/themes/material-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/material-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/material-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/material-ui-button.webp");
   --sk-art-btn-blend: multiply;
-  --sk-art-tex: url("assets/themes/material-tex.webp");
+  --sk-art-tex: url("../assets/themes/material-tex.webp");
   --sk-art-tex-size: 520px;
   --sk-scrim: linear-gradient(180deg, rgba(247,245,252,.36), rgba(233,230,242,.58));
   --sk-scrim-bars: linear-gradient(180deg, rgba(255,255,255,.55), rgba(246,244,251,.70));
@@ -381,10 +381,10 @@ body[data-theme="material"], .skin-demo[data-tp="material"] {
 /* --- Киберпанк: сканлайны, неоновая кромка, свечение --- */
 body[data-theme="neon"], .skin-demo[data-tp="neon"] {
   /* материал: мокрый неон и шлифованный металл */
-  --sk-art-bg: url("assets/themes/neon-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/neon-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/neon-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/neon-ui-button.webp");
   --sk-art-btn-blend: normal;
-  --sk-art-tex: url("assets/themes/neon-tex.webp");
+  --sk-art-tex: url("../assets/themes/neon-tex.webp");
   --sk-art-tex-size: 300px;
   --sk-scrim: linear-gradient(180deg, rgba(6,4,16,.42), rgba(3,2,10,.78));
   --sk-scrim-bars: linear-gradient(180deg, rgba(12,6,28,.60), rgba(6,4,18,.82));
@@ -415,10 +415,10 @@ body[data-theme="neon"], .skin-demo[data-tp="neon"] {
 /* --- Терминал: фосфор, пунктирные рамки, сканлайны --- */
 body[data-theme="terminal"], .skin-demo[data-tp="terminal"] {
   /* материал: фосфорный экран и строки развёртки */
-  --sk-art-bg: url("assets/themes/terminal-bg.webp");
-  --sk-art-btn: url("assets/themes/terminal-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/terminal-bg.webp");
+  --sk-art-btn: url("../assets/themes/terminal-ui-button.webp");
   --sk-art-btn-blend: normal;
-  --sk-art-tex: url("assets/themes/terminal-tex.webp");
+  --sk-art-tex: url("../assets/themes/terminal-tex.webp");
   --sk-art-tex-size: 240px;
   --sk-scrim: linear-gradient(180deg, rgba(2,7,4,.62), rgba(1,4,2,.88));
   --sk-scrim-bars: linear-gradient(180deg, rgba(3,10,6,.70), rgba(2,6,4,.86));
@@ -461,10 +461,10 @@ body[data-theme="terminal"] .modal-box { border-style: dashed; }
 /* --- Пергамент: бумажные листы на тёмном столе, кромка неровная --- */
 body[data-theme="parchment"], .skin-demo[data-tp="parchment"] {
   /* материал: состаренный лист — фон и волокна бумаги на кнопках */
-  --sk-art-bg: url("assets/themes/parchment-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/parchment-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/parchment-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/parchment-ui-button.webp");
   --sk-art-btn-blend: multiply;
-  --sk-art-tex: url("assets/themes/parchment-tex.webp");
+  --sk-art-tex: url("../assets/themes/parchment-tex.webp");
   --sk-art-tex-size: 480px;
   --sk-scrim: linear-gradient(180deg, rgba(28,20,10,.26), rgba(16,11,5,.62));
   --sk-scrim-bars: linear-gradient(180deg, rgba(40,28,14,.40), rgba(24,17,8,.62));
@@ -509,10 +509,10 @@ body[data-theme="parchment"] .tag__adv { color: #7a4a12; }
 /* --- Тушь и медь: прямые углы, медная кромка, заклёпки по углам --- */
 body[data-theme="ink"], .skin-demo[data-tp="ink"] {
   /* материал: тёмный дуб — фон, кованая медь — фактура кнопок */
-  --sk-art-bg: url("assets/themes/ink-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/ink-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/ink-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/ink-ui-button.webp");
   --sk-art-btn-blend: normal;
-  --sk-art-tex: url("assets/themes/ink-tex.webp");
+  --sk-art-tex: url("../assets/themes/ink-tex.webp");
   --sk-art-tex-size: 560px;
   --sk-scrim: linear-gradient(180deg, rgba(10,8,6,.50), rgba(6,5,3,.80));
   --sk-scrim-bars: linear-gradient(180deg, rgba(16,13,10,.58), rgba(9,7,5,.80));
@@ -547,10 +547,10 @@ body[data-theme="ink"], .skin-demo[data-tp="ink"] {
 /* --- Закат: тёплые градиенты и мягкое свечение --- */
 body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
   /* материал: настоящий закат — небо в фоне, тёплый лён на кнопках */
-  --sk-art-bg: url("assets/themes/sunset-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/sunset-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/sunset-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/sunset-ui-button.webp");
   --sk-art-btn-blend: normal;
-  --sk-art-tex: url("assets/themes/sunset-tex.webp");
+  --sk-art-tex: url("../assets/themes/sunset-tex.webp");
   --sk-art-tex-size: 420px;
   --sk-scrim: linear-gradient(180deg, rgba(26,12,20,.36), rgba(10,6,12,.72));
   --sk-scrim-bars: linear-gradient(180deg, rgba(40,17,30,.62), rgba(20,9,18,.80));
@@ -581,10 +581,10 @@ body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
 /* --- Лёд: кнопки и блоки покрыты наледью --- */
 body[data-theme="ice"], .skin-demo[data-tp="ice"] {
   /* материал: настоящий лёд — фон и фактура кнопок */
-  --sk-art-bg: url("assets/themes/ice-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/ice-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/ice-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/ice-ui-button.webp");
   --sk-art-btn-blend: normal;
-  --sk-art-tex: url("assets/themes/ice-tex.webp");
+  --sk-art-tex: url("../assets/themes/ice-tex.webp");
   --sk-art-tex-size: 700px;
   --sk-scrim: linear-gradient(180deg, rgba(238,246,252,.42), rgba(212,230,245,.66));
   --sk-scrim-bars: linear-gradient(180deg, rgba(255,255,255,.60), rgba(238,246,252,.72));
@@ -667,8 +667,8 @@ body[data-theme="ice"] .mech-bar { box-shadow: 0 -1px 0 rgba(255,255,255,.9) ins
 
 /* --- Чёрная: только контур, ничего лишнего --- */
 body[data-theme="oled"], .skin-demo[data-tp="oled"] {
-  --sk-art-bg: url("assets/themes/oled-ui-bg.webp");
-  --sk-art-btn: url("assets/themes/oled-ui-button.webp");
+  --sk-art-bg: url("../assets/themes/oled-ui-bg.webp");
+  --sk-art-btn: url("../assets/themes/oled-ui-button.webp");
   --sk-art-btn-blend: normal;
   --sk-r-card: 8px; --sk-r-btn: 8px; --sk-r-small: 6px; --sk-r-chip: 6px;
   --sk-card-paint: none; --sk-card-tint: #000000; --sk-card-gloss: none;
