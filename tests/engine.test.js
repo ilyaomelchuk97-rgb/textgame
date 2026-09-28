@@ -912,6 +912,17 @@ test('запрос героя: мастер придумывает заново 
   assert.ok(third.includes('Ведьмак школы Волка') && third.includes('Горожанин'), 'прошлые варианты перечислены');
 });
 
+test('профиль героя готовых сценариев учитывает их сеттинг и задачу', () => {
+  const presets = E.SCENARIOS.concat(E.GAME_WORLDS.filter(s => !s.customGame));
+  assert.ok(presets.length > 0);
+  for (const scenario of presets) {
+    const prompt = E.buildHeroPrompt(E.emptyWorldConfig(), scenario, { variant: 1 });
+    assert.ok(prompt.includes(scenario.title), 'название сценария: ' + scenario.id);
+    if (scenario.systemHint) assert.ok(prompt.includes(scenario.systemHint), 'сеттинг: ' + scenario.id);
+    if (scenario.goal) assert.ok(prompt.includes(scenario.goal), 'цель: ' + scenario.id);
+  }
+});
+
 test('герой из строкового ответа мастера: классы, метки, бонусы, приёмы', () => {
   const reply = [
     'М: Школа',

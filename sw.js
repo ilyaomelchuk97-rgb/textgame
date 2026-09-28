@@ -8,13 +8,35 @@
  * ------------------------------------------------------------------ */
 'use strict';
 
-const VERSION = 'dt2-v13';
+// Увеличиваем версию при изменении оболочки: PWA не должна оставаться на
+// закэшированных HTML/CSS/JS и пропускать новые изображения интерфейса.
+const VERSION = 'dt2-v16';
 const SHELL_CACHE = VERSION + '-shell';
+const COVER_IMAGES = [
+  'menu-bg', 'sc-forest', 'sc-ocean', 'sc-space', 'sc-noir', 'sc-waste',
+  'gw-azeroth', 'gw-nightcity', 'gw-runes', 'gw-custom'
+];
+const CRITTER_IMAGES = [
+  'knight', 'dragon', 'engineer', 'necro', 'cyber', 'orc', 'mage',
+  'assassin', 'golem', 'wolf', 'drone', 'ghost', 'zombie', 'pirate'
+];
+const THEME_IMAGES = [
+  'ice-bg', 'ice-tex', 'ice-ui-bg', 'ice-ui-button',
+  'ink-bg', 'ink-tex', 'ink-ui-bg', 'ink-ui-button',
+  'material-bg', 'material-tex', 'material-ui-bg', 'material-ui-button',
+  'neon-bg', 'neon-tex', 'neon-ui-bg', 'neon-ui-button',
+  'night-bg', 'night-tex', 'night-ui-bg', 'night-ui-button',
+  'oled-ui-bg', 'oled-ui-button',
+  'parchment-bg', 'parchment-tex', 'parchment-ui-bg', 'parchment-ui-button',
+  'sunset-bg', 'sunset-tex', 'sunset-ui-bg', 'sunset-ui-button',
+  'terminal-bg', 'terminal-tex', 'terminal-ui-button'
+];
 const SHELL = [
   './',
   './index.html',
   './game.html',
   './manifest.webmanifest',
+  './sw.js',
   './src/styles.css',
   './src/skins.css',
   './src/engine.js',
@@ -26,8 +48,12 @@ const SHELL = [
   './src/stories.js',
   './src/daily.js',
   './src/metrics.js',
-  './assets/menu-bg.jpg',
-  './assets/icon-192.png'
+  ...COVER_IMAGES.map(name => './assets/' + name + '.jpg'),
+  ...CRITTER_IMAGES.map(name => './assets/critters/' + name + '-run.webp'),
+  ...THEME_IMAGES.map(name => './assets/themes/' + name + '.webp'),
+  './assets/icon-180.png',
+  './assets/icon-192.png',
+  './assets/icon-512.png'
 ];
 
 self.addEventListener('install', ev => {

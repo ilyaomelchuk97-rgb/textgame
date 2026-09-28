@@ -255,24 +255,6 @@ body.dice-transition-active #app { pointer-events: none; }
   line-height: 1;
   will-change: transform, left, top;
 }
-.dice-transition__face {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  opacity: 0;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 19%;
-  background:
-    radial-gradient(circle at 27% 27%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 73% 27%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 50% 50%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 27% 73%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 73% 73%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    linear-gradient(145deg, #ffffff 0%, #e7eff2 48%, #c5d3d9 100%);
-  box-shadow: inset 0 2px 8px rgba(255, 255, 255, 0.85),
-    inset 0 -12px 30px rgba(26, 48, 57, 0.15), 0 0 44px rgba(111, 227, 184, 0.24);
-  will-change: opacity;
-}
 .dice-transition__glyph {
   position: relative;
   z-index: 1;

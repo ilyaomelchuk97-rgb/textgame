@@ -272,24 +272,6 @@ body.dice-transition-active #app { pointer-events: none; }
   line-height: 1;
   will-change: transform, left, top;
 }
-.dice-transition__face {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  opacity: 0;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 19%;
-  background:
-    radial-gradient(circle at 27% 27%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 73% 27%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 50% 50%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 27% 73%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    radial-gradient(circle at 73% 73%, rgba(15, 31, 37, 0.34) 0 4.5%, transparent 5.1%),
-    linear-gradient(145deg, #ffffff 0%, #e7eff2 48%, #c5d3d9 100%);
-  box-shadow: inset 0 2px 8px rgba(255, 255, 255, 0.85),
-    inset 0 -12px 30px rgba(26, 48, 57, 0.15), 0 0 44px rgba(111, 227, 184, 0.24);
-  will-change: opacity;
-}
 .dice-transition__glyph {
   position: relative;
   z-index: 1;
@@ -14031,10 +14013,12 @@ body[data-theme] .mech-chip--use {
     game: null,
     scenarioSet: [],
     pickedScenario: null,
-    heroProfile: null,         // какие шаги создания героя показывать (для «своей игры» — от ИИ)
+    heroProfile: null,         // какие шаги создания героя показывать (для онлайн-игр варианты предлагает ИИ)
+    heroProfileSeq: 0,         // не даём позднему ответу старой игры заменить новый набор
+    worldProfileSeq: 0,        // отдельная защита мира: retry героя не должен отменять его генерацию
     pendingWorld: null,        // мир, собранный ИИ до выбора героя
     prologueOpen: false,
-    profileLoading: false,    // мастер прямо сейчас придумывает героя под игру
+    profileLoading: false,    // мастер прямо сейчас собирает мир для своей игры
     profileRequest: null,     // незавершённый запрос мира (чтобы не гонять мастера дважды)
     heroRequest: null,       // запрос героя: он идёт первым, мир — следом
     heroRetryTimer: null,    // фоновый повтор, если канал ответил «занят»
@@ -14369,6 +14353,7 @@ body[data-theme] .mech-chip--use {
 
   /** Начать (или продолжить) забег дня. */
   function startDaily() {
+    invalidateHeroProfileRequests();
     const today = D.dateKey();
     const run = dailyRunSaved(today);
     if (run) { Sound.tap(); loadGame(run.id, false); return; }
@@ -14494,6 +14479,7 @@ body[data-theme] .mech-chip--use {
 
   /** Второй заход тем же забегом: мир и герой те же, броски с начала. */
   function againDaily() {
+    invalidateHeroProfileRequests();
     const g = State.game;
     if (!g || !g.daily) { openDaily(); return; }
     const daily = g.daily;
@@ -14560,9 +14546,28 @@ body[data-theme] .mech-chip--use {
       left: px(x - tileSize / 2),
       top: px(y - tileSize / 2),
       transform: 'scale(' + scale + ') rotate(' + rotation + 'deg)',
-      offset,
-      easing: 'cubic-bezier(.2,.72,.32,1)'
+      offset
     });
+    const smooth = t => t * t * (3 - 2 * t);
+    const cubic = (a, b, c, d, t) => {
+      const u = 1 - t;
+      return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+    };
+    // Одна непрерывная кривая вместо набора точек с отдельным easing и заметными остановками.
+    const curveFrames = path => {
+      const count = 48;
+      return Array.from({ length: count + 1 }, (_, i) => {
+        const offset = i / count;
+        const t = smooth(offset);
+        return frame(
+          cubic(path.from.x, path.control1.x, path.control2.x, path.to.x, t),
+          cubic(path.from.y, path.control1.y, path.control2.y, path.to.y, t),
+          path.scaleFrom + (path.scaleTo - path.scaleFrom) * t,
+          path.rotationFrom + (path.rotationTo - path.rotationFrom) * t,
+          offset
+        );
+      });
+    };
     const waitForAnimations = animations => Promise.all(
       animations.map(animation => animation.finished.catch(() => null))
     );
@@ -14581,8 +14586,6 @@ body[data-theme] .mech-chip--use {
       die.style.left = px(startX - tileSize / 2);
       die.style.top = px(startY - tileSize / 2);
 
-      const face = document.createElement('span');
-      face.className = 'dice-transition__face';
       const glyph = document.createElement('span');
       glyph.className = 'dice-transition__glyph';
       glyph.textContent = source.textContent.trim() || '🎲';
@@ -14592,7 +14595,6 @@ body[data-theme] .mech-chip--use {
       // Небольшая тень сохраняет объём, не раздуваясь в огромный ореол при зуме.
       const flightFilter = 'drop-shadow(0 2px 4px rgba(5, 20, 24, 0.25))';
       glyph.style.filter = flightFilter;
-      die.appendChild(face);
       die.appendChild(glyph);
       layer.appendChild(die);
       document.body.appendChild(layer);
@@ -14601,25 +14603,18 @@ body[data-theme] .mech-chip--use {
 
       const coverX = viewW / 2;
       const coverY = viewH / 2;
-      const launchFrames = [
-        frame(startX, startY, 1, 0, 0),
-        frame(startX - viewW * 0.08, startY + viewH * 0.015, 1.55, 240, 0.14),
-        frame(viewW * 0.17, viewH * 0.30, coverScale * 0.24, 480, 0.40),
-        frame(viewW * 0.25, viewH * 0.64, coverScale * 0.72, 780, 0.70),
-        frame(coverX, coverY, coverScale, 1080, 0.88),
-        frame(coverX, coverY, coverScale, 1080, 1)
-      ];
+      const launchFrames = curveFrames({
+        from: { x: startX, y: startY },
+        control1: { x: startX + viewW * 0.34, y: startY + viewH * 0.04 },
+        control2: { x: coverX - viewW * 0.22, y: coverY - viewH * 0.18 },
+        to: { x: coverX, y: coverY },
+        scaleFrom: 1, scaleTo: coverScale,
+        rotationFrom: 0, rotationTo: 1080
+      });
       const launch = die.animate(launchFrames, { duration: 760, easing: 'linear', fill: 'forwards' });
-      const launchFace = face.animate([
-        { opacity: 0, offset: 0 },
-        { opacity: 0.12, offset: 0.18 },
-        { opacity: 0.62, offset: 0.52 },
-        { opacity: 1, offset: 0.88 },
-        { opacity: 1, offset: 1 }
-      ], { duration: 760, easing: 'linear', fill: 'forwards' });
-      await waitForAnimations([launch, launchFace]);
+      await waitForAnimations([launch]);
 
-      // В этот момент большой кубик уже непрозрачно закрывает меню.
+      // В этот момент единственный большой кубик полностью закрывает меню.
       openScenarios();
       switched = true;
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -14635,26 +14630,20 @@ body[data-theme] .mech-chip--use {
       ));
       const targetX = targetBox.left + targetBox.width / 2;
       const targetY = targetBox.top + targetBox.height / 2;
-      const landingFrames = [
-        frame(coverX, coverY, coverScale, 1080, 0),
-        frame(viewW * 0.66, viewH * 0.42, coverScale * 0.84, 1260, 0.18),
-        frame(viewW * 0.83, viewH * 0.25, coverScale * 0.34, 1440, 0.50),
-        frame(targetX - viewW * 0.04, targetY + viewH * 0.045, Math.max(landingScale * 2.7, 2.5), 1620, 0.80),
-        frame(targetX, targetY, landingScale, 1800, 1)
-      ];
+      const landingFrames = curveFrames({
+        from: { x: coverX, y: coverY },
+        control1: { x: coverX + viewW * 0.32, y: coverY - viewH * 0.18 },
+        control2: { x: targetX - viewW * 0.18, y: targetY + viewH * 0.30 },
+        to: { x: targetX, y: targetY },
+        scaleFrom: coverScale, scaleTo: landingScale,
+        rotationFrom: 1080, rotationTo: 1800
+      });
       const landing = die.animate(landingFrames, { duration: 740, easing: 'linear', fill: 'forwards' });
-      const landingFace = face.animate([
-        { opacity: 1, offset: 0 },
-        { opacity: 1, offset: 0.20 },
-        { opacity: 0.82, offset: 0.48 },
-        { opacity: 0.32, offset: 0.80 },
-        { opacity: 0, offset: 1 }
-      ], { duration: 740, easing: 'linear', fill: 'forwards' });
       const landingGlow = glyph.animate([
         { filter: flightFilter, offset: 0 },
         { filter: 'none', offset: 1 }
       ], { duration: 740, easing: 'ease-out', fill: 'forwards' });
-      await waitForAnimations([landing, landingFace, landingGlow]);
+      await waitForAnimations([landing, landingGlow]);
     } catch (error) {
       if (!switched) {
         openScenarios();
@@ -14730,7 +14719,47 @@ body[data-theme] .mech-chip--use {
     });
   }
 
+  function invalidateHeroProfileRequests() {
+    State.heroProfileSeq = (State.heroProfileSeq || 0) + 1;
+    State.worldProfileSeq = (State.worldProfileSeq || 0) + 1;
+    if (State.heroRetryTimer) clearTimeout(State.heroRetryTimer);
+    State.heroRetryTimer = null;
+    State.heroRetries = 0;
+    State.heroLoading = false;
+    State.profileLoading = false;
+    State.heroRequest = null;
+    State.profileRequest = null;
+  }
+
+  /** Готовый мир: игру не перестраиваем, но просим ИИ собрать героя под её сеттинг. */
+  function preparePresetScenario(scenario) {
+    State.draftWorld = E.emptyWorldConfig(); // не переносим настройки из предыдущего «своего мира»
+    State.pendingWorld = null;
+    State.profileLoading = false;
+    State.rerollCount = 0;
+
+    if (scenario && scenario.offline) {
+      const local = E.offlineHeroProfile({ gameName: scenario.title });
+      State.heroProfile = local || E.defaultHeroProfile();
+      State.heroProfile.source = 'local';
+      State.heroLoading = false;
+      openHero();
+      setProfileNote('Офлайн-история: набор героя подготовлен заранее.', { showReroll: false });
+      return null;
+    }
+
+    State.heroProfile = null;
+    State.heroLoading = true;
+    // Игрок видит подходящие локальные варианты сразу; ответ ИИ заменит их, когда придёт.
+    applyLocalProfile('заготовка, пока мастер думает', { force: true, quiet: true });
+    const draft = heroDraft();
+    openHero();
+    State.heroRequest = requestHeroProfile(draft, 1);
+    return State.heroRequest;
+  }
+
   function prepareCustomWorld() {
+    invalidateHeroProfileRequests();
     const draft = heroDraft();
     State.pendingWorld = null;
     State.profileLoading = true;
@@ -14743,7 +14772,11 @@ body[data-theme] .mech-chip--use {
     setProfileNote('🧠 Мастер придумывает героя под эту игру…', { busy: true });
     // Сначала герой: это то, что игрок видит на экране. Мир — следом, он длиннее.
     State.heroRequest = requestHeroProfile(draft, 1);
-    State.profileRequest = State.heroRequest.then(() => requestWorldProfile(draft, 1));
+    const worldSeq = State.worldProfileSeq;
+    State.profileRequest = State.heroRequest.then(() => {
+      if (worldSeq !== State.worldProfileSeq) return null;
+      return requestWorldProfile(draft, 1, worldSeq);
+    });
     return State.profileRequest;
   }
 
@@ -14752,18 +14785,28 @@ body[data-theme] .mech-chip--use {
    * Пока он идёт, на экране уже есть варианты по игре из встроенной таблицы.
    */
   async function requestHeroProfile(draft, variant) {
+    const requestSeq = State.heroProfileSeq = (State.heroProfileSeq || 0) + 1;
+    if (State.heroRetryTimer) clearTimeout(State.heroRetryTimer);
+    State.heroRetryTimer = null;
+    const scenarioId = draft && draft.scenarioId;
+    const profileKey = variantKey();
+    const isCurrent = () => requestSeq === State.heroProfileSeq &&
+      (!scenarioId || !State.pickedScenario || State.pickedScenario.id === scenarioId) &&
+      variantKey() === profileKey;
     State.heroLoading = true;
-    setProfileNote('🧠 Мастер придумывает героя под эту игру…', { busy: true });
+    setProfileNote('🧠 Мастер подбирает класс, расу и происхождение под эту игру…', { busy: true });
     let res = null;
     const onDelta = full => {
+      if (!isCurrent()) return;
       const m = /^К[:：]\s*([^|\n]{2,40})/m.exec(full || '');
-      if (m) setProfileNote('🧠 Мастер придумывает героя: «' + m[1].trim() + '»…', { busy: true });
+      if (m) setProfileNote('🧠 Мастер подбирает роль: «' + m[1].trim() + '»…', { busy: true });
     };
     try {
       res = await API.generateHeroProfile(draft, {
         onStatus: statusHook('hero'), variant, used: usedVariantTitles(), labels: localLabels(), onDelta
       });
     } catch (e) { res = null; }
+    if (!isCurrent()) return null;
     State.heroLoading = false;
     if (!res || !res.ok || !res.profile) {
       console.log('[профиль героя]', res ? res.reason : 'запрос не удался');
@@ -14776,6 +14819,9 @@ body[data-theme] .mech-chip--use {
       scheduleHeroRetry(22000);
       return null;
     }
+    if (State.heroRetryTimer) clearTimeout(State.heroRetryTimer);
+    State.heroRetryTimer = null;
+    State.heroRetries = 0;
     const profile = res.profile;
     profile.note = profile.note || 'герой придуман под эту игру — «Другой набор» попросит новых';
     State.heroProfile = profile;
@@ -14810,13 +14856,19 @@ body[data-theme] .mech-chip--use {
   }
 
   /** Запрос к мастеру: мир и первая сцена. Ставим результат, как только пришёл ответ. */
-  async function requestWorldProfile(draft, variant) {
+  async function requestWorldProfile(draft, variant, worldSeq) {
+    const scenarioId = draft && draft.scenarioId;
+    const profileKey = variantKey();
+    const isCurrent = () => worldSeq === State.worldProfileSeq &&
+      (!scenarioId || !State.pickedScenario || State.pickedScenario.id === scenarioId) &&
+      variantKey() === profileKey;
     State.profileLoading = true;
     setProfileNote('🧠 Мастер строит мир под эту игру…', { busy: !!State.heroLoading });
     const used = usedVariantTitles();
     let turn = null;
     // мастер печатает мир: показываем, как он складывается
     const onDelta = full => {
+      if (!isCurrent()) return;
       const title = E.extractPartialField(full, 'title');
       const world = E.extractPartialField(full, 'world');
       if (title) setProfileNote('🧠 Мастер строит мир: «' + title + '»…', { busy: true });
@@ -14827,6 +14879,7 @@ body[data-theme] .mech-chip--use {
     } catch (e) {
       turn = null;
     }
+    if (!isCurrent()) return null;
     State.profileLoading = false;
     if (!turn) {
       applyLocalProfile('Мастер не отвечает — варианты собраны по этой игре и её жанру.');
@@ -14985,7 +15038,7 @@ body[data-theme] .mech-chip--use {
       State.heroRetries = (State.heroRetries || 0) + 1;
       const base = State.pickedScenario || E.CUSTOM_SCENARIO;
       const onHeroScreen = document.body.dataset.screen === 'hero' && !State.starting;
-      if (!onHeroScreen || !(base.custom || base.customGame)) return;
+      if (!onHeroScreen || State.daily || State.book || base.offline) return;
       if (State.heroProfile && State.heroProfile.source === 'ai') return;     // мастер всё-таки ответил
       const profile = await requestHeroProfile(heroDraft(), (State.rerollCount || 0) + 1);
       if (profile) notify('Мастер ответил — обновил варианты героя', { kind: 'good', timeout: 2800 });
@@ -14993,14 +15046,14 @@ body[data-theme] .mech-chip--use {
     }, delayMs);
   }
 
-  /** «Другой набор»: просим мастера придумать героя заново — новая история, новый персонаж. */
+  /** «Другой набор»: просим мастера придумать свежие варианты для текущей онлайн-игры. */
   async function rerollHero() {
     // ждём только героя: сборка мира перебору не мешает
     if (State.heroLoading || State.starting) return;
     if (State.daily) { notify('В забеге дня герой задан судьбой — новый набор невозможен', { kind: 'info' }); return; }
     const base = State.pickedScenario || E.CUSTOM_SCENARIO;
-    if (!(base.custom || base.customGame)) {
-      notify('Набор вариантов придумывает мастер для «своей игры» и своего мира', { kind: 'info' });
+    if (State.book || base.offline) {
+      notify('В этой офлайн-истории набор задан заранее', { kind: 'info' });
       return;
     }
     Sound.tap();
@@ -15024,6 +15077,7 @@ body[data-theme] .mech-chip--use {
 
 
   function pickScenario(s) {
+    invalidateHeroProfileRequests();
     leaveDaily();
     State.pickedScenario = s;
     State.pendingWorld = null;
@@ -15050,7 +15104,7 @@ body[data-theme] .mech-chip--use {
       return;
     }
     Sound.tap();
-    openHero();
+    preparePresetScenario(s);
   }
 
   /* --- конструктор мира --- */
@@ -19175,6 +19229,7 @@ body[data-theme] .mech-chip--use {
   }
 
   function startBookMode(bookId, resume) {
+    invalidateHeroProfileRequests();
     const saved = Local.get(BOOK_KEY, null);
     let state = (resume && saved && saved.state && saved.state.bookId === bookId) ? saved.state
       : Books.startBook(bookId, { name: (State.draft && State.draft.name) || 'Безымянный' });
@@ -19950,6 +20005,7 @@ body[data-theme] .mech-chip--use {
   /* ---------------------------------------------------------- */
 
   function playWorldNewHero(worldId) {
+    invalidateHeroProfileRequests();
     const worlds = State.storage.worlds();
     const world = worlds.find(w => String(w.id) === String(worldId));
     if (!world) { notify('Мир не найден', { kind: 'warn' }); return; }
