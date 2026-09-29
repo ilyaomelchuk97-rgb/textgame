@@ -47,7 +47,10 @@ test('кубик летит по плавной кривой и закрывае
   assert.ok(flight.includes('const count = 48'));
   assert.ok(flight.includes('const t = smooth(offset)'));
   assert.ok(flight.includes('scaleTo: coverScale'));
-  assert.ok(flight.includes('Math.hypot(viewW, viewH) * 1.75 / tileSize'));
+  assert.ok(flight.includes('Math.hypot(viewW, viewH) * 1.12 / tileSize'));
+  assert.ok(flight.includes("transform: 'translate3d('"), 'координаты и масштаб идут единым GPU transform');
+  assert.doesNotMatch(flight, /left:\s*px\(x - tileSize/);
+  assert.doesNotMatch(flight, /glyph\.animate/, 'тяжёлый filter не анимируется на PNG');
   assert.ok(flight.includes('die.animate(launchFrames'));
   assert.ok(flight.includes('die.animate(landingFrames'));
   assert.ok(!flight.includes("easing: 'cubic-bezier(.2,.72,.32,1)'"));

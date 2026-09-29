@@ -595,7 +595,8 @@
         name: n.name, role: n.role || '', voice: n.voice || '',
         relation: info.id, relationTitle: info.title, relationIcon: info.icon,
         trust: info.trust, helped: !!n.helped, note: info.note,
-        seen: n.seen || 0
+        seen: n.seen || 0, seenCount: Math.max(1, Number(n.seenCount) || 1),
+        portrait: n.portrait || '', portraitSeed: Number(n.portraitSeed) || 0
       };
     }).sort((a, b) => (b.seen || 0) - (a.seen || 0));
   }
@@ -958,10 +959,11 @@
       '  "opening": "сцена, 2-3 предложения, второе лицо, живая деталь, ощутимая угроза",',
       '  "chapter": "название первой главы, 2-4 слова",',
       '  "npc": "имя и одна деталь персонажа, появившегося рядом, иначе пустая строка",',
-      '  "imagePrompt": "English image prompt for the very first scene, 10-14 words: location + light + mood + who is in frame",',
+      '  "imagePrompt": "English image prompt for the first scene: location + light + mood + the hero and every other visible participant",',
       '  "options": [ {"text": "...", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"} x3 ]',
       '}',
       'Ровно 3 варианта действий, каждый не длиннее 12 слов. Только JSON, без пояснений.',
+      'В imagePrompt перечисли героя и всех, кто рядом в завязке; при нескольких участниках явно укажи группу и покажи их вместе, не одиночным портретом.',
       '',
       'ВАЖНО: пиши предельно коротко — ответ должен целиком влезть в лимит длины.',
       'Про класс, вид и происхождение героя здесь не пиши: их мастер придумывает отдельным ответом.'
@@ -1286,6 +1288,10 @@
     m.npcs.forEach(n => {
       if (!n.relation) n.relation = relationFromText(n.attitude);
       if (!Number.isFinite(Number(n.trust))) n.trust = trustFromRelation(relationOf(n));
+      if (!Number.isFinite(Number(n.seenCount)) || Number(n.seenCount) < 1) n.seenCount = 1;
+      else n.seenCount = Math.round(Number(n.seenCount));
+      if (typeof n.portrait !== 'string') n.portrait = '';
+      if (!Number.isFinite(Number(n.portraitSeed))) n.portraitSeed = 0;
     });
     if (!Array.isArray(m.threads)) m.threads = [];
     if (!Array.isArray(m.openings)) m.openings = [];
@@ -1387,6 +1393,7 @@
         const known = m.npcs.find(n => n.name.toLowerCase() === name.toLowerCase());
         if (known) {
           known.seen = game.turn;
+          known.seenCount = (Number(known.seenCount) || 1) + 1;
           if (npc.role) known.role = String(npc.role).slice(0, 40);
           if (npc.attitude) known.attitude = String(npc.attitude).slice(0, 40);
           if (npc.voice) known.voice = String(npc.voice).slice(0, 60);
@@ -1395,7 +1402,7 @@
           if (!known.relation) known.relation = relationFromText(known.attitude);
         } else {
           m.npcs.push({
-            name, seen: game.turn,
+            name, seen: game.turn, seenCount: 1,
             role: String(npc.role || npc.detail || '').slice(0, 40),
             attitude: String(npc.attitude || '').slice(0, 40),
             relation: relationFromText(npc.attitude),
@@ -1492,6 +1499,97 @@
       if (node) node.now = true;
     }
     return nodes.map(n => ({ key: n.key, title: n.title, turns: n.turns, chapter: n.chapter, now: n.now }));
+  }
+
+  /** События для иллюстрированной ленты: действие связано со следующим ответом мастера. */
+  function campaignTimeline(game) {
+    const log = Array.isArray(game && game.log) ? game.log : [];
+    const actionTotal = log.filter(e => e && e.kind === 'action').length;
+    const turnOffset = Math.max(0, (Number(game && game.turn) || 0) - actionTotal);
+    const moments = [];
+    let actionNo = 0, pending = null, openingAdded = false;
+    log.forEach(entry => {
+      if (!entry) return;
+      if (entry.kind === 'action') {
+        actionNo += 1;
+        pending = {
+          turn: Number(entry.turn) || turnOffset + actionNo,
+          action: entry,
+          scene: null,
+          npc: '',
+          place: '',
+          chapter: entry.chapter || '',
+          notes: []
+        };
+        moments.push(pending);
+        return;
+      }
+      if (entry.kind === 'npc') {
+        if (pending) pending.npc = String(entry.text || '');
+        return;
+      }
+      if (entry.kind !== 'gm') return;
+      if (pending) {
+        const gmTurn = Number(entry.turn);
+        if (!Number.isFinite(gmTurn) || gmTurn === pending.turn) {
+          pending.scene = entry;
+          pending.place = entry.place || pending.place;
+          pending.chapter = entry.chapter || pending.chapter;
+          pending.notes = Array.isArray(entry.notes) ? entry.notes.slice() : [];
+          pending = null;
+          return;
+        }
+      }
+      if (!actionNo && !openingAdded) {
+        moments.push({
+          turn: Number(entry.turn) || 1,
+          action: null,
+          scene: entry,
+          npc: '',
+          place: entry.place || '',
+          chapter: entry.chapter || '',
+          notes: Array.isArray(entry.notes) ? entry.notes.slice() : [],
+          opening: true
+        });
+        openingAdded = true;
+      }
+    });
+    return moments;
+  }
+
+  const CAMPAIGN_SEAL_DEFS = [
+    { id: 'first-step', icon: '✦', title: 'Первый шаг', description: 'Сделан первый выбор в истории.' },
+    { id: 'explorer', icon: '⌖', title: 'Следопыт', description: 'Открыты три разных места.' },
+    { id: 'ally', icon: '🤝', title: 'Союзник', description: 'Знакомый пришёл герою на помощь.' },
+    { id: 'find', icon: '◇', title: 'Находка', description: 'В хронике отмечено получение предмета.' },
+    { id: 'scar', icon: '✚', title: 'Шрам', description: 'Герой пережил рану.' },
+    { id: 'victory', icon: '🏁', title: 'Цель достигнута', description: 'Главная задача кампании выполнена.' }
+  ];
+
+  /** Печати выводятся из реальных событий и сохраняются между ходами. */
+  function campaignSeals(game) {
+    const g = game || {};
+    const log = Array.isArray(g.log) ? g.log : [];
+    const m = memoryOf(g);
+    const earned = new Set(Array.isArray(g.seals) ? g.seals : []);
+    const hasAction = log.some(e => e && e.kind === 'action');
+    const hasExplorer = placeGraph(g).length >= 3;
+    const hasAlly = m.npcs.some(n => n && n.helped);
+    const hasFind = log.some(e => Array.isArray(e && e.notes) && e.notes.some(n => n && n.type === 'item'));
+    const hasScar = !!((g.hero && Array.isArray(g.hero.states) && g.hero.states.some(st => st && st.id === 'wound')) ||
+      log.some(e => Array.isArray(e && e.notes) && e.notes.some(n => n && n.type === 'state' && /рана|wound/i.test(String(n.text || '')))));
+    const hasVictory = !!(g.questDone || g.ending === 'victory');
+    const checks = {
+      'first-step': hasAction,
+      explorer: hasExplorer,
+      ally: hasAlly,
+      find: hasFind,
+      scar: hasScar,
+      victory: hasVictory
+    };
+    CAMPAIGN_SEAL_DEFS.forEach(seal => { if (checks[seal.id]) earned.add(seal.id); });
+    g.seals = CAMPAIGN_SEAL_DEFS.map(seal => seal.id).filter(id => earned.has(id));
+    return CAMPAIGN_SEAL_DEFS.map(seal => Object.assign({}, seal, { earned: earned.has(seal.id) }));
   }
 
   /* ---------------------------------------------------------- */
@@ -1591,6 +1689,7 @@
     const h = game.hero || {};
     const wins = (game.log || []).filter(e => e.kind === 'action' && /d20/.test(String(e.meta || ''))).length;
     const arc = arcOf(game);
+    const seals = campaignSeals(game).filter(s => s.earned).map(s => s.title);
     return {
       title: game.title || 'Кампания',
       world: game.scenarioTitle || '',
@@ -1600,6 +1699,7 @@
       turns: game.turn || 0,
       checks: wins,
       milestones: arc.done.map(d => d.title).slice(0, 3),
+      seals,
       facts: (m.facts.length ? m.facts : m.deeds).slice(-3),
       people: m.npcs.slice(0, 3).map(n => n.name),
       ashes: (legacyRes && legacyRes.ashes) || 0,
@@ -1763,13 +1863,26 @@
     return sceneKindFromText(a0) === sceneKindFromText(b0) && shared >= 1;
   }
 
-  /** Портрет героя: одна картинка на всю кампанию. */
+  /** Портрет героя: класс, происхождение и мир задают узнаваемый образ кампании. */
   function portraitPrompt(game) {
-    const h = game.hero;
-    const race = h.raceName || '';
-    const cls = h.className || '';
-    const look = [cls, race].filter(Boolean).join(', ');
-    return `character portrait, ${look}, head and shoulders, dramatic side light, no text, ${styleOf(game).imageStyle}`;
+    const h = (game && game.hero) || {};
+    const archetypeByClass = {
+      warrior: 'warrior and frontline fighter',
+      rogue: 'rogue, stealth scout and quick-handed adventurer',
+      scholar: 'scholar, researcher and investigator',
+      mage: 'sorcerer and magic wielder',
+      diplomat: 'diplomat and charismatic negotiator',
+      wanderer: 'wanderer, tracker and survivalist'
+    };
+    const role = archetypeByClass[h.classId] || 'adventurer';
+    const details = [
+      h.raceName ? `race ${h.raceName}` : '',
+      h.className ? `selected class/profession ${h.className}` : role,
+      `visual archetype ${role}`,
+      h.originName ? `background ${h.originName}` : '',
+      game && game.title ? `setting ${game.title}` : ''
+    ].filter(Boolean).join(', ');
+    return `unique original role-playing game hero portrait, ${details}, outfit and tools clearly reflect the profession and background, distinctive face and silhouette, head and shoulders, cinematic side light, no text, ${styleOf(game).imageStyle}`;
   }
 
   /** Промпт картинки локации: место и свет, без людей — их рисует слой действия. */
@@ -2213,7 +2326,7 @@
     if (layers) extra.push(layers);
     const actors = sceneActors(sceneText);
     actors.props.slice(0, 2).forEach(p => { if (PROP_ART[p]) extra.push(PROP_ART[p]); });
-    if (actors.enemies.length && ENEMY_ART[actors.enemies[0]]) extra.push(ENEMY_ART[actors.enemies[0]]);
+    actors.enemies.slice(0, 3).forEach(type => { extra.push(enemyArtForScene(type, sceneText)); });
     const kind = sceneKindFromText(sceneText);
     const kindArt = { indoor: 'interior, enclosed space', outdoor: 'wide landscape, open sky', night: 'night scene, deep shadows', water: 'water and reflections', fire: 'firelight, warm glow' };
     if (kindArt[kind]) extra.push(kindArt[kind]);
@@ -2396,6 +2509,17 @@
     return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
 
+  /** Стабильное зерно портрета из id кампании: новая игра получает новый образ. */
+  function portraitSeedFromId(id) {
+    let hash = 2166136261;
+    const value = String(id || 'new-game');
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return ((hash >>> 0) % 2147483646) + 1;
+  }
+
   function createGame(opts) {
     const { scenarioId, heroName, classId, raceId, originId, worldConfig } = opts;
     const scenario = scenarioById(scenarioId);
@@ -2407,11 +2531,13 @@
     const maxHp = maxHpFor({ classId: cls.id, cls, stats });
     const name = (heroName || '').trim().slice(0, 24) || 'Безымянный';
     const cfg = worldConfig ? Object.assign(emptyWorldConfig(), worldConfig) : null;
+    const id = newGameId();
+    const now = Date.now();
     return {
       schema: SCHEMA_VERSION,
-      id: newGameId(),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      id,
+      createdAt: now,
+      updatedAt: now,
       scenarioId: scenario.id,
       scenarioTitle: scenario.customGame && cfg && cfg.gameName ? cfg.gameName : scenario.title,
       scenarioBase: scenario.id,
@@ -2436,6 +2562,7 @@
       hero: {
         name,
         portrait: '',
+        portraitSeed: portraitSeedFromId(id),
         classId: cls.id,
         className: cls.title,
         classIcon: cls.icon,
@@ -2804,7 +2931,7 @@
     ['construct', /робот|дрон|андроид|машин|автомат|синт|голем|механизм|сервопривод/],
     ['monster', /монстр|демон|чудищ|мутант|тролл|гоблин|орк|великан|гигант/],
     ['soldier', /солдат|стражник|патрул|легион|гвард|рыцар|наёмник|наемник|бандит|разбойник|пират|страж|караул|охрана/],
-    ['human', /человек|люди|людей|людьми|торговец|крестьян|старик|старух|женщин|мужчин|толп|горожан|дет[ией]|ведьм|колдун|жрец|бармен|инженер|пилот|ночлежк|прохожий/]
+    ['human', /человек|люди|людей|людьми|торговец|крестьян|старик|старух|женщин|мужчин|толп|горожан|дет[ией]|ведьм|колдун|жрец|бармен|инженер|пилот|ночлежк|прохожий|незнаком|собеседник|проводник|компаньон|спутник|союзник|подруг|друз|товарищ|поселенец|жител|странник|merchant|civilian|travell?er|stranger|companion|friend|ally|villager|innkeeper/]
   ];
   const PROP_RULES = [
     ['fire', /костёр|костер|огон|пожар|пламя|спичк|головн|жарк/],
@@ -2935,8 +3062,56 @@
     soldier: 'armed figures approaching',
     human: 'a stranger watching from the shadows'
   };
+  const ENEMY_PROMPT_RE = {
+    dragon: /dragon|wyvern|serpent/i,
+    beast: /wolf|beast|bear|spider|hound|creature/i,
+    undead: /undead|skeleton|zombie|ghost/i,
+    construct: /machine|robot|android|golem|sentinel|construct/i,
+    monster: /monster|demon|troll|goblin|orc|giant/i,
+    soldier: /bandit|guard|thief|soldier|pirate|armed figure|mercenary|opponent|raider/i,
+    human: /stranger|companion|merchant|villager|townspeople|people|person|civilian/i
+  };
+  const ENEMY_NOUNS = {
+    dragon: 'дракон|виверн|змей|dragon|wyvern',
+    beast: 'волк|волч|пёс|пс[аыу]|собак|звер|медвед|крыс|паук|жук|лошад|лис|wolf|beast|bear|spider|hound',
+    undead: 'скелет|мертвец|зомби|призрак|нежит|упыр|skeleton|zombie|ghost|undead',
+    construct: 'робот|дрон|андроид|машин|автомат|голем|механизм|robot|android|machine|golem|sentinel',
+    monster: 'монстр|демон|чудищ|мутант|тролл|гоблин|орк|великан|monster|demon|troll|goblin|orc|giant',
+    soldier: 'солдат|стражник|патрул|легион|гвард|рыцар|наёмник|наемник|бандит|разбойник|пират|страж|караул|охрана|soldier|guard|bandit|thief|pirate|knight',
+    human: 'человек|люди|людей|торговец|крестьян|старик|женщин|мужчин|прохожий|person|people|merchant|villager|stranger|civilian|man|woman'
+  };
+  function enemyArtForScene(type, text) {
+    const base = ENEMY_ART[type] || '';
+    const nouns = ENEMY_NOUNS[type];
+    if (!base || !nouns) return base;
+    const countPattern = new RegExp(
+      '\\b(two|three|four|several|multiple|both|\\d+|a pair of|pair of)\\s+(?:[a-z-]+\\s+){0,2}(?:' + nouns + ')|' +
+      '(двое|две|два|двумя|трое|три|тремя|четверо|четыре|четырьмя|пятеро|пятерых|несколько)\\s+(?:[а-яёa-z-]+\\s+){0,2}(?:' + nouns + ')', 'i'
+    );
+    const match = countPattern.exec(String(text || ''));
+    if (!match) return base;
+    const raw = String(match[1] || match[2] || '').toLowerCase();
+    const count = /^(?:two|both|2|a pair of|pair of|двое|две|два|двумя)$/.test(raw) ? 'two'
+      : /^(?:three|3|трое|три|тремя)$/.test(raw) ? 'three'
+      : /^(?:four|4|четверо|четыре|четырьмя)$/.test(raw) ? 'four'
+      : 'several';
+    let noun = type === 'dragon' ? 'dragons looming'
+      : type === 'beast' ? 'beasts closing in'
+      : type === 'undead' ? 'undead figures rising'
+      : type === 'construct' ? 'mechanical sentinels'
+      : type === 'monster' ? 'monsters closing in'
+      : type === 'human' ? 'people in the scene'
+      : /бандит|разбойник|bandit/.test(String(text || '').toLowerCase()) ? 'bandits approaching'
+      : /страж|охран|guard/.test(String(text || '').toLowerCase()) ? 'guards on alert'
+      : /пират|pirate/.test(String(text || '').toLowerCase()) ? 'pirates approaching'
+      : /рыцар|knight/.test(String(text || '').toLowerCase()) ? 'knights approaching'
+      : /солдат|soldier/.test(String(text || '').toLowerCase()) ? 'soldiers advancing'
+      : 'armed figures approaching';
+    return count + ' ' + noun;
+  }
   const PEOPLE_RE = /knight|warrior|figure|figures|people|person|character|hero|creature|monster|dragon|beast|bandit|guard|thief|soldier|silhouette|crowd|man |woman|robot|undead|group/i;
-  const ENEMY_WORD_RE = /bandit|guard|thief|soldier|wolf|beast|monster|dragon|undead|creature|figure|figures|sentinel|warrior|knight|crowd|group/i;
+  const HERO_PROMPT_RE = /\b(?:hero|protagonist|main character|player character|adventurer)\b/i;
+  const MULTI_CAST_RE = /\b(?:two|three|four|several|multiple|both|pair|group|crowd|people|persons|figures|companions|friends|guards|bandits|soldiers|villagers|travelers|travellers|men|women)\b|двое|две|два|двумя|трое|три|тремя|четверо|четыре|четырьмя|пятеро|пара|несколько|группа|толпа|люди|людей|людьми|стражники|бандиты|солдаты|спутники|союзники|друзья|путники|мужчины|женщины/i;
 
   /**
    * Промпт картинки для текущей сцены. Гарантирует, что на фоне
@@ -2945,37 +3120,80 @@
   function composeSceneImagePrompt(game, opts) {
     const o = opts || {};
     const s = scenarioById(game && game.scenarioId);
-    const sceneText = [o.sceneText, o.action && o.action.text, o.npc].filter(Boolean).join(' ');
-    const actors = sceneActors(sceneText);
+    const npcObject = o.npcObject || (o.npc && typeof o.npc === 'object' ? o.npc : null);
+    const npcText = [
+      typeof o.npc === 'string' ? o.npc : '',
+      npcObject && npcObject.name,
+      npcObject && npcObject.role,
+      npcObject && npcObject.description,
+      npcObject && npcObject.attitude
+    ].filter(Boolean).join(' ');
+    const narrativeText = [o.sceneText, o.action && o.action.text].filter(Boolean).join(' ');
+    const sceneText = [narrativeText, npcText].filter(Boolean).join(' ');
+    const actors = sceneActors(narrativeText || sceneText);
+    const memory = game && game.memory;
+    const rememberedNpc = !!(memory && Array.isArray(memory.npcs) && memory.npcs.some(n => {
+      const name = String((n && n.name) || '').trim().toLowerCase();
+      return name && sceneText.toLowerCase().includes(name);
+    }));
+    const npcPresent = !!(npcObject && (npcObject.name || npcObject.role || npcObject.description)) ||
+      (typeof o.npc === 'string' && !!o.npc.trim());
+    const multiCast = npcPresent || rememberedNpc || actors.enemies.length > 0 || MULTI_CAST_RE.test(sceneText + ' ' + String(o.aiPrompt || ''));
     // что игрок только что сделал: предмет крупным планом, ракурс по глаголу
     const focus = actionFocus(o.action && o.action.text, o.sceneText);
     let base = String(o.aiPrompt || '').replace(/\s+/g, ' ').trim();
-    const hadPrompt = !!base;
     if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
+    // Оставляем место под состав кадра, если промпт мастера необычно длинный.
+    if (multiCast && base.length > 150) base = base.slice(0, 147).replace(/\s+\S*$/, '').trim();
     const parts = [base];
-    // свет и время суток из текста сцены: кадр должен совпадать с рассказом
+    // Не считаем слово "person/figure" доказательством, что в промпте уже есть герой:
+    // иначе общий кадр с несколькими NPC легко превращался в портрет одного персонажа.
+    if (!HERO_PROMPT_RE.test(base)) {
+      parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
+    }
+    if (npcPresent && !/\b(?:companion|ally|friend|guide|merchant|innkeeper|NPC)\b/i.test(base)) {
+      const role = [npcObject && npcObject.role, npcObject && npcObject.description, npcObject && npcObject.attitude, npcText].join(' ').toLowerCase();
+      const npcArt = /проводниц|проводник|guide/.test(role) ? 'a companion guide beside the hero'
+        : /страж|охран|guard|soldier/.test(role) ? 'a companion guard beside the hero'
+        : /торгов|купец|merchant/.test(role) ? 'a merchant companion beside the hero'
+        : /жриц|священ|priest/.test(role) ? 'a priest companion beside the hero'
+        : /враг|противник|enemy|rival/.test(role) ? 'a rival NPC facing the hero'
+        : 'a distinct companion NPC beside the hero';
+      parts.push(npcArt);
+    }
+    // Добавляем каждый распознанный тип участника, а не только первого врага в списке.
+    actors.enemies.slice(0, 3).forEach(type => {
+      const mentioned = ENEMY_PROMPT_RE[type];
+      if (!mentioned || !mentioned.test(base)) parts.push(enemyArtForScene(type, sceneText));
+    });
+    // Свет и время суток из текста сцены: кадр должен совпадать с рассказом.
     const light = sceneLightFromText(sceneText);
     if (light && !ENGLISH_LIGHT_RE.test(base)) parts.push(light);
-    // предметы окружения, которых ещё нет в промпте: телега, костёр, ворота
+    // Предметы окружения, которых ещё нет в промпте: телега, костёр, ворота.
     actors.props.slice(0, 2).forEach(p => {
       const word = PROP_ART[p];
       if (word && !new RegExp(word.split(' ')[0], 'i').test(base)) parts.push(word);
     });
-    if (!hadPrompt || !PEOPLE_RE.test(base)) {
-      parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
-    }
-    // врагов добавляем, если их видно в сцене и они ещё не упомянуты в промпте
-    if (actors.enemies.length && !ENEMY_WORD_RE.test(base)) {
-      parts.push(ENEMY_ART[actors.enemies[0]]);
-    }
-    // предмет действия — самое информативное в кадре: рисуем его первым делом
+    // Предмет действия — самое информативное в кадре: рисуем его первым делом.
     if (focus && focus.art) parts.push(focus.art);
     // выбранный игроком стиль: кадр выглядит как одна книга, а не как набор случайных
     const style = stylePrompt(game && game.artStyle);
     if (style && !base.includes(style)) parts.push(style);
     let out = parts.join(', ').replace(/\s+/g, ' ').trim();
     // сверка со сценой: если значимые слова сцены не попали в промпт, дописываем их
-    out = reinforcePrompt(sceneText, out, game);
+    out = reinforcePrompt(narrativeText || sceneText, out, game);
+
+    if (multiCast) {
+      const cue = 'group shot: hero plus every companion, NPC and opponent together, clearly distinct; preserve the full count, never a solo portrait';
+      const budget = 380 - cue.length - 2;
+      if (out.length > budget) {
+        out = out.slice(0, budget);
+        const lastComma = out.lastIndexOf(',');
+        if (lastComma > 100) out = out.slice(0, lastComma);
+        out = out.replace(/[\s,;]+$/, '');
+      }
+      out = (out ? out + ', ' : '') + cue;
+    }
     return out.slice(0, 380);
   }
 
@@ -3557,10 +3775,11 @@
     '"npc.trust" — доверие к знакомому 0–5; другу легче соврать и попросить, враг заметит обман.',
     'Пиши на русском, но "imagePrompt" — всегда на английском.',
     '',
-    'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть те, кто участвует в сцене.',
-    'Всегда указывай героя (например: armored knight with a sword) и, если в сцене есть противники,',
-    'существа или заметные предметы — их тоже (two bandits, a wolf, a burning cart). Формат:',
-    '"место и погода, герой в кадре, кто ещё в сцене, свет и настроение". Без текста на картинке.',
+    'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть все участники текущей сцены, а не только главный герой.',
+    'Явно перечисляй героя, каждого сопровождающего NPC и всех противников/существ; сохраняй названное в сцене количество.',
+    'Если людей или существ несколько — напиши это прямо (например: hero, two guards and a wolf), расположи их вместе',
+    'в одном общем кадре, различимо и без обрезания лишних участников. Не делай одиночный портрет, если рядом есть другие.',
+    'Формат: место и погода, герой, кто ещё в сцене, свет и настроение. Без текста на картинке.',
     '',
     'ПРАВИЛА БРОСКА: результат броска — закон. Крит: выгода и новая возможность, которых не ждали.',
     'Провал: цена, осложнение, потеря — но история не останавливается и не превращается в тупик.',
@@ -4914,6 +5133,12 @@
     if (h.buffLabel === undefined) h.buffLabel = '';
     if (h.advantage === undefined) h.advantage = false;
     if (h.advantageLabel === undefined) h.advantageLabel = '';
+    if (!Number.isFinite(Number(h.portraitSeed)) || Number(h.portraitSeed) < 1) {
+      if (!game.id) game.id = newGameId();
+      h.portraitSeed = portraitSeedFromId(game.id);
+    } else {
+      h.portraitSeed = Number(h.portraitSeed);
+    }
     if (game.schema < 4) game.schema = SCHEMA_VERSION;
     return game;
   }
@@ -4956,6 +5181,7 @@
     storyFor, storyBeat, ATMOSPHERE, GENERIC_ATMOSPHERE,
     emptyMemory, memoryOf, memoryBlock, rememberTurn, rememberFact, openingOf, rulesOf, defaultRules,
     rulesLine, TONES, RATINGS, ART_PACKS, artStyleFor, styleOf, stylePrompt, placeKey, placePrompt, placeGraph,
+    campaignTimeline, campaignSeals,
     paragraphMoods, campaignMarkdown, runCard,
     portraitPrompt, polishSceneText, dedupeOptions, resolveDefeat, epilogueText, buildEpiloguePrompt,
     extractPartialField, salvageWorldResponse, sliceAfterKey, listFromPartialArray,

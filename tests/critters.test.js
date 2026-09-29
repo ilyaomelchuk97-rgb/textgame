@@ -84,6 +84,19 @@ test('рыцарь и дракоша остались узнаваемыми', (
   assert.strictEqual(C.svgFor('такого-нет'), '');
 });
 
+test('персонажи сразу показывают локальный SVG, а ошибка спрайта не оставляет пустую кликабельную область', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'critters.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8');
+  assert.match(source, /entry\.svg\(\)/, 'рисунок SVG должен быть до загрузки WebP');
+  assert.match(source, /sheet\.onload/);
+  assert.match(source, /sheet\.onerror[\s\S]*?critter--svg-fallback/);
+  assert.match(source, /art\.addEventListener\('click'/, 'касание привязано к нарисованной фигуре');
+  assert.doesNotMatch(source, /el\.addEventListener\('click'/, 'пустой прямоугольник не должен ловить тап');
+  assert.match(css, /\.critter\s*\{[^}]*pointer-events:\s*none;/s);
+  assert.match(css, /\.critter svg\s*\{[^}]*pointer-events:\s*visiblePainted;/s);
+  assert.match(css, /\.critter__sprite\s*\{\s*pointer-events:\s*none;/);
+});
+
 test('пара на главном экране всегда новая: герой и монстр, без повторов', () => {
   let previous = null;
   const seen = new Set();

@@ -332,6 +332,11 @@
     actorProgress: 1,        // появление фигур на слое действия (0 → 1)
     portrait: '',            // портрет героя этой кампании
     portraitLoading: false,
+    portraitGameId: '',       // какой кампании принадлежит текущая генерация
+    portraitGameRef: null,    // конкретный объект сохранения, чтобы гонка загрузок не застряла
+    portraitRequestSeq: 0,    // старый ответ не заменяет портрет новой игры
+    npcPortraitPending: {},   // один запрос на NPC в текущей вкладке
+    npcPortraitFailed: {},    // не повторяем неудачные запросы при каждом открытии журнала
     legacy: null,            // пепел, летопись и открытия прошлых кампаний
     runFinished: false,      // текущая кампания уже попала в наследие
     slowHintTimer: null,     // подсказка, если мастер молчит дольше обычного
@@ -846,12 +851,14 @@
     const startY = sourceBox.top + sourceBox.height / 2;
     const viewW = document.documentElement.clientWidth || window.innerWidth;
     const viewH = window.innerHeight || document.documentElement.clientHeight;
-    const coverScale = Math.max(1, Math.hypot(viewW, viewH) * 1.75 / tileSize);
+    // Диагонали хватает, чтобы кубик закрыл углы экрана при любом угле; лишнее
+    // увеличение почти вдвое создавало огромную текстуру и тормозило Safari на iPhone.
+    const coverScale = Math.max(1, Math.hypot(viewW, viewH) * 1.12 / tileSize);
     const px = n => (Math.round(n * 100) / 100) + 'px';
     const frame = (x, y, scale, rotation, offset) => ({
-      left: px(x - tileSize / 2),
-      top: px(y - tileSize / 2),
-      transform: 'scale(' + scale + ') rotate(' + rotation + 'deg)',
+      // Позицию тоже меняем через transform: left/top заставляли Safari
+      // пересчитывать layout почти 50 раз за каждый пролёт.
+      transform: 'translate3d(' + px(x - startX) + ', ' + px(y - startY) + ', 0) scale(' + scale + ') rotate(' + rotation + 'deg)',
       offset
     });
     const smooth = t => t * t * (3 - 2 * t);
@@ -898,9 +905,9 @@
       glyph.alt = '';
       glyph.decoding = 'async';
       glyph.draggable = false;
-      // Небольшая тень сохраняет объём, не раздуваясь в огромный ореол при зуме.
-      const flightFilter = 'drop-shadow(0 2px 4px rgba(5, 20, 24, 0.25))';
-      glyph.style.filter = flightFilter;
+      // Не применяем drop-shadow/filter к 1024px PNG: фильтр создаёт
+      // дополнительную полноэкранную поверхность на мобильном GPU.
+      glyph.style.filter = 'none';
       die.appendChild(glyph);
       layer.appendChild(die);
       document.body.appendChild(layer);
@@ -952,11 +959,7 @@
         rotationFrom: spin * 1080, rotationTo: spin * 1800
       });
       const landing = die.animate(landingFrames, { duration: 740, easing: 'linear', fill: 'forwards' });
-      const landingGlow = glyph.animate([
-        { filter: flightFilter, offset: 0 },
-        { filter: 'none', offset: 1 }
-      ], { duration: 740, easing: 'ease-out', fill: 'forwards' });
-      await waitForAnimations([landing, landingGlow]);
+      await waitForAnimations([landing]);
     } catch (error) {
       if (!switched) {
         changeScreen();
@@ -1000,7 +1003,10 @@
       style: '--i:' + index + ';--accent:' + s.palette[2],
       onclick: () => onPick(s)
     }, [
-      h('div', { class: 'scenario-card__cover', style: 'background-image:' + coverUrl(s.cover) }),
+      h('div', { class: 'scenario-card__cover', style: 'background-image:' + coverUrl(s.cover) }, [
+        h('span', { class: 'scenario-card__sigil', text: s.icon || '✦', 'aria-hidden': 'true' }),
+        h('span', { class: 'scenario-card__cover-mark', text: 'ИСТОРИЯ' })
+      ]),
       h('div', { class: 'scenario-card__body' }, [
         h('div', { class: 'scenario-card__genre', text: s.icon + ' ' + s.genre }),
         h('h3', { class: 'scenario-card__title', text: s.title }),
@@ -1844,7 +1850,9 @@
       // мир уже собран, пока игрок выбирал героя — не гоняем ИИ второй раз
       const ready = State.pendingWorld;
       State.pendingWorld = null;
+      applyTheme(game);
       show('game');
+      prepareHeroPortrait(game);
       State.busy = false;
       renderGameTop();
       renderActions(null, true);
@@ -1913,6 +1921,7 @@
       }
     }
     show('game');
+    prepareHeroPortrait(game);
     renderGameTop();
     renderIntro(game.intro);
     renderSceneText(game.scene ? game.scene.text : '');
@@ -1929,8 +1938,6 @@
     } else if (game.scene) {
       loadSceneImage(game.scene.imagePrompt || game.lastImagePrompt, null, true);
     }
-    if (game.hero && game.hero.portrait) showPortrait(game.hero.portrait);
-    if (isNew && game.hero) refreshPortrait(false);
     Ambient.sync();
     renderChapter(game);
     // взятая цель могла остаться без финала: игрок закрыл игру между ходом и эпилогом
@@ -1943,6 +1950,19 @@
   function renderGameTop() {
     const g = State.game;
     $('#game-title').textContent = g.title;
+    const heroLine = $('#game-hero-line');
+    if (heroLine) {
+      const hero = g.hero || {};
+      const classLabel = [hero.classIcon, hero.className].filter(Boolean).join(' ');
+      const identity = [hero.name, classLabel, hero.originName].filter(Boolean);
+      heroLine.textContent = identity.join(' · ');
+      heroLine.hidden = !identity.length;
+    }
+    const scenePlace = $('#scene-place');
+    if (scenePlace) {
+      scenePlace.textContent = (g.scene && g.scene.place) || '';
+      scenePlace.hidden = !scenePlace.textContent;
+    }
     const parts = [];
     if (g.daily) parts.push('🗓 забег дня');
     else if (g.chapter) parts.push(g.chapter);
@@ -2211,18 +2231,66 @@
   /* знакомые. Показываем только то, что правда пригодится.      */
   /* ---------------------------------------------------------- */
 
-  /** Карточка предмета: иконка, название, «что делает», кнопка использования. */
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgNode(tag, attrs, children) {
+    const node = document.createElementNS(SVG_NS, tag);
+    Object.keys(attrs || {}).forEach(key => node.setAttribute(key, String(attrs[key])));
+    (children || []).forEach(child => node.appendChild(child));
+    return node;
+  }
+
+  /** Небольшие векторные предметные значки: никаких внешних файлов или эмодзи-спрайтов. */
+  function itemArtwork(kind) {
+    const shapes = {
+      heal: [
+        ['path', { d: 'M18 5h12v6l-3 4v4c5 2 8 6 8 11a12 12 0 1 1-22 0c0-5 3-9 8-11v-4l-3-4z' }],
+        ['path', { d: 'M18 11h12M16 28h16M24 22v9m-4.5-4.5h9' }]
+      ],
+      boost: [
+        ['path', { d: 'm29 7 12-3-3 12-15 15-9-9L29 7z' }],
+        ['path', { d: 'm14 23-7 7m10-2-6 6m12-10 6 6' }]
+      ],
+      advantage: [
+        ['circle', { cx: 24, cy: 24, r: 17 }],
+        ['circle', { cx: 24, cy: 24, r: 10 }],
+        ['path', { d: 'm24 13 3.2 6.5 7.2 1-5.2 5.1 1.2 7.2-6.4-3.4-6.4 3.4 1.2-7.2-5.2-5.1 7.2-1z' }]
+      ],
+      key: [
+        ['circle', { cx: 16, cy: 24, r: 8 }],
+        ['circle', { cx: 16, cy: 24, r: 2.5 }],
+        ['path', { d: 'M24 24h17m-6 0v5m-5-5v4' }]
+      ],
+      trophy: [
+        ['path', { d: 'm24 4 14 14-14 26L10 18 24 4z' }],
+        ['path', { d: 'M10 18h28M24 4v40m-7-20 7 8 7-8' }]
+      ]
+    };
+    const kindShapes = shapes[kind] || shapes.trophy;
+    const svg = svgNode('svg', {
+      class: 'item-card__art', viewBox: '0 0 48 48', focusable: 'false', 'aria-hidden': 'true'
+    }, []);
+    kindShapes.forEach(([tag, attrs]) => svg.appendChild(svgNode(tag, attrs)));
+    return svg;
+  }
+
+  /** Карточка предмета: локальный SVG, ясная метка типа, эффект и действие. */
   function itemCard(item) {
     const verb = E.itemVerb(item);
-    return h('div', { class: 'item-card item-card--' + item.kind + (item.kind === 'key' ? ' is-key' : '') }, [
-      h('span', { class: 'item-card__icon', text: item.icon }),
+    const consumable = ['heal', 'boost', 'advantage'].indexOf(item.kind) >= 0;
+    const label = item.kind === 'key' ? 'КЛЮЧЕВОЙ' : (item.kind === 'trophy' ? 'ПАМЯТЬ' : (consumable ? 'РАСХОДНИК' : 'ПРЕДМЕТ'));
+    return h('div', { class: 'item-card item-card--' + item.kind + (item.kind === 'key' ? ' is-key' : ''), dataset: { kind: item.kind } }, [
+      h('span', { class: 'item-card__icon item-card__icon--' + item.kind, 'aria-hidden': 'true' }, [
+        itemArtwork(item.kind),
+        h('span', { class: 'item-card__emoji', text: item.icon || '✦' })
+      ]),
       h('div', { class: 'item-card__body' }, [
         h('div', { class: 'item-card__name', text: item.name }),
-        h('div', { class: 'item-card__line', text: E.itemLine(item) })
+        h('div', { class: 'item-card__line', text: E.itemLine(item) }),
+        h('span', { class: 'item-card__badge item-card__badge--' + item.kind, text: label })
       ]),
       verb ? h('button', {
         class: 'item-card__use', type: 'button', text: verb,
-        title: E.itemLine(item),
+        title: E.itemLine(item), 'aria-label': verb + ' ' + item.name,
         onclick: () => runMech('use-item', item.id)
       }) : null
     ]);
@@ -2248,6 +2316,7 @@
     (res.notes || []).forEach(n => notify(n.icon + ' ' + n.text, {
       kind: n.type === 'hp' && /−|-/.test(n.text) ? 'bad' : 'info', timeout: 3600
     }));
+    E.campaignSeals(g);
     autosave();
     renderMechanics();
     renderGameTop();
@@ -2270,10 +2339,14 @@
     // состояния героя или действие, которое правда пригодится сейчас
     const acts = [];
     E.stateList(g).forEach(st => chips.appendChild(h('span', {
-      class: 'mech-chip ' + (st.mod > 0 ? 'mech-chip--good' : 'mech-chip--bad'),
-      title: st.hint + (st.turns ? ' · осталось ходов: ' + st.turns : ''),
-      text: st.icon + ' ' + st.title + ' ' + (st.mod > 0 ? '+' + st.mod : st.mod) + (st.turns ? ' · ' + st.turns + ' х.' : '')
-    })));
+      class: 'mech-chip mech-chip--state ' + (st.mod > 0 ? 'mech-chip--good' : 'mech-chip--bad'),
+      title: st.hint + (st.turns ? ' · осталось ходов: ' + st.turns : '')
+    }, [
+      h('span', { class: 'mech-chip__icon', text: st.icon || '✦', 'aria-hidden': 'true' }),
+      h('span', { class: 'mech-chip__name', text: st.title }),
+      h('strong', { class: 'mech-chip__modifier', text: (st.mod > 0 ? '+' : '') + st.mod }),
+      st.turns ? h('span', { class: 'mech-chip__turns', text: st.turns + ' х.' }) : null
+    ])));
     const known = E.npcList(g) || [];
 
     const push = (text, title, kind, id) => acts.push(h('button', {
@@ -2869,7 +2942,10 @@
     const used = o.early
       ? earlyImagePrompt(g, place, sceneText)
       : (aiPrompt
-        ? E.composeSceneImagePrompt(g, { aiPrompt, sceneText, npc: g.scene && g.scene.npc, action })
+        ? E.composeSceneImagePrompt(g, {
+          aiPrompt, sceneText, npc: g.scene && g.scene.npc,
+          npcObject: g.scene && g.scene.npcObject, action
+        })
         : E.placePrompt(g, place, '', { noStyle: true }));
     // строка «рисуем кадр…» живёт недолго: сцена уже нарисована сама,
     // а кадр подтянется, когда генератор ответит, — ждать его на экране не нужно
@@ -3784,36 +3860,86 @@
     Ambient.sync();
   }
 
-  /** Портрет героя: одна картинка на кампанию, показываем в шапке и в карточке. */
+  /** Готовим панель героя к новой кампании и запускаем портрет на фоне сцены. */
+  function prepareHeroPortrait(game) {
+    if (!game || !game.hero) return;
+    if (!game.id) game.id = E.newGameId();
+    const gameId = String(game.id);
+    if (State.portraitGameId !== gameId || State.portraitGameRef !== game) {
+      State.portraitRequestSeq++;
+      State.portraitLoading = false;
+      State.portraitGameId = gameId;
+      State.portraitGameRef = game;
+    }
+    State.portrait = game.hero.portrait || '';
+    showPortrait(State.portrait);
+    if (!game.hero.portrait) refreshPortrait(false);
+  }
+
+  function freshPortraitSeed() {
+    try {
+      if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        const bytes = new Uint32Array(1);
+        window.crypto.getRandomValues(bytes);
+        return (bytes[0] % 2147483646) + 1;
+      }
+    } catch (e) { /* криптографическое зерно необязательно для красоты */ }
+    return (((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0) % 2147483646) + 1;
+  }
+
+  /** Портрет опирается на выбранный класс/профессию и происхождение; одна картинка на кампанию. */
   async function refreshPortrait(force) {
     const g = State.game;
     if (!g || !g.hero) return;
     if (!force && g.hero.portrait) { showPortrait(g.hero.portrait); return; }
-    if (State.portraitLoading) return;
+    const gameId = String(g.id || '');
+    if (State.portraitLoading && State.portraitGameId === gameId && State.portraitGameRef === g) return;
+    State.portraitGameId = gameId;
+    State.portraitGameRef = g;
+    if (force || !Number.isFinite(Number(g.hero.portraitSeed)) || Number(g.hero.portraitSeed) < 1) {
+      g.hero.portraitSeed = freshPortraitSeed();
+    }
+    const requestSeq = State.portraitRequestSeq = (State.portraitRequestSeq || 0) + 1;
     State.portraitLoading = true;
+    autosave();
+    const avatar = $('#game-avatar');
+    if (avatar) {
+      if (g.hero.portrait) showPortrait(g.hero.portrait);
+      else showPortrait('');
+      avatar.classList.add('is-loading');
+    }
     try {
       const res = await API.generateImage({
         prompt: E.portraitPrompt(g),
         style: E.styleOf(g).imageStyle,
         aspect: '1:1',
         width: 384, height: 384,
-        seed: State.backdropSeed
+        seed: g.hero.portraitSeed
       });
-      if (res.ok) {
+      if (res && res.ok && State.game === g && State.portraitGameRef === g && State.portraitRequestSeq === requestSeq) {
         g.hero.portrait = res.url;
         showPortrait(res.url);
         autosave();
       }
-    } catch (e) { /* портрет — украшение, без него игра идёт */ }
+    } catch (e) { /* портрет украшает игру, но не блокирует её */ }
+    if (State.game !== g || State.portraitGameRef !== g || State.portraitRequestSeq !== requestSeq) return;
     State.portraitLoading = false;
+    if (g.hero.portrait) showPortrait(g.hero.portrait);
+    else showPortrait('');
   }
   function showPortrait(url) {
-    State.portrait = url || '';
+    const imageUrl = url || '';
+    State.portrait = imageUrl;
     const el = $('#game-avatar');
     if (!el) return;
-    if (!url) { el.hidden = true; return; }
+    el.classList.remove('is-loading');
     el.hidden = false;
-    el.style.backgroundImage = 'url("' + url + '")';
+    el.title = State.game && State.game.hero
+      ? [State.game.hero.name, State.game.hero.className, State.game.hero.originName].filter(Boolean).join(' · ')
+      : 'Портрет героя';
+    el.classList.toggle('is-placeholder', !imageUrl);
+    el.style.backgroundImage = imageUrl ? 'url("' + imageUrl + '")' : '';
+    el.textContent = imageUrl ? '' : ((State.game && State.game.hero && State.game.hero.icon) || '✦');
   }
 
   /* ---------------------------------------------------------- */
@@ -3961,6 +4087,7 @@
     const check = E.resolveCheck({ stat: opt.stat, dc: ap.dc, bonus: baseMod + buff, advantage });
     E.pushLog(g, {
       kind: 'action',
+      turn: (g.turn || 0) + 1,
       text: opt.text,
       meta: 'd20 ' + check.roll + ' + ' + check.mod + ' = ' + check.total + ' против ' + check.dc + ' · ' + check.label
     });
@@ -4033,9 +4160,10 @@
     if (!isWorldBuild) g.turn = (g.turn || 0) + 1;
     const notes = E.applyEffects(g, turn.effects);
     if (turn.chapter) g.chapter = turn.chapter;
-    if (turn.npc) E.pushLog(g, { kind: 'npc', text: turn.npc });
+    if (turn.npc) E.pushLog(g, { kind: 'npc', turn: g.turn || 0, text: turn.npc });
     E.pushLog(g, {
       kind: 'gm',
+      turn: g.turn || 0,
       text: turn.scene,
       notes: notes,
       offline: !!turn.offline,
@@ -4047,6 +4175,7 @@
     }
     // память кампании: мастер помнит место, людей, нити и прошлые зачины
     E.rememberTurn(g, turn, action);
+    E.campaignSeals(g);
     const place = String(turn.place || E.memoryOf(g).place || turn.chapter || g.chapter || '').trim();
     const prevPlace = (g.scene && g.scene.place) || '';
     // место то же, если мастер назвал его теми же словами или пересказал иначе —
@@ -4058,6 +4187,7 @@
       text: turn.scene,
       options: turn.options,
       npc: turn.npc || '',
+      npcObject: turn.npcObject || null,
       place,
       placeKey,
       chapter: turn.chapter || g.chapter || '',
@@ -4065,7 +4195,7 @@
       offline: !!turn.offline,          // ход собрал встроенный мастер
       repeated: !!turn.repeated,        // канал повторил прошлую сцену — ход пересобрали
       imagePrompt: turn.imagePrompt || E.composeSceneImagePrompt(g, {
-        sceneText: turn.scene, npc: turn.npc, action
+        sceneText: turn.scene, npc: turn.npc, npcObject: turn.npcObject, action
       }),
       // мир запоминает, кем в нём играли: второй заход не спросит то же самое
       heroPickSaved: (() => {
@@ -4322,6 +4452,7 @@
       epilogueStat('осталось в памяти', String(m.facts.length)),
       epilogueStat('пепел', '+' + (legacyRes ? legacyRes.ashes : 0))
     ]));
+    body.appendChild(campaignSealsBlock(g, 'epilogue'));
     if (legacyRes && legacyRes.opened.length) {
       const names = E.LEGACY_UNLOCKS.filter(u => legacyRes.opened.indexOf(u.id) >= 0).map(u => u.title);
       body.appendChild(h('p', { class: 'epilogue__unlock', text: '🕯 Для будущих жизней открыто: ' + names.join(', ') }));
@@ -4360,21 +4491,22 @@
     if (dailyBox) body.appendChild(dailyBox);
 
     // Галерея кадров: только те, что нарисовали в этой кампании.
-    renderFrames(body);
+    renderFrames(body, g);
   }
 
   /**
    * Галерея кадров в финале. Кадр последнего хода сохраняется в базу чуть позже
-   * страницы, поэтому пробуем несколько раз, а не один.
+   * страницы, поэтому пробуем несколько раз, а не один. Чужие кампании не подмешиваем.
    */
-  function renderFrames(body, attempt) {
+  function renderFrames(body, game, attempt) {
     const tryNo = attempt || 0;
-    Frames.all().then(frames => {
-      const mine = (frames || []).filter(f => f && f.url);
+    const gameId = String(game && game.id || '');
+    Frames.all(gameId).then(frames => {
+      const mine = (frames || []).filter(f => f && f.url && gameId && String(f.gameId) === gameId);
       const stale = document.getElementById('epilogue-frames');
       if (stale) stale.remove();
       if (!mine.length) {
-        if (tryNo < 2 && body.isConnected) setTimeout(() => renderFrames(body, tryNo + 1), 2500);
+        if (tryNo < 2 && body.isConnected) setTimeout(() => renderFrames(body, game, tryNo + 1), 2500);
         return;
       }
       if (!body.isConnected) return;
@@ -4492,6 +4624,56 @@
   /* ---------------------------------------------------------- */
   /* Карточка героя                                             */
   /* ---------------------------------------------------------- */
+  function heroStatChart(hero) {
+    const stats = (hero && hero.stats) || {};
+    const size = 236, center = 118, radius = 74, maxValue = 5;
+    const statDefs = E.STATS || [];
+    const point = (index, scale) => {
+      const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(1, statDefs.length);
+      return { x: center + Math.cos(angle) * scale, y: center + Math.sin(angle) * scale };
+    };
+    const pointsText = scale => statDefs.map((_, i) => {
+      const p = point(i, scale);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+    const svg = svgNode('svg', {
+      class: 'stat-constellation__svg', viewBox: '0 0 ' + size + ' ' + size,
+      role: 'img', focusable: 'false',
+      'aria-label': 'Диаграмма семи характеристик героя: ' + statDefs.map(st => st.name + ' ' + (stats[st.id] || 0)).join(', ')
+    }, []);
+    svg.appendChild(svgNode('title', {}, []));
+    svg.lastChild.textContent = 'Профиль семи характеристик, шкала от нуля до пяти';
+    svg.appendChild(svgNode('desc', {}, []));
+    svg.lastChild.textContent = 'Значения также подписаны текстом в списке под диаграммой.';
+    [0.25, 0.5, 0.75, 1].forEach(scale => svg.appendChild(svgNode('polygon', {
+      class: 'stat-constellation__grid', points: pointsText(radius * scale)
+    })));
+    statDefs.forEach((stat, i) => {
+      const p = point(i, radius);
+      svg.appendChild(svgNode('line', {
+        class: 'stat-constellation__axis', x1: center, y1: center, x2: p.x.toFixed(1), y2: p.y.toFixed(1)
+      }));
+    });
+    const values = statDefs.map(st => Math.max(0, Math.min(maxValue, Number(stats[st.id]) || 0)) / maxValue * radius);
+    const valuePoints = values.map((scale, i) => {
+      const p = point(i, scale);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+    svg.appendChild(svgNode('polygon', { class: 'stat-constellation__shape', points: valuePoints }));
+    statDefs.forEach((stat, i) => {
+      const p = point(i, values[i]);
+      svg.appendChild(svgNode('circle', { class: 'stat-constellation__point', cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: 3 }));
+      const labelPoint = point(i, radius + 19);
+      const label = svgNode('text', {
+        class: 'stat-constellation__label', x: labelPoint.x.toFixed(1), y: (labelPoint.y + 3).toFixed(1),
+        'text-anchor': Math.abs(labelPoint.x - center) < 8 ? 'middle' : (labelPoint.x < center ? 'end' : 'start')
+      });
+      label.textContent = stat.short || stat.name.slice(0, 3);
+      svg.appendChild(label);
+    });
+    return svg;
+  }
+
   function openHeroSheet() {
     const g = State.game;
     if (!g) return;
@@ -4501,21 +4683,30 @@
       h('span', { class: 'hero-sheet__name', text: hh.icon + ' ' + hh.name }),
       h('span', { class: 'hero-sheet__arch', text: hh.className })
     ]);
+    const portraitFrame = h('div', {
+      class: 'hero-sheet__portrait-frame' + (portraitUrl ? '' : ' is-empty') + (State.portraitLoading ? ' is-loading' : ''),
+      'aria-label': portraitUrl ? 'Портрет героя' : 'Портрет героя появится здесь'
+    }, [portraitUrl
+      ? h('img', { class: 'hero-sheet__portrait', src: portraitUrl, alt: 'Портрет героя' })
+      : h('span', { class: 'hero-sheet__portrait-placeholder', text: hh.icon || '✦', 'aria-hidden': 'true' })
+    ]);
     const content = h('div', { class: 'hero-sheet' }, [
-      portraitUrl
-        ? h('div', { class: 'hero-sheet__top' }, [h('img', { class: 'hero-sheet__portrait', src: portraitUrl, alt: 'Портрет героя' }), titleRow])
-        : titleRow,
+      h('div', { class: 'hero-sheet__top' }, [portraitFrame, titleRow]),
       h('div', { class: 'hero-sheet__tags' }, [
         h('span', { class: 'tag tag--stat', text: hh.raceIcon + ' ' + hh.raceName }),
         h('span', { class: 'tag', text: hh.originIcon + ' ' + hh.originName }),
         h('span', { class: 'tag tag--chance', text: hh.ability.icon + ' ' + hh.ability.name + (hh.ability.ready ? ' готово' : ' (через ' + hh.ability.cooldown + ')') })
       ]),
-      h('div', { class: 'stat-grid stat-grid--chips' }, E.STATS.map(st => h('div', { class: 'stat-chip' }, [
-        h('span', { class: 'stat-chip__icon', text: st.icon }),
+      h('div', { class: 'section-title', text: 'Диаграмма характеристик' }),
+      h('div', { class: 'stat-constellation' }, [heroStatChart(hh)]),
+      h('div', { class: 'stat-grid stat-grid--chips' }, E.STATS.map(st => h('div', {
+        class: 'stat-chip', title: st.name + ': ' + hh.stats[st.id], 'aria-label': st.name + ': ' + hh.stats[st.id]
+      }, [
+        h('span', { class: 'stat-chip__icon', text: st.icon, 'aria-hidden': 'true' }),
         h('span', { class: 'stat-chip__name', text: st.short }),
         h('span', { class: 'stat-chip__value', text: '+' + hh.stats[st.id] })
       ])).concat([
-        h('div', { class: 'stat-chip stat-chip--hp' }, [
+        h('div', { class: 'stat-chip stat-chip--hp', title: 'Здоровье героя', 'aria-label': 'Здоровье ' + hh.hp + ' из ' + hh.maxHp }, [
           h('span', { class: 'stat-chip__icon', text: '❤️' }),
           h('span', { class: 'stat-chip__name', text: 'ЖИЗНЬ' }),
           h('span', { class: 'stat-chip__value', text: hh.hp + '/' + hh.maxHp })
@@ -4926,7 +5117,7 @@
       statusLine,
 
       h('div', { class: 'section-title', text: '🧠 Ведущий мастер' }),
-      h('p', { class: 'muted small', text: 'Кто ведёт игру. «Авто» — игра сама берёт лучший доступный канал и тихо переходит на следующий, если тот замолчал.' }),
+      h('p', { class: 'muted small', text: 'По умолчанию «Авто» сначала пробует Mistral Large 3 для сильного сюжета, если канал доступен, затем переходит на резервные. Ведущего можно выбрать вручную.' }),
       masterRow,
       h('div', { class: 'section-title', text: '🎨 Генератор картинок' }),
       h('p', { class: 'muted small', text: 'По умолчанию выбран самый быстрый SANA. Здесь можно переключиться на другой генератор или «Авто».' }),
@@ -5159,6 +5350,94 @@
   /* Журнал: цель, вехи арки, нити и знакомые                    */
   /* ---------------------------------------------------------- */
 
+  function npcPortraitKey(game, npc) {
+    return String(game && game.id || '') + '::' + String(npc && npc.name || '').toLowerCase().trim();
+  }
+
+  function npcNeedsPortrait(npc) {
+    return !!(npc && (Number(npc.seenCount) >= 2 || npc.helped || Number(npc.trust) >= 4 || (npc.relation && npc.relation !== 'neutral')));
+  }
+
+  function npcInitials(name) {
+    return String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2)
+      .map(part => part.charAt(0).toLocaleUpperCase()).join('') || '?';
+  }
+
+  function paintNpcPortrait(avatar, npc, url) {
+    if (!avatar) return;
+    clear(avatar);
+    avatar.classList.toggle('is-empty', !url);
+    avatar.setAttribute('aria-label', url ? 'Портрет ' + npc.name : 'Инициалы ' + npc.name);
+    avatar.classList.remove('is-loading');
+    if (url) {
+      const img = h('img', { class: 'npc-gallery__portrait-img', src: url, alt: '', 'aria-hidden': 'true', loading: 'lazy' });
+      img.addEventListener('error', () => paintNpcPortrait(avatar, npc, ''), { once: true });
+      avatar.appendChild(img);
+    } else {
+      avatar.appendChild(h('span', { class: 'npc-gallery__initials', text: npcInitials(npc.name), 'aria-hidden': 'true' }));
+    }
+  }
+
+  function npcPortraitPrompt(game, npc) {
+    const role = String(npc.role || npc.attitude || 'recurring character').replace(/[\r\n]+/g, ' ').trim();
+    const world = String(game.scenarioTitle || game.title || 'campaign setting').replace(/[\r\n]+/g, ' ').trim();
+    return [
+      'Single-character square head-and-shoulders portrait of the recurring fictional NPC ' + npc.name + ', ' + role + '.',
+      'One person only, expressive memorable face, distinctive silhouette, natural portrait framing, no text, no watermark.',
+      'Campaign setting: ' + world + '. Match the established visual art direction; keep the face recognizable in a small gallery thumbnail.'
+    ].join(' ');
+  }
+
+  async function generateNpcPortrait(game, npc, avatar) {
+    if (!game || !npc || npc.portrait || !npcNeedsPortrait(npc) || !API || !API.generateImage) return;
+    if (typeof API.imageSource === 'function' && API.imageSource() === 'local') return;
+    const key = npcPortraitKey(game, npc);
+    if (State.npcPortraitPending[key] || State.npcPortraitFailed[key]) return;
+    State.npcPortraitPending[key] = true;
+    npc.portraitSeed = Number(npc.portraitSeed) || E.rnd.seed();
+    if (avatar) avatar.classList.add('is-loading');
+    if (State.storage) State.storage.save(game);
+    try {
+      const res = await API.generateImage({
+        prompt: npcPortraitPrompt(game, npc),
+        style: E.styleOf(game).imageStyle,
+        aspect: '1:1', width: 256, height: 256,
+        seed: npc.portraitSeed
+      });
+      if (res && res.ok && res.url) {
+        npc.portrait = res.url;
+        if (State.storage) State.storage.save(game);
+        if (State.game === game && avatar && avatar.isConnected) paintNpcPortrait(avatar, npc, res.url);
+      } else {
+        State.npcPortraitFailed[key] = true;
+        if (State.game === game && avatar && avatar.isConnected) paintNpcPortrait(avatar, npc, '');
+      }
+    } catch (e) {
+      State.npcPortraitFailed[key] = true;
+      if (State.game === game && avatar && avatar.isConnected) paintNpcPortrait(avatar, npc, '');
+    } finally {
+      delete State.npcPortraitPending[key];
+    }
+  }
+
+  function campaignSealsBlock(game, context) {
+    const seals = E.campaignSeals(game);
+    const block = h('section', { class: 'campaign-seals' + (context ? ' campaign-seals--' + context : ''), 'aria-label': 'Печати ключевых событий кампании' }, [
+      h('div', { class: 'section-title', text: '🪙 Печати кампании' }),
+      h('div', { class: 'campaign-seals__grid' }, seals.map(seal => h('div', {
+        class: 'campaign-seal' + (seal.earned ? ' is-earned' : ' is-locked'),
+        title: seal.description,
+        'aria-label': seal.title + ': ' + (seal.earned ? 'получена' : 'ещё впереди') + '. ' + seal.description,
+        dataset: { sealId: seal.id }
+      }, [
+        h('span', { class: 'campaign-seal__icon', text: seal.icon, 'aria-hidden': 'true' }),
+        h('span', { class: 'campaign-seal__title', text: seal.title }),
+        h('span', { class: 'campaign-seal__status', text: seal.earned ? 'Получена' : 'Впереди' })
+      ])))
+    ]);
+    return block;
+  }
+
   function renderJournal() {
     const host = clear($('#journal-body'));
     const g = State.game;
@@ -5219,37 +5498,54 @@
       host.appendChild(stBlock);
     }
 
-    // --- знакомые: отношение и доверие (блок B, пп.8, 10) ---
+    // --- галерея знакомых: портреты важных/повторных NPC + доверие ---
     const npcs = E.npcList(g) || [];
     if (npcs.length) {
-      const relBlock = h('div', { class: 'journal-block' }, [
+      const gallery = h('div', { class: 'journal-block npc-gallery-block' }, [
         h('div', { class: 'section-title', text: '👥 Знакомые' }),
-        h('p', { class: 'muted small', text: 'С другом и должником договориться легче, врага легче заподозрить. Соцбросок мастер учитывает сам.' })
+        h('p', { class: 'muted small', text: 'Важные и повторно встреченные персонажи получают сохранённый портрет; у остальных остаются инициалы. Доверие отмечено точками.' })
       ]);
+      const cards = h('div', { class: 'npc-gallery' });
+      const portraitCandidates = [];
       npcs.slice(0, 8).forEach(n => {
+        const record = mem.npcs.find(item => String(item && item.name || '').toLowerCase() === String(n.name || '').toLowerCase()) || n;
         const pips = '●'.repeat(Math.max(0, n.trust)) + '○'.repeat(Math.max(0, 5 - n.trust));
-        const row = h('div', { class: 'rel-card rel-card--' + (n.relation || 'neutral') }, [
-          h('span', { class: 'rel-card__icon', text: n.relationIcon || '👤' }),
-          h('div', { class: 'rel-card__body' }, [
-            h('div', { class: 'rel-card__name', text: n.name + (n.role ? ' · ' + n.role : '') }),
-            h('div', { class: 'rel-card__line' }, [
-              h('span', { text: (n.relationTitle || 'нейтрально') + ' ' }),
-              h('span', { class: 'rel-card__trust', text: pips, title: 'Доверие ' + n.trust + ' из 5' }),
-              n.note ? h('span', { text: ' · ' + n.note }) : null
-            ])
+        const avatar = h('div', {
+          class: 'npc-gallery__portrait' + (record.portrait ? '' : ' is-empty'),
+          role: 'img', 'aria-label': record.portrait ? 'Портрет ' + n.name : 'Инициалы ' + n.name
+        });
+        paintNpcPortrait(avatar, record, record.portrait || '');
+        const card = h('article', { class: 'npc-gallery__card npc-gallery__card--' + (n.relation || 'neutral') }, [
+          avatar,
+          h('div', { class: 'npc-gallery__body' }, [
+            h('div', { class: 'npc-gallery__name', text: n.name }),
+            h('div', { class: 'npc-gallery__role', text: n.role || 'Знакомый персонаж' }),
+            h('div', { class: 'npc-gallery__relation', title: n.note || '' }, [
+              h('span', { text: (n.relationIcon || '👤') + ' ' + (n.relationTitle || 'нейтрально') }),
+              h('span', { class: 'npc-gallery__trust', text: pips, title: 'Доверие: ' + n.trust + ' из 5', 'aria-label': 'Доверие ' + n.trust + ' из 5' })
+            ]),
+            n.helped ? h('span', { class: 'npc-gallery__helped', text: 'Выручал героя' }) : null,
+            n.relation === 'debtor' && !n.helped ? h('button', {
+              class: 'btn btn--ghost btn--sm npc-gallery__call', type: 'button', text: '🤝 Позвать',
+              title: 'Должник выручает один раз за кампанию',
+              onclick: () => runMech('call-debtor')
+            }) : null
           ])
         ]);
-        if (n.relation === 'debtor' && !n.helped) {
-          row.appendChild(h('button', {
-            class: 'item-card__use', type: 'button', text: '🤝 Позвать',
-            title: 'Должник выручает один раз за кампанию',
-            onclick: () => runMech('call-debtor')
-          }));
-        }
-        relBlock.appendChild(row);
+        cards.appendChild(card);
+        if (npcNeedsPortrait(n) && !record.portrait) portraitCandidates.push({ record, avatar });
       });
-      host.appendChild(relBlock);
+      gallery.appendChild(cards);
+      host.appendChild(gallery);
+      // Не блокируем игру и не дублируем запросы: рисуем максимум два новых портрета за открытие.
+      portraitCandidates
+        .filter(item => !State.npcPortraitPending[npcPortraitKey(g, item.record)] && !State.npcPortraitFailed[npcPortraitKey(g, item.record)])
+        .slice(0, 2)
+        .forEach(item => generateNpcPortrait(g, item.record, item.avatar));
     }
+
+    // Важные события кампании не теряются между ходами и остаются в финальной сводке.
+    host.appendChild(campaignSealsBlock(g, 'journal'));
 
     // арка: вехи, которые уже пройдены, и та, к которой идёт история
     if (arc && arc.steps && arc.steps.length) {
@@ -5281,6 +5577,8 @@
       ]));
     }
 
+    renderCampaignChronicle(g, host);
+
     const cols = h('div', { class: 'journal-cols' }, [
       h('div', { class: 'journal-col' }, [
         h('div', { class: 'section-title', text: '🤝 Обещано' }),
@@ -5297,16 +5595,6 @@
     ]);
     host.appendChild(cols);
 
-    if (mem.npcs.length) {
-      host.appendChild(h('div', { class: 'journal-block' }, [
-        h('div', { class: 'section-title', text: '👥 Знакомые' }),
-        h('div', { class: 'npc-list' }, mem.npcs.map(n => h('div', { class: 'npc-card' }, [
-          h('div', { class: 'npc-card__name', text: n.name }),
-          h('div', { class: 'muted small', text: [n.role, n.attitude].filter(Boolean).join(' · ') })
-        ])))
-      ]));
-    }
-
     if (mem.facts.length) {
       host.appendChild(h('div', { class: 'journal-block' }, [
         h('div', { class: 'section-title', text: '📌 Помним' }),
@@ -5316,6 +5604,94 @@
 
     const chron = E.chronicleLine(g);
     if (chron) host.appendChild(h('p', { class: 'muted small journal-chronicle', text: chron }));
+  }
+
+  function hydrateChronicleFrames(list, game) {
+    Frames.all(game.id).then(frames => {
+      if (!list.isConnected || State.game !== game) return;
+      const mine = (frames || []).filter(frame => frame && frame.url && String(frame.gameId) === String(game.id));
+      if (!mine.length) return;
+      $$('.chronicle-card__thumb', list).forEach(thumb => {
+        const turn = Number(thumb.dataset.turn) || 0;
+        const place = thumb.dataset.place || '';
+        let frame = mine.filter(item => Number(item.turn) === turn).pop();
+        if (!frame && place) frame = mine.filter(item => item.place && E.isSamePlace(item.place, place)).pop();
+        if (!frame) return;
+        clear(thumb);
+        thumb.classList.add('has-frame');
+        thumb.appendChild(h('img', {
+          src: frame.url,
+          alt: 'Кадр хроники: ' + (frame.place || place || 'сцена'),
+          loading: 'lazy'
+        }));
+      });
+    }).catch(() => { /* хроника остаётся читаемой и без базы кадров */ });
+  }
+
+  function renderCampaignChronicle(game, host) {
+    const moments = E.campaignTimeline(game);
+    const block = h('section', { class: 'journal-block campaign-chronicle', id: 'journal-chronicle', 'aria-label': 'Иллюстрированная хроника кампании' }, [
+      h('div', { class: 'section-title', text: '📜 Хроника кампании' }),
+      h('p', { class: 'muted small', text: 'Выборы, последствия и сохранённые кадры этой истории.' })
+    ]);
+    if (!moments.length) {
+      block.appendChild(h('p', { class: 'muted small', text: 'Первые события появятся здесь после начала приключения.' }));
+      host.appendChild(block);
+      return;
+    }
+    const list = h('div', { class: 'chronicle-list' });
+    moments.slice(-8).forEach(moment => {
+      const scene = moment.scene || {};
+      const sceneText = String(scene.text || '').replace(/\s+/g, ' ').trim();
+      const notes = (moment.notes || []).slice(0, 2);
+      const thumb = h('div', {
+        class: 'chronicle-card__thumb',
+        dataset: { turn: moment.turn, place: moment.place || '' },
+        'aria-hidden': 'true'
+      }, [h('span', { class: 'chronicle-card__placeholder', text: moment.opening ? '✦' : '📜' })]);
+      const card = h('article', { class: 'chronicle-card' }, [
+        thumb,
+        h('div', { class: 'chronicle-card__body' }, [
+          h('div', { class: 'chronicle-card__head' }, [
+            h('span', { class: 'chronicle-card__turn', text: moment.opening ? 'Пролог' : 'Ход ' + moment.turn }),
+            moment.chapter ? h('span', { class: 'chronicle-card__chapter', text: moment.chapter }) : null
+          ]),
+          moment.place ? h('div', { class: 'chronicle-card__place', text: '📍 ' + moment.place }) : null,
+          moment.action ? h('div', { class: 'chronicle-card__action', text: moment.action.text || 'Выбор героя' }) : null,
+          moment.action && moment.action.meta ? h('div', { class: 'chronicle-card__roll', text: moment.action.meta }) : null,
+          sceneText ? h('p', { class: 'chronicle-card__result', text: sceneText.slice(0, 240) + (sceneText.length > 240 ? '…' : '') })
+            : h('p', { class: 'chronicle-card__result muted', text: 'Мастер ещё не записал последствия этого выбора.' }),
+          moment.npc ? h('div', { class: 'chronicle-card__npc', text: moment.npc }) : null,
+          notes.length ? h('div', { class: 'chronicle-card__notes' }, notes.map(note => h('span', {
+            class: 'chronicle-card__note',
+            text: (note.icon ? note.icon + ' ' : '') + String(note.text || '')
+          }))) : null
+        ])
+      ]);
+      list.appendChild(card);
+    });
+    block.appendChild(list);
+    host.appendChild(block);
+    hydrateChronicleFrames(list, game);
+  }
+
+  function hydrateMapFrames(list, game) {
+    Frames.all(game.id).then(frames => {
+      if (!list.isConnected || State.game !== game) return;
+      const mine = (frames || []).filter(frame => frame && frame.url && String(frame.gameId) === String(game.id));
+      if (!mine.length) return;
+      $$('.map-row__thumb', list).forEach(thumb => {
+        const place = thumb.dataset.place || '';
+        const exact = mine.filter(frame => String(frame.place || '').toLowerCase() === place.toLowerCase());
+        const frame = exact.pop() || mine.filter(item => item.place && E.isSamePlace(item.place, place)).pop();
+        if (!frame) return;
+        thumb.classList.add('has-frame');
+        thumb.insertBefore(h('img', {
+          class: 'map-row__image', src: frame.url,
+          alt: 'Сохранённый кадр: ' + (frame.place || place), loading: 'lazy'
+        }), thumb.firstChild);
+      });
+    }).catch(() => { /* карта остаётся доступной без базы кадров */ });
   }
 
   /* ---------------------------------------------------------- */
@@ -5331,7 +5707,8 @@
       return;
     }
     const places = E.placeGraph ? E.placeGraph(g) : [];
-    $('#map-note').textContent = places.length ? places.length + ' мест' : '';
+    const note = $('#map-note');
+    if (note) note.textContent = places.length ? places.length + ' мест · маршрут кампании' : '';
     if (!places.length) {
       list.appendChild(h('div', { class: 'empty' }, [
         h('p', { text: 'Пока известно только одно место.' }),
@@ -5339,52 +5716,87 @@
       ]));
       return;
     }
-    const W = 320, H = 180, pad = 26;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const W = 360, top = 32, step = 78;
+    const H = Math.max(128, top * 2 + Math.max(0, places.length - 1) * step);
+    const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     svg.setAttribute('class', 'map-svg');
-    const pos = places.map((p, i) => {
-      const angle = (i / places.length) * Math.PI * 2 - Math.PI / 2;
-      const radius = places.length === 1 ? 0 : Math.min(W, H) / 2 - pad;
-      return {
-        x: W / 2 + Math.cos(angle) * radius * 1.35,
-        y: H / 2 + Math.sin(angle) * radius,
-        p
-      };
-    });
-    pos.forEach((a, i) => {
-      const b = pos[(i + 1) % pos.length];
-      if (pos.length < 2) return;
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-      line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-      line.setAttribute('class', 'map-edge');
-      svg.appendChild(line);
-    });
+    svg.setAttribute('aria-hidden', 'true');
+    const currentIndexFound = places.findIndex(p => p.now);
+    const currentIndex = currentIndexFound >= 0 ? currentIndexFound : places.length - 1;
+    const pos = places.map((p, i) => ({
+      x: places.length === 1 ? W / 2 : (i % 2 === 0 ? 86 : W - 86),
+      y: places.length === 1 ? H / 2 : top + i * step,
+      p,
+      i
+    }));
+
+    // Открытая, хронологическая тропа — не замыкаем маршрут в декоративный круг.
+    for (let i = 0; i < pos.length - 1; i++) {
+      const a = pos[i], b = pos[i + 1];
+      const mid = (a.y + b.y) / 2;
+      const d = 'M ' + a.x + ' ' + a.y + ' C ' + a.x + ' ' + mid + ', ' + b.x + ' ' + mid + ', ' + b.x + ' ' + b.y;
+      const glow = document.createElementNS(NS, 'path');
+      glow.setAttribute('d', d);
+      glow.setAttribute('class', 'map-edge-glow' + (i < currentIndex ? ' is-travelled' : ''));
+      svg.appendChild(glow);
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'map-edge' + (i < currentIndex ? ' is-travelled' : ''));
+      svg.appendChild(path);
+    }
+
     pos.forEach(item => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      const isNow = !!item.p.now || item.i === currentIndex;
+      const group = document.createElementNS(NS, 'g');
+      group.setAttribute('class', 'map-node-group' + (isNow ? ' is-now' : (item.i < currentIndex ? ' is-past' : '')));
+      const halo = document.createElementNS(NS, 'circle');
+      halo.setAttribute('cx', item.x); halo.setAttribute('cy', item.y);
+      halo.setAttribute('r', isNow ? 21 : 15);
+      halo.setAttribute('class', 'map-node-halo');
+      group.appendChild(halo);
+      const circle = document.createElementNS(NS, 'circle');
       circle.setAttribute('cx', item.x); circle.setAttribute('cy', item.y);
-      circle.setAttribute('r', item.p.now ? 9 : 6);
-      circle.setAttribute('class', 'map-node' + (item.p.now ? ' is-now' : ''));
-      svg.appendChild(circle);
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', item.x); text.setAttribute('y', item.y - 12);
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('class', 'map-label');
-      text.textContent = item.p.title.slice(0, 16);
-      svg.appendChild(text);
+      circle.setAttribute('r', isNow ? 13 : 10);
+      circle.setAttribute('class', 'map-node');
+      group.appendChild(circle);
+      const number = document.createElementNS(NS, 'text');
+      number.setAttribute('x', item.x); number.setAttribute('y', item.y + 4);
+      number.setAttribute('text-anchor', 'middle');
+      number.setAttribute('class', 'map-node__index');
+      number.textContent = isNow ? '✦' : String(item.i + 1);
+      group.appendChild(number);
+      const title = document.createElementNS(NS, 'title');
+      title.textContent = item.p.title + (isNow ? ' — текущее место' : '');
+      group.appendChild(title);
+      svg.appendChild(group);
     });
     canvas.appendChild(svg);
 
-    places.forEach(pl => {
-      list.appendChild(h('div', { class: 'map-row' + (pl.now ? ' is-now' : '') }, [
-        h('span', { class: 'map-row__dot', text: pl.now ? '◉' : '○' }),
+    const placeIcons = {
+      forest: '🌲', village: '🏘️', keep: '🏰', ruins: '🪨', tavern: '🍺',
+      temple: '⛩️', library: '📚', workshop: '⚒️', station: '🚉', cave: '🕳️',
+      battlefield: '⚔️', interior: '🏠', swamp: '🌫️', road: '🛤️', canyon: '⛰️',
+      bridge: '🌉', desert: '🏜️', snow: '❄️'
+    };
+    places.forEach((pl, i) => {
+      const isNow = !!pl.now || i === currentIndex;
+      const kind = E.sceneKindFromText ? E.sceneKindFromText(pl.title + ' ' + (pl.chapter || '')) : 'forest';
+      const icon = placeIcons[kind] || '📍';
+      list.appendChild(h('div', { class: 'map-row' + (isNow ? ' is-now' : (i < currentIndex ? ' is-past' : '')) }, [
+        h('span', { class: 'map-row__thumb', dataset: { place: pl.title }, 'aria-hidden': 'true' }, [
+          h('span', { class: 'map-row__thumb-icon', text: icon })
+        ]),
         h('div', { class: 'map-row__body' }, [
-          h('div', { class: 'map-row__title', text: pl.title + (pl.now ? ' — вы здесь' : '') }),
-          h('div', { class: 'muted small', text: [pl.chapter, pl.turns ? 'ходов: ' + pl.turns : ''].filter(Boolean).join(' · ') })
-        ])
+          h('div', { class: 'map-row__title', text: pl.title + (isNow ? ' — вы здесь' : '') }),
+          h('div', { class: 'map-row__meta', text: [pl.chapter, pl.turns ? 'визитов: ' + pl.turns : ''].filter(Boolean).join(' · ') })
+        ]),
+        h('span', { class: 'map-row__step', text: String(i + 1), 'aria-hidden': 'true' })
       ]));
     });
+    hydrateMapFrames(list, g);
   }
 
   /* ---------------------------------------------------------- */
@@ -5592,6 +6004,10 @@
     $('#game-title').textContent = book.title;
     $('#game-sub').textContent = node.chapter + ' · шагов: ' + (b.steps || []).length;
     $('#game-avatar').hidden = true;
+    const heroLine = $('#game-hero-line');
+    if (heroLine) { heroLine.hidden = true; heroLine.textContent = ''; }
+    const scenePlace = $('#scene-place');
+    if (scenePlace) { scenePlace.hidden = true; scenePlace.textContent = ''; }
     const hp = $('#game-hp');
     if (hp && hp.parentElement) hp.parentElement.style.display = 'none';
     renderSceneText(node.text.join('\n\n'), { typewriter: !!opts && opts.fresh });
@@ -6160,13 +6576,17 @@
         } catch (e) { resolve(false); }
       });
     }
-    async function all() {
+    async function all(gameId) {
       const db = await open();
       if (!db) return [];
       return new Promise(resolve => {
         try {
           const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
-          req.onsuccess = () => resolve((req.result || []).sort((a, b) => a.at - b.at).slice(-MAX));
+          req.onsuccess = () => {
+            let rows = (req.result || []).filter(frame => frame && frame.url).sort((a, b) => a.at - b.at);
+            if (gameId) rows = rows.filter(frame => String(frame.gameId) === String(gameId));
+            resolve(rows.slice(-MAX));
+          };
           req.onerror = () => resolve([]);
         } catch (e) { resolve([]); }
       });
@@ -6244,7 +6664,8 @@
     const rows = [
       'Ходов: ' + data.turns + ' · бросков: ' + data.checks,
       data.place ? 'Последнее место: ' + data.place : '',
-      data.people.length ? 'Рядом были: ' + data.people.join(', ') : ''
+      data.people.length ? 'Рядом были: ' + data.people.join(', ') : '',
+      data.seals && data.seals.length ? 'Печати: ' + data.seals.join(', ') : ''
     ].filter(Boolean);
     rows.forEach(r => { c.fillText(String(r).slice(0, 52), 60, y); y += 50; });
 

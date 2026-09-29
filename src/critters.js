@@ -486,21 +486,44 @@
         const skin = Object.keys(entry.skin || {})
           .map(k => k + ':' + entry.skin[k]).join(';');
         const hasSprite = !!spriteUrl(entry);
-        const classes = 'critter critter--' + entry.id + (hasSprite ? ' critter--generated' : '');
-        const art = hasSprite
-          ? '<span class="critter__sprite" aria-hidden="true"></span>'
-          : entry.svg();
+        // Пока лист загружается, показываем встроенный рисунок: source index.html
+        // может открываться в предпросмотре, где относительный WebP недоступен.
+        const classes = 'critter critter--' + entry.id + (hasSprite ? ' critter--svg-fallback critter--sprite-loading' : '');
         return '<div class="' + classes + '" data-role="' + entry.id + '" style="' + skin + '">' +
-          art + '</div>';
+          entry.svg() + '</div>';
       }).join('');
       state.els = {};
       pair.forEach(entry => {
         const el = container.querySelector('[data-role="' + entry.id + '"]');
         state.els[entry.id] = el;
-        if (entry.sprite && el && el.style) {
-          el.style.setProperty('--critter-sheet', 'url("' + spriteUrl(entry) + '")');
+        const art = el && typeof el.querySelector === 'function' ? el.querySelector('.critter__art') : null;
+        // Фразы и подпрыгивание срабатывают только при касании нарисованной
+        // SVG-фигуры, а не пустого прямоугольника со sprite background.
+        if (art) {
+          art.style.pointerEvents = 'visiblePainted';
+          art.addEventListener('click', event => {
+            if (event && event.stopPropagation) event.stopPropagation();
+            hop(el);
+          });
         }
-        el.addEventListener('click', () => hop(el));
+        const url = spriteUrl(entry);
+        if (entry.sprite && url && el && typeof Image !== 'undefined') {
+          const sheet = new Image();
+          sheet.onload = () => {
+            if (!el.isConnected || el.dataset.role !== entry.id) return;
+            el.innerHTML = '<span class="critter__sprite" aria-hidden="true"></span>';
+            el.classList.remove('critter--svg-fallback', 'critter--sprite-loading');
+            el.classList.add('critter--generated');
+            el.style.setProperty('--critter-sheet', 'url("' + url + '")');
+          };
+          // При 404/запрещённом ресурсе оставляем видимый локальный SVG.
+          sheet.onerror = () => {
+            if (!el.isConnected || el.dataset.role !== entry.id) return;
+            el.classList.remove('critter--sprite-loading');
+            el.classList.add('critter--svg-fallback');
+          };
+          sheet.src = url;
+        }
       });
       if (reduced) arrangeStill();
       else Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));

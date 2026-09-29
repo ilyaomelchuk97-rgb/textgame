@@ -28,6 +28,24 @@ test('SANA is the image default and old auto defaults migrate only once', () => 
   assert.match(server, /id: 'sana', title: 'SANA · самый быстрый'/);
 });
 
+test('auto narrative starts with Mistral Large 3 when available and preserves provider switching', () => {
+  const server = read('server.js');
+  const api = read('src/api.js');
+  const app = read('src/app.js');
+  const providerStart = server.indexOf('const PROVIDERS = [');
+  const genIndex = server.indexOf("name: 'gen'", providerStart);
+  const nextIndex = server.indexOf("name: 'groq'", providerStart);
+  assert.ok(providerStart >= 0 && genIndex > providerStart && genIndex < nextIndex,
+    'the strong gen gateway must be first in auto provider order');
+  assert.match(server, /'mistralai\/mistral-large-3'/);
+  assert.match(server, /Авто · Mistral Large 3/);
+  assert.match(api, /masterWanted: 'auto'/);
+  assert.match(app, /Settings\.data\.master \|\| 'auto'/);
+  assert.match(app, /Settings\.set\(\{ master: id \}\)/, 'the player can still select a different master');
+  assert.match(app, /Settings\.set\(\{ imageSource: id/);
+  assert.match(app, /imageSource \|\| 'sana'/);
+});
+
 test('settings controls remain narrow-screen friendly and the misleading mic label is gone', () => {
   const app = read('src/app.js');
   const css = read('src/styles.css');

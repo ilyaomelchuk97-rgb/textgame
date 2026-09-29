@@ -300,7 +300,6 @@ body.dice-transition-active #app { pointer-events: none; }
   object-fit: contain;
   pointer-events: none;
   user-select: none;
-  will-change: filter;
 }
 .menu-foot {
   display: flex;
@@ -504,7 +503,7 @@ body.dice-transition-active #app { pointer-events: none; }
 .hint { margin-top: 14px; font-size: 12.5px; color: var(--muted); }
 
 /* ---------------------------------------------------------- */
-/* Игровой экран: 8% — шапка, 22% — картинка                  */
+/* Игровой экран: портрет героя, сценический кадр, повествование и выбор */
 /* ---------------------------------------------------------- */
 .screen--game { background: var(--bg); }
 
@@ -1309,8 +1308,7 @@ body[data-theme="material"] .toast--bad, body[data-theme="ice"] .toast--bad { co
   left: 0;
   bottom: 12px;
   height: 80px;
-  pointer-events: auto;
-  cursor: pointer;
+  pointer-events: none;
   transform: translateX(-140px);
   will-change: transform;
 }
@@ -1319,8 +1317,10 @@ body[data-theme="material"] .toast--bad, body[data-theme="ice"] .toast--bad { co
 .critter--dragon { z-index: 1; bottom: 8px; }
 .critter--knight { z-index: 2; width: 73px; }
 .critter--generated.critter--knight { width: 100px; height: 80px; }
-.critter svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.critter__sprite {
+.critter--svg-fallback { width: 100px; height: 80px; }
+.critter--svg-fallback.critter--knight { width: 73px; }
+.critter svg { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: visiblePainted; }
+.critter__sprite { pointer-events: none;
   display: block;
   width: 100%;
   height: 100%;
@@ -1504,6 +1504,8 @@ body[data-theme="material"] .toast--bad, body[data-theme="ice"] .toast--bad { co
   .critter--generated { width: 87.5px; height: 70px; }
   .critter--knight { width: 64px; }
   .critter--generated.critter--knight { width: 87.5px; height: 70px; }
+  .critter--svg-fallback { width: 87.5px; height: 70px; }
+  .critter--svg-fallback.critter--knight { width: 64px; }
   .critter--dragon { height: 70px; width: 87.5px; }
 }
 
@@ -2336,7 +2338,7 @@ button, .action-btn, .icon-btn, .log-toggle, .chip, [data-act] {
 
 /* ============================================================
    Размер текста: три ступени (пункт 23)
-   Шапка и кадр остаются в рамках 17% / 22% — меняются буквы и отступы.
+   Высота шапки и сценического кадра остаётся адаптивной — меняются буквы и отступы.
    ============================================================ */
 
 body.text-s {
@@ -2662,6 +2664,569 @@ body.hand-one .panel { padding-bottom: 4px; }
   #screen-saves .save-card__actions .btn--sm:first-child { grid-column: 1 / -1; }
 }
 
+
+/* ============================================================
+ * Визуальная полировка: портрет, карта, исход броска, состояния
+ * и заглушки ожидания
+ * ============================================================ */
+
+/* Портрет героя: отдельная рамка держит место даже до ответа генератора. */
+.game-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--accent, #9fe6d0);
+  font-size: 12px;
+  font-weight: 800;
+  background-color: color-mix(in srgb, var(--accent, #9fe6d0) 14%, var(--panel-2, #17211f));
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.game-avatar.is-loading { border-color: color-mix(in srgb, var(--accent, #9fe6d0) 74%, white); }
+.game-avatar.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 34%, rgba(255,255,255,.34) 50%, transparent 66%);
+  transform: translateX(-100%);
+  animation: portraitSweep 1.35s ease-in-out infinite;
+}
+.hero-sheet__top {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.hero-sheet__portrait-frame {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 82px;
+  padding: 3px;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border-radius: 23px;
+  background: conic-gradient(from 210deg, var(--accent, #9fe6d0), color-mix(in srgb, var(--accent, #9fe6d0) 30%, #6b71c9), var(--accent, #9fe6d0));
+  box-shadow: 0 8px 22px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.12);
+}
+.hero-sheet__portrait-frame::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  z-index: -1;
+  border-radius: 19px;
+  background: var(--panel-2, #17211f);
+}
+.hero-sheet__portrait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 19px;
+  object-fit: cover;
+  background: rgba(255,255,255,.05);
+}
+.hero-sheet__portrait-frame.is-empty {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent, #9fe6d0) 75%, white), color-mix(in srgb, var(--accent, #9fe6d0) 30%, #565f86));
+}
+.hero-sheet__portrait-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 19px;
+  color: var(--accent, #9fe6d0);
+  font-size: 30px;
+  background: radial-gradient(circle at 50% 35%, rgba(255,255,255,.13), transparent 55%), var(--panel-2, #17211f);
+}
+.hero-sheet__portrait-frame.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 35%, rgba(255,255,255,.34) 50%, transparent 65%);
+  transform: translateX(-100%);
+  animation: portraitSweep 1.45s ease-in-out infinite;
+}
+@keyframes portraitSweep { to { transform: translateX(100%); } }
+
+/* Карта кампании: одна открытая тропа, пройденные сегменты и ясный текущий узел. */
+.map-canvas {
+  position: relative;
+  max-height: min(48vh, 420px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent, #9fe6d0) 48%, transparent) transparent;
+  background:
+    radial-gradient(ellipse at 50% 6%, color-mix(in srgb, var(--accent, #9fe6d0) 12%, transparent), transparent 52%),
+    linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.18));
+  border-color: color-mix(in srgb, var(--accent, #9fe6d0) 18%, var(--line, rgba(255,255,255,.08)));
+}
+.map-svg { width: 100%; height: auto; min-height: 128px; display: block; overflow: visible; }
+.map-edge, .map-edge-glow { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.map-edge { stroke: rgba(220,235,234,.3); stroke-width: 2; stroke-dasharray: 4 7; }
+.map-edge.is-travelled { stroke: color-mix(in srgb, var(--accent, #9fe6d0) 72%, white); stroke-dasharray: none; opacity: .84; }
+.map-edge-glow { stroke: color-mix(in srgb, var(--accent, #9fe6d0) 60%, transparent); stroke-width: 9; opacity: .1; }
+.map-edge-glow.is-travelled { opacity: .22; }
+.map-node-halo { fill: rgba(255,255,255,.045); stroke: rgba(255,255,255,.12); stroke-width: 1; }
+.map-node-group.is-past .map-node-halo { fill: color-mix(in srgb, var(--accent, #9fe6d0) 10%, transparent); }
+.map-node-group.is-now .map-node-halo { fill: color-mix(in srgb, var(--accent, #9fe6d0) 25%, transparent); stroke: color-mix(in srgb, var(--accent, #9fe6d0) 42%, transparent); animation: mapPulse 2.2s ease-in-out infinite; }
+.map-node { fill: var(--panel-2, #17211f); stroke: rgba(220,235,234,.68); stroke-width: 2; }
+.map-node-group.is-past .map-node { fill: color-mix(in srgb, var(--accent, #9fe6d0) 32%, var(--panel-2, #17211f)); stroke: var(--accent, #9fe6d0); }
+.map-node-group.is-now .map-node { fill: var(--accent, #9fe6d0); stroke: #fff; stroke-width: 2.4; }
+.map-node__index { fill: var(--text, #fff); font: 700 9px/1 system-ui, sans-serif; pointer-events: none; }
+.map-node-group.is-now .map-node__index { fill: #13221f; font-size: 12px; }
+@keyframes mapPulse { 0%,100% { opacity: .72; transform: scale(.94); transform-origin: center; } 50% { opacity: 1; transform: scale(1.08); transform-origin: center; } }
+.map-list { padding: 10px 12px 24px; display: flex; flex-direction: column; gap: 7px; }
+.map-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card, rgba(255,255,255,.05)) 85%, transparent);
+  border: 1px solid var(--line, rgba(255,255,255,.06));
+  transition: background .2s ease, border-color .2s ease, opacity .2s ease;
+}
+.map-row.is-past { opacity: .76; }
+.map-row.is-now {
+  border-color: color-mix(in srgb, var(--accent, #9fe6d0) 70%, transparent);
+  background: linear-gradient(105deg, color-mix(in srgb, var(--accent, #9fe6d0) 13%, var(--card, rgba(255,255,255,.05))), var(--card, rgba(255,255,255,.05)) 76%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #9fe6d0) 16%, transparent) inset;
+}
+.map-row__dot {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 11px;
+  background: rgba(255,255,255,.055);
+  font-size: 18px;
+}
+.map-row.is-now .map-row__dot { background: color-mix(in srgb, var(--accent, #9fe6d0) 18%, transparent); }
+.map-row__body { min-width: 0; flex: 1 1 auto; }
+.map-row__title { font-size: 14px; line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
+.map-row__meta { margin-top: 3px; font-size: 11.5px; line-height: 1.25; color: var(--muted, #a8b1b6); }
+.map-row__step { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 23px; border-radius: 50%; font-size: 10px; color: var(--muted, #a8b1b6); background: rgba(255,255,255,.055); }
+.map-row.is-now .map-row__step { color: #14231f; background: var(--accent, #9fe6d0); font-weight: 800; }
+
+/* Миры на выбор: обложка получает знак и цвет именно этого сценария. */
+.scenario-card {
+  position: relative;
+  border-color: color-mix(in srgb, var(--accent, #9fe6d0) 24%, var(--line, rgba(255,255,255,.1)));
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.scenario-card:focus-visible { outline: 2px solid var(--accent, #9fe6d0); outline-offset: 3px; }
+.scenario-card__cover { isolation: isolate; }
+.scenario-card__cover::after { z-index: 0; background: linear-gradient(180deg, rgba(0,0,0,.02), rgba(5,10,13,.25) 45%, rgba(5,10,13,.94)); }
+.scenario-card__cover::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 80% 18%, color-mix(in srgb, var(--accent, #9fe6d0) 34%, transparent), transparent 50%);
+}
+.scenario-card__sigil {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 72%, white);
+  border-radius: 15px;
+  color: #fff;
+  font-size: 23px;
+  line-height: 1;
+  text-shadow: 0 2px 9px rgba(0,0,0,.6);
+  background: color-mix(in srgb, var(--accent, #9fe6d0) 32%, rgba(8,13,16,.72));
+  box-shadow: 0 6px 18px rgba(0,0,0,.28), 0 0 22px color-mix(in srgb, var(--accent, #9fe6d0) 26%, transparent);
+  backdrop-filter: blur(5px);
+}
+.scenario-card__cover-mark {
+  position: absolute;
+  left: 13px;
+  bottom: 12px;
+  z-index: 2;
+  color: rgba(255,255,255,.82);
+  font-size: 9px;
+  letter-spacing: .16em;
+  font-weight: 800;
+  text-shadow: 0 1px 6px rgba(0,0,0,.55);
+}
+.scenario-card__body { position: relative; }
+.scenario-card__body::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  width: 40px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent, #9fe6d0);
+  opacity: .82;
+}
+.scenario-card__genre { font-size: 11px; font-weight: 700; letter-spacing: .075em; text-transform: uppercase; }
+.scenario-card__title { letter-spacing: -.015em; }
+@media (hover: hover) {
+  .scenario-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent, #9fe6d0) 62%, white); box-shadow: 0 12px 30px rgba(0,0,0,.22); }
+}
+
+/* Состояния героя читаются с первого взгляда: знак, имя, модификатор и срок. */
+.mech-chip--state { gap: 6px; padding: 3px 8px 3px 4px; min-height: 34px; }
+.mech-chip__icon { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 25px; border-radius: 50%; font-size: 13px; background: rgba(255,255,255,.07); }
+.mech-chip--good .mech-chip__icon { background: color-mix(in srgb, var(--accent, #6fe3b8) 17%, transparent); }
+.mech-chip--bad .mech-chip__icon { background: color-mix(in srgb, var(--danger, #ff6b6b) 15%, transparent); }
+.mech-chip__name { font-weight: 650; }
+.mech-chip__modifier { padding: 2px 5px; border-radius: 7px; font-size: 10px; line-height: 1.1; background: rgba(255,255,255,.075); }
+.mech-chip--good .mech-chip__modifier { color: var(--accent, #6fe3b8); }
+.mech-chip--bad .mech-chip__modifier { color: var(--danger, #ff6b6b); }
+.mech-chip__turns { color: var(--muted, #a8b1b6); font-size: 10px; }
+
+/* Заглушка мира — не пустой спиннер, а мягкая светящаяся мини-обложка. */
+.loading-box { overflow: hidden; border-color: color-mix(in srgb, var(--accent, #9fe6d0) 30%, var(--line-strong, rgba(255,255,255,.18))); box-shadow: 0 20px 55px rgba(0,0,0,.28); }
+.loading-skeleton {
+  position: relative;
+  width: min(226px, 100%);
+  height: 104px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 15px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #9fe6d0) 10%, #13201f), #1b292b);
+  box-shadow: inset 0 1px 20px rgba(255,255,255,.035);
+}
+.loading-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 28%, rgba(255,255,255,.14) 48%, transparent 68%);
+  transform: translateX(-100%);
+  animation: loadingSweep 1.65s ease-in-out infinite;
+}
+.loading-skeleton__moon { position: absolute; top: 17px; right: 27px; width: 17px; height: 17px; border-radius: 50%; background: color-mix(in srgb, var(--accent, #9fe6d0) 62%, white); box-shadow: 0 0 20px color-mix(in srgb, var(--accent, #9fe6d0) 60%, transparent); }
+.loading-skeleton__ridge { position: absolute; left: -4%; bottom: -1px; width: 110%; height: 55%; clip-path: polygon(0 100%, 0 78%, 19% 35%, 33% 64%, 53% 17%, 69% 62%, 82% 37%, 100% 77%, 100% 100%); }
+.loading-skeleton__ridge--back { background: linear-gradient(145deg, color-mix(in srgb, var(--accent, #9fe6d0) 20%, #303d4e), #263138); opacity: .9; }
+.loading-skeleton__ridge--front { left: -12%; width: 125%; height: 40%; clip-path: polygon(0 100%, 0 60%, 18% 31%, 36% 64%, 56% 25%, 72% 51%, 85% 21%, 100% 58%, 100% 100%); background: linear-gradient(150deg, color-mix(in srgb, var(--accent, #9fe6d0) 28%, #152826), #172323); }
+@keyframes loadingSweep { to { transform: translateX(100%); } }
+.loading-box__title { margin-top: 1px; }
+.loading-box__text { max-width: 29ch; line-height: 1.45; }
+
+/* Бросок получает собственную вспышку на крите и холодный отклик на провале. */
+.dice-scene { position: relative; isolation: isolate; }
+.dice-scene::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 68px 6px 96px;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+}
+.dice-scene.is-crit::before {
+  opacity: 1;
+  background: radial-gradient(ellipse, rgba(255,214,120,.34), rgba(255,182,74,.13) 43%, transparent 73%);
+  animation: diceAura 1.2s ease-out both;
+}
+.dice-scene.is-fail::before {
+  opacity: .76;
+  background: radial-gradient(ellipse, rgba(255,92,92,.16), transparent 70%);
+}
+.dice-scene.is-crit .die__face[data-final="1"] { animation: dieCritGlow .9s ease-out both; }
+.dice-scene.is-fail .die__face[data-final="1"] { background: linear-gradient(150deg, #ffe9df, #ff9b82 62%, #f26d69); color: #441616; box-shadow: 0 0 28px rgba(255,91,91,.42), inset 0 0 18px rgba(120,25,0,.19); }
+.dice-result.is-crit { border-color: rgba(255,211,112,.82); box-shadow: 0 0 36px rgba(255,196,78,.32); }
+.dice-result.is-crit .dice-result__value { background: linear-gradient(180deg, #fffbe5, #ffc95c); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.dice-result.is-crit .dice-result__label { color: #ffd36b; }
+.dice-result.is-fumble { border-color: rgba(255,91,91,.82); box-shadow: 0 0 28px rgba(255,65,65,.25); }
+.dice-result.is-fumble .dice-result__value { background: linear-gradient(180deg, #ffe6de, #ff8d7f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@keyframes diceAura { 0% { opacity: 0; transform: scale(.72); } 38% { opacity: 1; transform: scale(1.08); } 100% { opacity: .72; transform: scale(1); } }
+@keyframes dieCritGlow { 0% { filter: brightness(1); } 40% { filter: brightness(1.34) drop-shadow(0 0 25px rgba(255,214,120,.78)); } 100% { filter: brightness(1.08) drop-shadow(0 0 12px rgba(255,214,120,.42)); } }
+@media (max-width: 380px) {
+  .hero-sheet__top { grid-template-columns: 72px minmax(0, 1fr); gap: 11px; }
+  .hero-sheet__portrait-frame { width: 72px; height: 72px; border-radius: 20px; }
+  .hero-sheet__portrait, .hero-sheet__portrait-placeholder { border-radius: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-node-group.is-now .map-node-halo,
+  .game-avatar.is-loading::after,
+  .hero-sheet__portrait-frame.is-loading::after,
+  .loading-skeleton::after { animation: none; }
+  .dice-scene.is-crit::before,
+  .dice-scene.is-crit .die__face[data-final="1"] { animation: none; }
+}
+
+
+/* ============================================================
+ * Кампания: портрет героя и более кинематографичная сцена
+ * ============================================================ */
+.game-topbar__identity {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.game-topbar__text { min-width: 0; }
+.game-avatar {
+  width: 50px;
+  height: 50px;
+  margin: 0;
+  flex: 0 0 50px;
+  border: 2px solid color-mix(in srgb, var(--accent, #9fe6d0) 76%, white);
+  border-radius: 16px;
+  background-size: cover;
+  background-position: center 35%;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .28), 0 0 0 3px color-mix(in srgb, var(--accent, #9fe6d0) 15%, transparent);
+}
+.game-avatar.is-placeholder {
+  background-image: radial-gradient(circle at 50% 30%, rgba(255,255,255,.2), transparent 45%),
+    linear-gradient(145deg, color-mix(in srgb, var(--accent, #9fe6d0) 27%, var(--panel-2, #17211f)), var(--panel-2, #17211f));
+  font-size: 23px;
+  text-shadow: 0 2px 8px rgba(0,0,0,.55);
+}
+.game-hero-line {
+  max-width: 100%;
+  margin-top: 1px;
+  color: color-mix(in srgb, var(--accent, #9fe6d0) 78%, white);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.game-hero-line[hidden] { display: none; }
+.game-sub { font-size: 11.5px; }
+
+/* Кадр локации становится главным визуальным якорем, но отдаёт место тексту и выбору. */
+.scene-media {
+  flex: 0 0 clamp(168px, 28vh, 248px);
+  min-height: 154px;
+  isolation: isolate;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 24%, var(--line, transparent));
+  box-shadow: 0 9px 24px rgba(0, 0, 0, .16);
+}
+.scene-media::after {
+  background:
+    linear-gradient(180deg, rgba(4, 8, 10, .26) 0%, transparent 30%, rgba(4, 8, 10, .12) 55%, rgba(4, 8, 10, .82) 100%),
+    radial-gradient(120% 90% at 50% 120%, color-mix(in srgb, var(--mood-tint, transparent) 42%, transparent), transparent 62%);
+  mix-blend-mode: normal;
+}
+.scene-media__caption {
+  position: absolute;
+  z-index: 5;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  pointer-events: none;
+}
+.scene-media__place {
+  max-width: 100%;
+  overflow: hidden;
+  color: #fff;
+  font-size: clamp(19px, 5vw, 25px);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 2px 12px rgba(0,0,0,.82), 0 1px 2px rgba(0,0,0,.9);
+}
+.scene-media__place[hidden] { display: none; }
+.scene-media .scene-chapter {
+  max-width: 100%;
+  margin: 0;
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.20);
+  border-radius: 999px;
+  background: rgba(5, 10, 12, .54);
+  color: rgba(255,255,255,.88);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: .10em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scene-media__badge {
+  left: auto;
+  right: 52px;
+  bottom: auto;
+  top: 9px;
+  max-width: min(46vw, 230px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Небольшая «страница истории» отделяет повествование от кнопок, сохраняя контраст. */
+.panel {
+  border-top: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 12%, var(--line, transparent));
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--panel-2, #17211f) 34%, transparent), transparent 62%);
+}
+#scene-text .scene-text__body {
+  max-width: 62ch;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 17%, var(--line, transparent));
+  border-left: 3px solid color-mix(in srgb, var(--accent, #9fe6d0) 70%, transparent);
+  border-radius: 5px 15px 15px 5px;
+  background: linear-gradient(140deg,
+    color-mix(in srgb, var(--card-2, #1c2832) 72%, transparent),
+    color-mix(in srgb, var(--panel-2, #17211f) 78%, transparent));
+  box-shadow: 0 7px 22px rgba(0, 0, 0, .14);
+}
+
+@media (max-height: 680px) {
+  .scene-media { flex-basis: clamp(148px, 25vh, 194px); min-height: 142px; }
+  .game-avatar { width: 44px; height: 44px; flex-basis: 44px; }
+}
+@media (max-width: 360px) {
+  .game-topbar__identity { gap: 8px; }
+  .game-avatar { width: 44px; height: 44px; flex-basis: 44px; }
+  .scene-media { flex-basis: clamp(158px, 27vh, 214px); }
+  .scene-media__caption { left: 11px; right: 11px; bottom: 10px; }
+}
+
+/* --- Векторная коллекция предметов: локальные SVG и ясные метки --- */
+.item-card__icon { position: relative; overflow: hidden; }
+.item-card__art {
+  display: block; width: 27px; height: 27px; color: var(--accent, #9fe6d0);
+  fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+.item-card__icon--heal { color: #6dd7ae; }
+.item-card__icon--boost { color: #f0bd62; }
+.item-card__icon--advantage { color: #8cc6ff; }
+.item-card__icon--key { color: var(--accent-2, #ffbd66); }
+.item-card__icon--trophy { color: #d6b7ff; }
+.item-card__emoji {
+  position: absolute; right: -1px; bottom: -1px; display: grid; place-items: center;
+  width: 15px; height: 15px; border: 1px solid var(--line, rgba(255,255,255,.2));
+  border-radius: 50%; background: var(--card, #17211f); font-size: 9px; line-height: 1;
+}
+.item-card__badge {
+  display: inline-flex; margin-top: 4px; padding: 2px 6px; border-radius: 999px;
+  color: var(--muted, #adb8bb); background: color-mix(in srgb, var(--text, #fff) 7%, transparent);
+  font-size: 8px; font-weight: 800; letter-spacing: .07em; line-height: 1.3;
+}
+.item-card__badge--key { color: var(--accent-2, #ffbd66); background: color-mix(in srgb, var(--accent-2, #ffbd66) 13%, transparent); }
+.item-card__badge--trophy { color: #d6b7ff; background: rgba(214,183,255,.11); }
+
+/* --- Галерея знакомых: портреты сохраняются в сейве, доверие читается отдельно --- */
+.npc-gallery { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+.npc-gallery__card {
+  display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 10px;
+  border: 1px solid var(--line, rgba(255,255,255,.08)); border-radius: 14px;
+  background: color-mix(in srgb, var(--card, rgba(255,255,255,.05)) 92%, transparent);
+}
+.npc-gallery__portrait {
+  position: relative; display: grid; place-items: center; flex: 0 0 54px; width: 54px; height: 54px;
+  overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 45%, var(--line, transparent));
+  border-radius: 16px; background: radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--accent, #9fe6d0) 24%, transparent), transparent 70%), var(--card-2, #202d35);
+  color: var(--accent, #9fe6d0);
+}
+.npc-gallery__portrait.is-loading::after {
+  content: ''; position: absolute; inset: -30%; pointer-events: none;
+  background: linear-gradient(110deg, transparent 35%, rgba(255,255,255,.3) 50%, transparent 65%);
+  transform: translateX(-100%); animation: portraitSweep 1.4s ease-in-out infinite;
+}
+.npc-gallery__portrait-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.npc-gallery__initials { font-size: 18px; font-weight: 800; letter-spacing: .04em; }
+.npc-gallery__body { min-width: 0; flex: 1 1 auto; }
+.npc-gallery__name { overflow: hidden; color: var(--text, #fff); font-size: 14px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.npc-gallery__role { margin-top: 2px; overflow: hidden; color: var(--muted, #aeb8be); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.npc-gallery__relation { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; color: var(--text, #fff); font-size: 11px; }
+.npc-gallery__trust { flex: 0 0 auto; color: var(--accent-2, #ffbd66); font-size: 11px; letter-spacing: 1px; white-space: nowrap; }
+.npc-gallery__helped { display: inline-flex; margin-top: 5px; padding: 2px 7px; border-radius: 999px; color: var(--accent, #9fe6d0); background: color-mix(in srgb, var(--accent, #9fe6d0) 13%, transparent); font-size: 10px; }
+.npc-gallery__call { min-height: 40px; margin-top: 6px; }
+@media (min-width: 560px) { .npc-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* --- Семь характеристик: radar-график плюс прежние текстовые чипы --- */
+.stat-constellation {
+  display: grid; justify-items: center; margin: 7px 0 12px; padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 20%, var(--line, transparent));
+  border-radius: 16px; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent, #9fe6d0) 8%, transparent), transparent 72%);
+}
+.stat-constellation__svg { display: block; width: min(100%, 258px); height: auto; overflow: visible; }
+.stat-constellation__grid { fill: none; stroke: color-mix(in srgb, var(--text, #fff) 13%, transparent); stroke-width: 1; }
+.stat-constellation__axis { stroke: color-mix(in srgb, var(--text, #fff) 14%, transparent); stroke-width: 1; }
+.stat-constellation__shape { fill: color-mix(in srgb, var(--accent, #9fe6d0) 27%, transparent); stroke: var(--accent, #9fe6d0); stroke-width: 2; stroke-linejoin: round; }
+.stat-constellation__point { fill: var(--accent, #9fe6d0); stroke: var(--panel-2, #17211f); stroke-width: 1.5; }
+.stat-constellation__label { fill: var(--muted, #b2bdc2); font: 700 8px/1 system-ui, sans-serif; }
+
+/* --- Кадры на карте: превью привязаны к месту и только к текущей кампании --- */
+.map-row__thumb {
+  position: relative; display: grid; place-items: center; flex: 0 0 54px; width: 54px; height: 44px;
+  overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.1)); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #9fe6d0) 12%, var(--card-2, #202a33));
+}
+.map-row__thumb-icon { position: relative; z-index: 1; font-size: 18px; }
+.map-row__image { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.map-row__thumb.has-frame .map-row__thumb-icon {
+  position: absolute; right: 2px; bottom: 2px; display: grid; place-items: center; width: 17px; height: 17px;
+  border: 1px solid rgba(255,255,255,.35); border-radius: 50%; background: rgba(0,0,0,.64); font-size: 9px;
+}
+
+/* --- Иллюстрированная хроника: кадр, действие и последствие одного хода --- */
+.campaign-chronicle { margin-top: 14px; }
+.chronicle-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.chronicle-card {
+  display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: start;
+  padding: 10px; border: 1px solid var(--line, rgba(255,255,255,.08)); border-radius: 14px;
+  background: color-mix(in srgb, var(--card, rgba(255,255,255,.05)) 90%, transparent);
+}
+.chronicle-card__thumb {
+  display: grid; place-items: center; width: 62px; height: 62px; overflow: hidden; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 26%, var(--line, transparent));
+  color: var(--accent, #9fe6d0); background: linear-gradient(145deg, color-mix(in srgb, var(--accent, #9fe6d0) 18%, var(--panel-2, #17211f)), var(--panel-2, #17211f));
+}
+.chronicle-card__thumb.has-frame { display: block; }
+.chronicle-card__thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.chronicle-card__placeholder { font-size: 23px; }
+.chronicle-card__body { min-width: 0; }
+.chronicle-card__head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.chronicle-card__turn { flex: 0 0 auto; color: var(--accent, #9fe6d0); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.chronicle-card__chapter { overflow: hidden; color: var(--muted, #aeb8be); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.chronicle-card__place { margin-top: 3px; color: var(--muted, #aeb8be); font-size: 10.5px; }
+.chronicle-card__action { margin-top: 4px; color: var(--text, #fff); font-size: 13px; font-weight: 700; line-height: 1.35; }
+.chronicle-card__roll { margin-top: 3px; color: var(--muted, #aeb8be); font-size: 10px; }
+.chronicle-card__result { display: -webkit-box; margin: 5px 0 0; overflow: hidden; color: var(--text, #fff); font-size: 12px; line-height: 1.42; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.chronicle-card__npc { margin-top: 5px; color: var(--accent-2, #ffbd66); font-size: 11px; }
+.chronicle-card__notes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.chronicle-card__note { max-width: 100%; padding: 3px 6px; border-radius: 7px; color: var(--muted, #b4bec2); background: color-mix(in srgb, var(--text, #fff) 6%, transparent); font-size: 10px; line-height: 1.3; }
+
+/* --- Событийные печати в журнале и финальной сводке --- */
+.campaign-seals { margin: 12px 12px 0; }
+.campaign-seals--epilogue { margin: 14px 0 0; }
+.campaign-seals__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 8px; }
+.campaign-seal {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 7px; align-items: center;
+  min-height: 54px; padding: 7px 8px; border: 1px solid var(--line, rgba(255,255,255,.08)); border-radius: 12px;
+  background: color-mix(in srgb, var(--card, rgba(255,255,255,.04)) 90%, transparent);
+}
+.campaign-seal.is-locked { opacity: .52; }
+.campaign-seal.is-earned { border-color: color-mix(in srgb, var(--accent, #9fe6d0) 45%, var(--line, transparent)); background: color-mix(in srgb, var(--accent, #9fe6d0) 10%, var(--card, transparent)); }
+.campaign-seal__icon { grid-row: 1 / span 2; display: grid; place-items: center; width: 27px; height: 27px; border-radius: 9px; color: var(--muted, #adb7bd); background: color-mix(in srgb, var(--text, #fff) 7%, transparent); font-size: 15px; }
+.campaign-seal.is-earned .campaign-seal__icon { color: var(--accent, #9fe6d0); background: color-mix(in srgb, var(--accent, #9fe6d0) 17%, transparent); }
+.campaign-seal__title { overflow: hidden; color: var(--text, #fff); font-size: 11px; font-weight: 750; line-height: 1.25; text-overflow: ellipsis; }
+.campaign-seal__status { color: var(--muted, #aeb8be); font-size: 9px; line-height: 1.2; }
+.campaign-seal.is-earned .campaign-seal__status { color: var(--accent, #9fe6d0); font-weight: 700; }
+@media (min-width: 560px) { .campaign-seals__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .npc-gallery__portrait.is-loading::after { animation: none; } }
 
 /* ============================================================
  * Скины тем: не только цвет, но и материал интерфейса.
@@ -3642,22 +4207,25 @@ body[data-theme] .mech-chip--use {
 
     <!-- ============ ЭКРАН 4: ИГРА ============ -->
     <section class="screen screen--game" id="screen-game" hidden>
-      <!-- 8% сверху: название игры + закрыть -->
+      <!-- Шапка кампании: портрет, имя и профессия героя, название мира и состояние -->
       <header class="game-topbar">
-        <div class="game-topbar__text">
-          <span class="game-avatar" id="game-avatar" hidden></span>
-          <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
-          <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
-          <div class="game-status" id="game-status" hidden>
-            <span class="spinner spinner--sm"></span>
-            <span class="game-status__text" id="game-status-text"></span>
+        <div class="game-topbar__identity">
+          <span class="game-avatar" id="game-avatar" aria-hidden="true" hidden></span>
+          <div class="game-topbar__text">
+            <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
+            <div class="game-hero-line" id="game-hero-line" hidden></div>
+            <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
+            <div class="game-status" id="game-status" hidden>
+              <span class="spinner spinner--sm"></span>
+              <span class="game-status__text" id="game-status-text"></span>
+            </div>
           </div>
         </div>
         <button class="icon-btn icon-btn--close" type="button" data-act="close-game" aria-label="Закрыть игру">✕</button>
         <div class="hp-track"><div class="hp-fill" id="game-hp"></div></div>
       </header>
 
-      <!-- 22%: картинка окружающего мира (мгновенный фон + ИИ поверх) -->
+      <!-- Кинематографическое окно локации: процедурный фон сразу, AI-кадр поверх -->
       <div class="scene-media" id="scene-media">
         <img id="scene-img" alt="Фон местности" hidden>
         <img id="scene-img2" alt="" aria-hidden="true" hidden>
@@ -3666,14 +4234,17 @@ body[data-theme] .mech-chip--use {
         <div class="scene-media__status" id="scene-status">
           <span class="dot"></span><span id="scene-status-text">рисуем…</span>
         </div>
+        <div class="scene-media__caption">
+          <div class="scene-media__place" id="scene-place" hidden></div>
+          <div class="scene-chapter" id="scene-chapter" hidden></div>
+        </div>
         <span class="scene-media__badge" id="scene-badge" hidden></span>
         <button class="icon-btn scene-media__reload" type="button" data-act="reload-image" aria-label="Перерисовать">⟳</button>
       </div>
 
-      <!-- Текст ИИ-мастера -->
+      <!-- Текст ИИ-мастера в отдельной читаемой карточке -->
       <div class="panel" id="panel">
         <div class="notices" id="notices"></div>
-        <div class="scene-chapter" id="scene-chapter" hidden></div>
         <div class="scene-text__body" id="scene-text" role="status" aria-live="polite" aria-atomic="false"></div>
         <div class="scene-npc" id="scene-npc" hidden></div>
         <!-- Кнопки-иконки одинаковой ширины: ряд ровный, палец попадает с первого раза -->
@@ -3853,8 +4424,13 @@ body[data-theme] .mech-chip--use {
 
   <!-- ============ ОВЕРЛЕЙ ОЖИДАНИЯ (сборка мира) ============ -->
   <div class="overlay" id="loading" hidden>
-    <div class="loading-box">
-      <span class="spinner spinner--lg"></span>
+    <div class="loading-box" role="status" aria-live="polite" aria-busy="true">
+      <div class="loading-skeleton" aria-hidden="true">
+        <span class="loading-skeleton__moon"></span>
+        <span class="loading-skeleton__ridge loading-skeleton__ridge--back"></span>
+        <span class="loading-skeleton__ridge loading-skeleton__ridge--front"></span>
+      </div>
+      <span class="spinner spinner--lg" aria-hidden="true"></span>
       <div class="loading-box__title" id="loading-title">Мастер строит мир…</div>
       <div class="loading-box__text" id="loading-text">Это займёт несколько секунд</div>
     </div>
@@ -6486,7 +7062,8 @@ body[data-theme] .mech-chip--use {
         name: n.name, role: n.role || '', voice: n.voice || '',
         relation: info.id, relationTitle: info.title, relationIcon: info.icon,
         trust: info.trust, helped: !!n.helped, note: info.note,
-        seen: n.seen || 0
+        seen: n.seen || 0, seenCount: Math.max(1, Number(n.seenCount) || 1),
+        portrait: n.portrait || '', portraitSeed: Number(n.portraitSeed) || 0
       };
     }).sort((a, b) => (b.seen || 0) - (a.seen || 0));
   }
@@ -6849,10 +7426,11 @@ body[data-theme] .mech-chip--use {
       '  "opening": "сцена, 2-3 предложения, второе лицо, живая деталь, ощутимая угроза",',
       '  "chapter": "название первой главы, 2-4 слова",',
       '  "npc": "имя и одна деталь персонажа, появившегося рядом, иначе пустая строка",',
-      '  "imagePrompt": "English image prompt for the very first scene, 10-14 words: location + light + mood + who is in frame",',
+      '  "imagePrompt": "English image prompt for the first scene: location + light + mood + the hero and every other visible participant",',
       '  "options": [ {"text": "...", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"} x3 ]',
       '}',
       'Ровно 3 варианта действий, каждый не длиннее 12 слов. Только JSON, без пояснений.',
+      'В imagePrompt перечисли героя и всех, кто рядом в завязке; при нескольких участниках явно укажи группу и покажи их вместе, не одиночным портретом.',
       '',
       'ВАЖНО: пиши предельно коротко — ответ должен целиком влезть в лимит длины.',
       'Про класс, вид и происхождение героя здесь не пиши: их мастер придумывает отдельным ответом.'
@@ -7177,6 +7755,10 @@ body[data-theme] .mech-chip--use {
     m.npcs.forEach(n => {
       if (!n.relation) n.relation = relationFromText(n.attitude);
       if (!Number.isFinite(Number(n.trust))) n.trust = trustFromRelation(relationOf(n));
+      if (!Number.isFinite(Number(n.seenCount)) || Number(n.seenCount) < 1) n.seenCount = 1;
+      else n.seenCount = Math.round(Number(n.seenCount));
+      if (typeof n.portrait !== 'string') n.portrait = '';
+      if (!Number.isFinite(Number(n.portraitSeed))) n.portraitSeed = 0;
     });
     if (!Array.isArray(m.threads)) m.threads = [];
     if (!Array.isArray(m.openings)) m.openings = [];
@@ -7278,6 +7860,7 @@ body[data-theme] .mech-chip--use {
         const known = m.npcs.find(n => n.name.toLowerCase() === name.toLowerCase());
         if (known) {
           known.seen = game.turn;
+          known.seenCount = (Number(known.seenCount) || 1) + 1;
           if (npc.role) known.role = String(npc.role).slice(0, 40);
           if (npc.attitude) known.attitude = String(npc.attitude).slice(0, 40);
           if (npc.voice) known.voice = String(npc.voice).slice(0, 60);
@@ -7286,7 +7869,7 @@ body[data-theme] .mech-chip--use {
           if (!known.relation) known.relation = relationFromText(known.attitude);
         } else {
           m.npcs.push({
-            name, seen: game.turn,
+            name, seen: game.turn, seenCount: 1,
             role: String(npc.role || npc.detail || '').slice(0, 40),
             attitude: String(npc.attitude || '').slice(0, 40),
             relation: relationFromText(npc.attitude),
@@ -7383,6 +7966,97 @@ body[data-theme] .mech-chip--use {
       if (node) node.now = true;
     }
     return nodes.map(n => ({ key: n.key, title: n.title, turns: n.turns, chapter: n.chapter, now: n.now }));
+  }
+
+  /** События для иллюстрированной ленты: действие связано со следующим ответом мастера. */
+  function campaignTimeline(game) {
+    const log = Array.isArray(game && game.log) ? game.log : [];
+    const actionTotal = log.filter(e => e && e.kind === 'action').length;
+    const turnOffset = Math.max(0, (Number(game && game.turn) || 0) - actionTotal);
+    const moments = [];
+    let actionNo = 0, pending = null, openingAdded = false;
+    log.forEach(entry => {
+      if (!entry) return;
+      if (entry.kind === 'action') {
+        actionNo += 1;
+        pending = {
+          turn: Number(entry.turn) || turnOffset + actionNo,
+          action: entry,
+          scene: null,
+          npc: '',
+          place: '',
+          chapter: entry.chapter || '',
+          notes: []
+        };
+        moments.push(pending);
+        return;
+      }
+      if (entry.kind === 'npc') {
+        if (pending) pending.npc = String(entry.text || '');
+        return;
+      }
+      if (entry.kind !== 'gm') return;
+      if (pending) {
+        const gmTurn = Number(entry.turn);
+        if (!Number.isFinite(gmTurn) || gmTurn === pending.turn) {
+          pending.scene = entry;
+          pending.place = entry.place || pending.place;
+          pending.chapter = entry.chapter || pending.chapter;
+          pending.notes = Array.isArray(entry.notes) ? entry.notes.slice() : [];
+          pending = null;
+          return;
+        }
+      }
+      if (!actionNo && !openingAdded) {
+        moments.push({
+          turn: Number(entry.turn) || 1,
+          action: null,
+          scene: entry,
+          npc: '',
+          place: entry.place || '',
+          chapter: entry.chapter || '',
+          notes: Array.isArray(entry.notes) ? entry.notes.slice() : [],
+          opening: true
+        });
+        openingAdded = true;
+      }
+    });
+    return moments;
+  }
+
+  const CAMPAIGN_SEAL_DEFS = [
+    { id: 'first-step', icon: '✦', title: 'Первый шаг', description: 'Сделан первый выбор в истории.' },
+    { id: 'explorer', icon: '⌖', title: 'Следопыт', description: 'Открыты три разных места.' },
+    { id: 'ally', icon: '🤝', title: 'Союзник', description: 'Знакомый пришёл герою на помощь.' },
+    { id: 'find', icon: '◇', title: 'Находка', description: 'В хронике отмечено получение предмета.' },
+    { id: 'scar', icon: '✚', title: 'Шрам', description: 'Герой пережил рану.' },
+    { id: 'victory', icon: '🏁', title: 'Цель достигнута', description: 'Главная задача кампании выполнена.' }
+  ];
+
+  /** Печати выводятся из реальных событий и сохраняются между ходами. */
+  function campaignSeals(game) {
+    const g = game || {};
+    const log = Array.isArray(g.log) ? g.log : [];
+    const m = memoryOf(g);
+    const earned = new Set(Array.isArray(g.seals) ? g.seals : []);
+    const hasAction = log.some(e => e && e.kind === 'action');
+    const hasExplorer = placeGraph(g).length >= 3;
+    const hasAlly = m.npcs.some(n => n && n.helped);
+    const hasFind = log.some(e => Array.isArray(e && e.notes) && e.notes.some(n => n && n.type === 'item'));
+    const hasScar = !!((g.hero && Array.isArray(g.hero.states) && g.hero.states.some(st => st && st.id === 'wound')) ||
+      log.some(e => Array.isArray(e && e.notes) && e.notes.some(n => n && n.type === 'state' && /рана|wound/i.test(String(n.text || '')))));
+    const hasVictory = !!(g.questDone || g.ending === 'victory');
+    const checks = {
+      'first-step': hasAction,
+      explorer: hasExplorer,
+      ally: hasAlly,
+      find: hasFind,
+      scar: hasScar,
+      victory: hasVictory
+    };
+    CAMPAIGN_SEAL_DEFS.forEach(seal => { if (checks[seal.id]) earned.add(seal.id); });
+    g.seals = CAMPAIGN_SEAL_DEFS.map(seal => seal.id).filter(id => earned.has(id));
+    return CAMPAIGN_SEAL_DEFS.map(seal => Object.assign({}, seal, { earned: earned.has(seal.id) }));
   }
 
   /* ---------------------------------------------------------- */
@@ -7482,6 +8156,7 @@ body[data-theme] .mech-chip--use {
     const h = game.hero || {};
     const wins = (game.log || []).filter(e => e.kind === 'action' && /d20/.test(String(e.meta || ''))).length;
     const arc = arcOf(game);
+    const seals = campaignSeals(game).filter(s => s.earned).map(s => s.title);
     return {
       title: game.title || 'Кампания',
       world: game.scenarioTitle || '',
@@ -7491,6 +8166,7 @@ body[data-theme] .mech-chip--use {
       turns: game.turn || 0,
       checks: wins,
       milestones: arc.done.map(d => d.title).slice(0, 3),
+      seals,
       facts: (m.facts.length ? m.facts : m.deeds).slice(-3),
       people: m.npcs.slice(0, 3).map(n => n.name),
       ashes: (legacyRes && legacyRes.ashes) || 0,
@@ -7654,13 +8330,26 @@ body[data-theme] .mech-chip--use {
     return sceneKindFromText(a0) === sceneKindFromText(b0) && shared >= 1;
   }
 
-  /** Портрет героя: одна картинка на всю кампанию. */
+  /** Портрет героя: класс, происхождение и мир задают узнаваемый образ кампании. */
   function portraitPrompt(game) {
-    const h = game.hero;
-    const race = h.raceName || '';
-    const cls = h.className || '';
-    const look = [cls, race].filter(Boolean).join(', ');
-    return `character portrait, ${look}, head and shoulders, dramatic side light, no text, ${styleOf(game).imageStyle}`;
+    const h = (game && game.hero) || {};
+    const archetypeByClass = {
+      warrior: 'warrior and frontline fighter',
+      rogue: 'rogue, stealth scout and quick-handed adventurer',
+      scholar: 'scholar, researcher and investigator',
+      mage: 'sorcerer and magic wielder',
+      diplomat: 'diplomat and charismatic negotiator',
+      wanderer: 'wanderer, tracker and survivalist'
+    };
+    const role = archetypeByClass[h.classId] || 'adventurer';
+    const details = [
+      h.raceName ? `race ${h.raceName}` : '',
+      h.className ? `selected class/profession ${h.className}` : role,
+      `visual archetype ${role}`,
+      h.originName ? `background ${h.originName}` : '',
+      game && game.title ? `setting ${game.title}` : ''
+    ].filter(Boolean).join(', ');
+    return `unique original role-playing game hero portrait, ${details}, outfit and tools clearly reflect the profession and background, distinctive face and silhouette, head and shoulders, cinematic side light, no text, ${styleOf(game).imageStyle}`;
   }
 
   /** Промпт картинки локации: место и свет, без людей — их рисует слой действия. */
@@ -8104,7 +8793,7 @@ body[data-theme] .mech-chip--use {
     if (layers) extra.push(layers);
     const actors = sceneActors(sceneText);
     actors.props.slice(0, 2).forEach(p => { if (PROP_ART[p]) extra.push(PROP_ART[p]); });
-    if (actors.enemies.length && ENEMY_ART[actors.enemies[0]]) extra.push(ENEMY_ART[actors.enemies[0]]);
+    actors.enemies.slice(0, 3).forEach(type => { extra.push(enemyArtForScene(type, sceneText)); });
     const kind = sceneKindFromText(sceneText);
     const kindArt = { indoor: 'interior, enclosed space', outdoor: 'wide landscape, open sky', night: 'night scene, deep shadows', water: 'water and reflections', fire: 'firelight, warm glow' };
     if (kindArt[kind]) extra.push(kindArt[kind]);
@@ -8287,6 +8976,17 @@ body[data-theme] .mech-chip--use {
     return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
 
+  /** Стабильное зерно портрета из id кампании: новая игра получает новый образ. */
+  function portraitSeedFromId(id) {
+    let hash = 2166136261;
+    const value = String(id || 'new-game');
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return ((hash >>> 0) % 2147483646) + 1;
+  }
+
   function createGame(opts) {
     const { scenarioId, heroName, classId, raceId, originId, worldConfig } = opts;
     const scenario = scenarioById(scenarioId);
@@ -8298,11 +8998,13 @@ body[data-theme] .mech-chip--use {
     const maxHp = maxHpFor({ classId: cls.id, cls, stats });
     const name = (heroName || '').trim().slice(0, 24) || 'Безымянный';
     const cfg = worldConfig ? Object.assign(emptyWorldConfig(), worldConfig) : null;
+    const id = newGameId();
+    const now = Date.now();
     return {
       schema: SCHEMA_VERSION,
-      id: newGameId(),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      id,
+      createdAt: now,
+      updatedAt: now,
       scenarioId: scenario.id,
       scenarioTitle: scenario.customGame && cfg && cfg.gameName ? cfg.gameName : scenario.title,
       scenarioBase: scenario.id,
@@ -8327,6 +9029,7 @@ body[data-theme] .mech-chip--use {
       hero: {
         name,
         portrait: '',
+        portraitSeed: portraitSeedFromId(id),
         classId: cls.id,
         className: cls.title,
         classIcon: cls.icon,
@@ -8695,7 +9398,7 @@ body[data-theme] .mech-chip--use {
     ['construct', /робот|дрон|андроид|машин|автомат|синт|голем|механизм|сервопривод/],
     ['monster', /монстр|демон|чудищ|мутант|тролл|гоблин|орк|великан|гигант/],
     ['soldier', /солдат|стражник|патрул|легион|гвард|рыцар|наёмник|наемник|бандит|разбойник|пират|страж|караул|охрана/],
-    ['human', /человек|люди|людей|людьми|торговец|крестьян|старик|старух|женщин|мужчин|толп|горожан|дет[ией]|ведьм|колдун|жрец|бармен|инженер|пилот|ночлежк|прохожий/]
+    ['human', /человек|люди|людей|людьми|торговец|крестьян|старик|старух|женщин|мужчин|толп|горожан|дет[ией]|ведьм|колдун|жрец|бармен|инженер|пилот|ночлежк|прохожий|незнаком|собеседник|проводник|компаньон|спутник|союзник|подруг|друз|товарищ|поселенец|жител|странник|merchant|civilian|travell?er|stranger|companion|friend|ally|villager|innkeeper/]
   ];
   const PROP_RULES = [
     ['fire', /костёр|костер|огон|пожар|пламя|спичк|головн|жарк/],
@@ -8826,8 +9529,56 @@ body[data-theme] .mech-chip--use {
     soldier: 'armed figures approaching',
     human: 'a stranger watching from the shadows'
   };
+  const ENEMY_PROMPT_RE = {
+    dragon: /dragon|wyvern|serpent/i,
+    beast: /wolf|beast|bear|spider|hound|creature/i,
+    undead: /undead|skeleton|zombie|ghost/i,
+    construct: /machine|robot|android|golem|sentinel|construct/i,
+    monster: /monster|demon|troll|goblin|orc|giant/i,
+    soldier: /bandit|guard|thief|soldier|pirate|armed figure|mercenary|opponent|raider/i,
+    human: /stranger|companion|merchant|villager|townspeople|people|person|civilian/i
+  };
+  const ENEMY_NOUNS = {
+    dragon: 'дракон|виверн|змей|dragon|wyvern',
+    beast: 'волк|волч|пёс|пс[аыу]|собак|звер|медвед|крыс|паук|жук|лошад|лис|wolf|beast|bear|spider|hound',
+    undead: 'скелет|мертвец|зомби|призрак|нежит|упыр|skeleton|zombie|ghost|undead',
+    construct: 'робот|дрон|андроид|машин|автомат|голем|механизм|robot|android|machine|golem|sentinel',
+    monster: 'монстр|демон|чудищ|мутант|тролл|гоблин|орк|великан|monster|demon|troll|goblin|orc|giant',
+    soldier: 'солдат|стражник|патрул|легион|гвард|рыцар|наёмник|наемник|бандит|разбойник|пират|страж|караул|охрана|soldier|guard|bandit|thief|pirate|knight',
+    human: 'человек|люди|людей|торговец|крестьян|старик|женщин|мужчин|прохожий|person|people|merchant|villager|stranger|civilian|man|woman'
+  };
+  function enemyArtForScene(type, text) {
+    const base = ENEMY_ART[type] || '';
+    const nouns = ENEMY_NOUNS[type];
+    if (!base || !nouns) return base;
+    const countPattern = new RegExp(
+      '\\b(two|three|four|several|multiple|both|\\d+|a pair of|pair of)\\s+(?:[a-z-]+\\s+){0,2}(?:' + nouns + ')|' +
+      '(двое|две|два|двумя|трое|три|тремя|четверо|четыре|четырьмя|пятеро|пятерых|несколько)\\s+(?:[а-яёa-z-]+\\s+){0,2}(?:' + nouns + ')', 'i'
+    );
+    const match = countPattern.exec(String(text || ''));
+    if (!match) return base;
+    const raw = String(match[1] || match[2] || '').toLowerCase();
+    const count = /^(?:two|both|2|a pair of|pair of|двое|две|два|двумя)$/.test(raw) ? 'two'
+      : /^(?:three|3|трое|три|тремя)$/.test(raw) ? 'three'
+      : /^(?:four|4|четверо|четыре|четырьмя)$/.test(raw) ? 'four'
+      : 'several';
+    let noun = type === 'dragon' ? 'dragons looming'
+      : type === 'beast' ? 'beasts closing in'
+      : type === 'undead' ? 'undead figures rising'
+      : type === 'construct' ? 'mechanical sentinels'
+      : type === 'monster' ? 'monsters closing in'
+      : type === 'human' ? 'people in the scene'
+      : /бандит|разбойник|bandit/.test(String(text || '').toLowerCase()) ? 'bandits approaching'
+      : /страж|охран|guard/.test(String(text || '').toLowerCase()) ? 'guards on alert'
+      : /пират|pirate/.test(String(text || '').toLowerCase()) ? 'pirates approaching'
+      : /рыцар|knight/.test(String(text || '').toLowerCase()) ? 'knights approaching'
+      : /солдат|soldier/.test(String(text || '').toLowerCase()) ? 'soldiers advancing'
+      : 'armed figures approaching';
+    return count + ' ' + noun;
+  }
   const PEOPLE_RE = /knight|warrior|figure|figures|people|person|character|hero|creature|monster|dragon|beast|bandit|guard|thief|soldier|silhouette|crowd|man |woman|robot|undead|group/i;
-  const ENEMY_WORD_RE = /bandit|guard|thief|soldier|wolf|beast|monster|dragon|undead|creature|figure|figures|sentinel|warrior|knight|crowd|group/i;
+  const HERO_PROMPT_RE = /\b(?:hero|protagonist|main character|player character|adventurer)\b/i;
+  const MULTI_CAST_RE = /\b(?:two|three|four|several|multiple|both|pair|group|crowd|people|persons|figures|companions|friends|guards|bandits|soldiers|villagers|travelers|travellers|men|women)\b|двое|две|два|двумя|трое|три|тремя|четверо|четыре|четырьмя|пятеро|пара|несколько|группа|толпа|люди|людей|людьми|стражники|бандиты|солдаты|спутники|союзники|друзья|путники|мужчины|женщины/i;
 
   /**
    * Промпт картинки для текущей сцены. Гарантирует, что на фоне
@@ -8836,37 +9587,80 @@ body[data-theme] .mech-chip--use {
   function composeSceneImagePrompt(game, opts) {
     const o = opts || {};
     const s = scenarioById(game && game.scenarioId);
-    const sceneText = [o.sceneText, o.action && o.action.text, o.npc].filter(Boolean).join(' ');
-    const actors = sceneActors(sceneText);
+    const npcObject = o.npcObject || (o.npc && typeof o.npc === 'object' ? o.npc : null);
+    const npcText = [
+      typeof o.npc === 'string' ? o.npc : '',
+      npcObject && npcObject.name,
+      npcObject && npcObject.role,
+      npcObject && npcObject.description,
+      npcObject && npcObject.attitude
+    ].filter(Boolean).join(' ');
+    const narrativeText = [o.sceneText, o.action && o.action.text].filter(Boolean).join(' ');
+    const sceneText = [narrativeText, npcText].filter(Boolean).join(' ');
+    const actors = sceneActors(narrativeText || sceneText);
+    const memory = game && game.memory;
+    const rememberedNpc = !!(memory && Array.isArray(memory.npcs) && memory.npcs.some(n => {
+      const name = String((n && n.name) || '').trim().toLowerCase();
+      return name && sceneText.toLowerCase().includes(name);
+    }));
+    const npcPresent = !!(npcObject && (npcObject.name || npcObject.role || npcObject.description)) ||
+      (typeof o.npc === 'string' && !!o.npc.trim());
+    const multiCast = npcPresent || rememberedNpc || actors.enemies.length > 0 || MULTI_CAST_RE.test(sceneText + ' ' + String(o.aiPrompt || ''));
     // что игрок только что сделал: предмет крупным планом, ракурс по глаголу
     const focus = actionFocus(o.action && o.action.text, o.sceneText);
     let base = String(o.aiPrompt || '').replace(/\s+/g, ' ').trim();
-    const hadPrompt = !!base;
     if (!base) base = s.imagePrompts[0] || 'atmospheric cinematic environment art';
+    // Оставляем место под состав кадра, если промпт мастера необычно длинный.
+    if (multiCast && base.length > 150) base = base.slice(0, 147).replace(/\s+\S*$/, '').trim();
     const parts = [base];
-    // свет и время суток из текста сцены: кадр должен совпадать с рассказом
+    // Не считаем слово "person/figure" доказательством, что в промпте уже есть герой:
+    // иначе общий кадр с несколькими NPC легко превращался в портрет одного персонажа.
+    if (!HERO_PROMPT_RE.test(base)) {
+      parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
+    }
+    if (npcPresent && !/\b(?:companion|ally|friend|guide|merchant|innkeeper|NPC)\b/i.test(base)) {
+      const role = [npcObject && npcObject.role, npcObject && npcObject.description, npcObject && npcObject.attitude, npcText].join(' ').toLowerCase();
+      const npcArt = /проводниц|проводник|guide/.test(role) ? 'a companion guide beside the hero'
+        : /страж|охран|guard|soldier/.test(role) ? 'a companion guard beside the hero'
+        : /торгов|купец|merchant/.test(role) ? 'a merchant companion beside the hero'
+        : /жриц|священ|priest/.test(role) ? 'a priest companion beside the hero'
+        : /враг|противник|enemy|rival/.test(role) ? 'a rival NPC facing the hero'
+        : 'a distinct companion NPC beside the hero';
+      parts.push(npcArt);
+    }
+    // Добавляем каждый распознанный тип участника, а не только первого врага в списке.
+    actors.enemies.slice(0, 3).forEach(type => {
+      const mentioned = ENEMY_PROMPT_RE[type];
+      if (!mentioned || !mentioned.test(base)) parts.push(enemyArtForScene(type, sceneText));
+    });
+    // Свет и время суток из текста сцены: кадр должен совпадать с рассказом.
     const light = sceneLightFromText(sceneText);
     if (light && !ENGLISH_LIGHT_RE.test(base)) parts.push(light);
-    // предметы окружения, которых ещё нет в промпте: телега, костёр, ворота
+    // Предметы окружения, которых ещё нет в промпте: телега, костёр, ворота.
     actors.props.slice(0, 2).forEach(p => {
       const word = PROP_ART[p];
       if (word && !new RegExp(word.split(' ')[0], 'i').test(base)) parts.push(word);
     });
-    if (!hadPrompt || !PEOPLE_RE.test(base)) {
-      parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
-    }
-    // врагов добавляем, если их видно в сцене и они ещё не упомянуты в промпте
-    if (actors.enemies.length && !ENEMY_WORD_RE.test(base)) {
-      parts.push(ENEMY_ART[actors.enemies[0]]);
-    }
-    // предмет действия — самое информативное в кадре: рисуем его первым делом
+    // Предмет действия — самое информативное в кадре: рисуем его первым делом.
     if (focus && focus.art) parts.push(focus.art);
     // выбранный игроком стиль: кадр выглядит как одна книга, а не как набор случайных
     const style = stylePrompt(game && game.artStyle);
     if (style && !base.includes(style)) parts.push(style);
     let out = parts.join(', ').replace(/\s+/g, ' ').trim();
     // сверка со сценой: если значимые слова сцены не попали в промпт, дописываем их
-    out = reinforcePrompt(sceneText, out, game);
+    out = reinforcePrompt(narrativeText || sceneText, out, game);
+
+    if (multiCast) {
+      const cue = 'group shot: hero plus every companion, NPC and opponent together, clearly distinct; preserve the full count, never a solo portrait';
+      const budget = 380 - cue.length - 2;
+      if (out.length > budget) {
+        out = out.slice(0, budget);
+        const lastComma = out.lastIndexOf(',');
+        if (lastComma > 100) out = out.slice(0, lastComma);
+        out = out.replace(/[\s,;]+$/, '');
+      }
+      out = (out ? out + ', ' : '') + cue;
+    }
     return out.slice(0, 380);
   }
 
@@ -9448,10 +10242,11 @@ body[data-theme] .mech-chip--use {
     '"npc.trust" — доверие к знакомому 0–5; другу легче соврать и попросить, враг заметит обман.',
     'Пиши на русском, но "imagePrompt" — всегда на английском.',
     '',
-    'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть те, кто участвует в сцене.',
-    'Всегда указывай героя (например: armored knight with a sword) и, если в сцене есть противники,',
-    'существа или заметные предметы — их тоже (two bandits, a wolf, a burning cart). Формат:',
-    '"место и погода, герой в кадре, кто ещё в сцене, свет и настроение". Без текста на картинке.',
+    'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть все участники текущей сцены, а не только главный герой.',
+    'Явно перечисляй героя, каждого сопровождающего NPC и всех противников/существ; сохраняй названное в сцене количество.',
+    'Если людей или существ несколько — напиши это прямо (например: hero, two guards and a wolf), расположи их вместе',
+    'в одном общем кадре, различимо и без обрезания лишних участников. Не делай одиночный портрет, если рядом есть другие.',
+    'Формат: место и погода, герой, кто ещё в сцене, свет и настроение. Без текста на картинке.',
     '',
     'ПРАВИЛА БРОСКА: результат броска — закон. Крит: выгода и новая возможность, которых не ждали.',
     'Провал: цена, осложнение, потеря — но история не останавливается и не превращается в тупик.',
@@ -10805,6 +11600,12 @@ body[data-theme] .mech-chip--use {
     if (h.buffLabel === undefined) h.buffLabel = '';
     if (h.advantage === undefined) h.advantage = false;
     if (h.advantageLabel === undefined) h.advantageLabel = '';
+    if (!Number.isFinite(Number(h.portraitSeed)) || Number(h.portraitSeed) < 1) {
+      if (!game.id) game.id = newGameId();
+      h.portraitSeed = portraitSeedFromId(game.id);
+    } else {
+      h.portraitSeed = Number(h.portraitSeed);
+    }
     if (game.schema < 4) game.schema = SCHEMA_VERSION;
     return game;
   }
@@ -10847,6 +11648,7 @@ body[data-theme] .mech-chip--use {
     storyFor, storyBeat, ATMOSPHERE, GENERIC_ATMOSPHERE,
     emptyMemory, memoryOf, memoryBlock, rememberTurn, rememberFact, openingOf, rulesOf, defaultRules,
     rulesLine, TONES, RATINGS, ART_PACKS, artStyleFor, styleOf, stylePrompt, placeKey, placePrompt, placeGraph,
+    campaignTimeline, campaignSeals,
     paragraphMoods, campaignMarkdown, runCard,
     portraitPrompt, polishSceneText, dedupeOptions, resolveDefeat, epilogueText, buildEpiloguePrompt,
     extractPartialField, salvageWorldResponse, sliceAfterKey, listFromPartialArray,
@@ -12916,21 +13718,44 @@ body[data-theme] .mech-chip--use {
         const skin = Object.keys(entry.skin || {})
           .map(k => k + ':' + entry.skin[k]).join(';');
         const hasSprite = !!spriteUrl(entry);
-        const classes = 'critter critter--' + entry.id + (hasSprite ? ' critter--generated' : '');
-        const art = hasSprite
-          ? '<span class="critter__sprite" aria-hidden="true"></span>'
-          : entry.svg();
+        // Пока лист загружается, показываем встроенный рисунок: source index.html
+        // может открываться в предпросмотре, где относительный WebP недоступен.
+        const classes = 'critter critter--' + entry.id + (hasSprite ? ' critter--svg-fallback critter--sprite-loading' : '');
         return '<div class="' + classes + '" data-role="' + entry.id + '" style="' + skin + '">' +
-          art + '</div>';
+          entry.svg() + '</div>';
       }).join('');
       state.els = {};
       pair.forEach(entry => {
         const el = container.querySelector('[data-role="' + entry.id + '"]');
         state.els[entry.id] = el;
-        if (entry.sprite && el && el.style) {
-          el.style.setProperty('--critter-sheet', 'url("' + spriteUrl(entry) + '")');
+        const art = el && typeof el.querySelector === 'function' ? el.querySelector('.critter__art') : null;
+        // Фразы и подпрыгивание срабатывают только при касании нарисованной
+        // SVG-фигуры, а не пустого прямоугольника со sprite background.
+        if (art) {
+          art.style.pointerEvents = 'visiblePainted';
+          art.addEventListener('click', event => {
+            if (event && event.stopPropagation) event.stopPropagation();
+            hop(el);
+          });
         }
-        el.addEventListener('click', () => hop(el));
+        const url = spriteUrl(entry);
+        if (entry.sprite && url && el && typeof Image !== 'undefined') {
+          const sheet = new Image();
+          sheet.onload = () => {
+            if (!el.isConnected || el.dataset.role !== entry.id) return;
+            el.innerHTML = '<span class="critter__sprite" aria-hidden="true"></span>';
+            el.classList.remove('critter--svg-fallback', 'critter--sprite-loading');
+            el.classList.add('critter--generated');
+            el.style.setProperty('--critter-sheet', 'url("' + url + '")');
+          };
+          // При 404/запрещённом ресурсе оставляем видимый локальный SVG.
+          sheet.onerror = () => {
+            if (!el.isConnected || el.dataset.role !== entry.id) return;
+            el.classList.remove('critter--sprite-loading');
+            el.classList.add('critter--svg-fallback');
+          };
+          sheet.src = url;
+        }
       });
       if (reduced) arrangeStill();
       else Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));
@@ -13402,6 +14227,7 @@ body[data-theme] .mech-chip--use {
           aiPrompt: parsed.imagePrompt,
           sceneText: parsed.scene,
           npc: parsed.npc,
+          npcObject: parsed.npcObject,
           action
         });
         return Object.assign(parsed, { source: res.source });
@@ -13457,7 +14283,8 @@ body[data-theme] .mech-chip--use {
         parsed.imagePrompt = E.composeSceneImagePrompt(game, {
           aiPrompt: parsed.imagePrompt,
           sceneText: parsed.scene,
-          npc: parsed.npc
+          npc: parsed.npc,
+          npcObject: parsed.npcObject
         });
         return Object.assign(parsed, { source: res.source });
       }
@@ -13570,11 +14397,13 @@ body[data-theme] .mech-chip--use {
           hero: data.hero || null,
           scene,
           chapter: data.chapter || 'Пролог',
-          npc: data.npc || '',
+          npc: typeof data.npc === 'string' ? data.npc : (data.npc && data.npc.name ? String(data.npc.name) : ''),
+          npcObject: data.npc && typeof data.npc === 'object' ? data.npc : null,
           imagePrompt: E.composeSceneImagePrompt(game, {
             aiPrompt: data.imagePrompt || base.imagePrompts[0],
             sceneText: scene,
-            npc: data.npc
+            npc: typeof data.npc === 'string' ? data.npc : '',
+            npcObject: data.npc && typeof data.npc === 'object' ? data.npc : null
           }),
           options,
           effects: { hp: 0, item: '', goal: false }
@@ -14171,6 +15000,11 @@ body[data-theme] .mech-chip--use {
     actorProgress: 1,        // появление фигур на слое действия (0 → 1)
     portrait: '',            // портрет героя этой кампании
     portraitLoading: false,
+    portraitGameId: '',       // какой кампании принадлежит текущая генерация
+    portraitGameRef: null,    // конкретный объект сохранения, чтобы гонка загрузок не застряла
+    portraitRequestSeq: 0,    // старый ответ не заменяет портрет новой игры
+    npcPortraitPending: {},   // один запрос на NPC в текущей вкладке
+    npcPortraitFailed: {},    // не повторяем неудачные запросы при каждом открытии журнала
     legacy: null,            // пепел, летопись и открытия прошлых кампаний
     runFinished: false,      // текущая кампания уже попала в наследие
     slowHintTimer: null,     // подсказка, если мастер молчит дольше обычного
@@ -14685,12 +15519,14 @@ body[data-theme] .mech-chip--use {
     const startY = sourceBox.top + sourceBox.height / 2;
     const viewW = document.documentElement.clientWidth || window.innerWidth;
     const viewH = window.innerHeight || document.documentElement.clientHeight;
-    const coverScale = Math.max(1, Math.hypot(viewW, viewH) * 1.75 / tileSize);
+    // Диагонали хватает, чтобы кубик закрыл углы экрана при любом угле; лишнее
+    // увеличение почти вдвое создавало огромную текстуру и тормозило Safari на iPhone.
+    const coverScale = Math.max(1, Math.hypot(viewW, viewH) * 1.12 / tileSize);
     const px = n => (Math.round(n * 100) / 100) + 'px';
     const frame = (x, y, scale, rotation, offset) => ({
-      left: px(x - tileSize / 2),
-      top: px(y - tileSize / 2),
-      transform: 'scale(' + scale + ') rotate(' + rotation + 'deg)',
+      // Позицию тоже меняем через transform: left/top заставляли Safari
+      // пересчитывать layout почти 50 раз за каждый пролёт.
+      transform: 'translate3d(' + px(x - startX) + ', ' + px(y - startY) + ', 0) scale(' + scale + ') rotate(' + rotation + 'deg)',
       offset
     });
     const smooth = t => t * t * (3 - 2 * t);
@@ -14737,9 +15573,9 @@ body[data-theme] .mech-chip--use {
       glyph.alt = '';
       glyph.decoding = 'async';
       glyph.draggable = false;
-      // Небольшая тень сохраняет объём, не раздуваясь в огромный ореол при зуме.
-      const flightFilter = 'drop-shadow(0 2px 4px rgba(5, 20, 24, 0.25))';
-      glyph.style.filter = flightFilter;
+      // Не применяем drop-shadow/filter к 1024px PNG: фильтр создаёт
+      // дополнительную полноэкранную поверхность на мобильном GPU.
+      glyph.style.filter = 'none';
       die.appendChild(glyph);
       layer.appendChild(die);
       document.body.appendChild(layer);
@@ -14791,11 +15627,7 @@ body[data-theme] .mech-chip--use {
         rotationFrom: spin * 1080, rotationTo: spin * 1800
       });
       const landing = die.animate(landingFrames, { duration: 740, easing: 'linear', fill: 'forwards' });
-      const landingGlow = glyph.animate([
-        { filter: flightFilter, offset: 0 },
-        { filter: 'none', offset: 1 }
-      ], { duration: 740, easing: 'ease-out', fill: 'forwards' });
-      await waitForAnimations([landing, landingGlow]);
+      await waitForAnimations([landing]);
     } catch (error) {
       if (!switched) {
         changeScreen();
@@ -14839,7 +15671,10 @@ body[data-theme] .mech-chip--use {
       style: '--i:' + index + ';--accent:' + s.palette[2],
       onclick: () => onPick(s)
     }, [
-      h('div', { class: 'scenario-card__cover', style: 'background-image:' + coverUrl(s.cover) }),
+      h('div', { class: 'scenario-card__cover', style: 'background-image:' + coverUrl(s.cover) }, [
+        h('span', { class: 'scenario-card__sigil', text: s.icon || '✦', 'aria-hidden': 'true' }),
+        h('span', { class: 'scenario-card__cover-mark', text: 'ИСТОРИЯ' })
+      ]),
       h('div', { class: 'scenario-card__body' }, [
         h('div', { class: 'scenario-card__genre', text: s.icon + ' ' + s.genre }),
         h('h3', { class: 'scenario-card__title', text: s.title }),
@@ -15683,7 +16518,9 @@ body[data-theme] .mech-chip--use {
       // мир уже собран, пока игрок выбирал героя — не гоняем ИИ второй раз
       const ready = State.pendingWorld;
       State.pendingWorld = null;
+      applyTheme(game);
       show('game');
+      prepareHeroPortrait(game);
       State.busy = false;
       renderGameTop();
       renderActions(null, true);
@@ -15752,6 +16589,7 @@ body[data-theme] .mech-chip--use {
       }
     }
     show('game');
+    prepareHeroPortrait(game);
     renderGameTop();
     renderIntro(game.intro);
     renderSceneText(game.scene ? game.scene.text : '');
@@ -15768,8 +16606,6 @@ body[data-theme] .mech-chip--use {
     } else if (game.scene) {
       loadSceneImage(game.scene.imagePrompt || game.lastImagePrompt, null, true);
     }
-    if (game.hero && game.hero.portrait) showPortrait(game.hero.portrait);
-    if (isNew && game.hero) refreshPortrait(false);
     Ambient.sync();
     renderChapter(game);
     // взятая цель могла остаться без финала: игрок закрыл игру между ходом и эпилогом
@@ -15782,6 +16618,19 @@ body[data-theme] .mech-chip--use {
   function renderGameTop() {
     const g = State.game;
     $('#game-title').textContent = g.title;
+    const heroLine = $('#game-hero-line');
+    if (heroLine) {
+      const hero = g.hero || {};
+      const classLabel = [hero.classIcon, hero.className].filter(Boolean).join(' ');
+      const identity = [hero.name, classLabel, hero.originName].filter(Boolean);
+      heroLine.textContent = identity.join(' · ');
+      heroLine.hidden = !identity.length;
+    }
+    const scenePlace = $('#scene-place');
+    if (scenePlace) {
+      scenePlace.textContent = (g.scene && g.scene.place) || '';
+      scenePlace.hidden = !scenePlace.textContent;
+    }
     const parts = [];
     if (g.daily) parts.push('🗓 забег дня');
     else if (g.chapter) parts.push(g.chapter);
@@ -16050,18 +16899,66 @@ body[data-theme] .mech-chip--use {
   /* знакомые. Показываем только то, что правда пригодится.      */
   /* ---------------------------------------------------------- */
 
-  /** Карточка предмета: иконка, название, «что делает», кнопка использования. */
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgNode(tag, attrs, children) {
+    const node = document.createElementNS(SVG_NS, tag);
+    Object.keys(attrs || {}).forEach(key => node.setAttribute(key, String(attrs[key])));
+    (children || []).forEach(child => node.appendChild(child));
+    return node;
+  }
+
+  /** Небольшие векторные предметные значки: никаких внешних файлов или эмодзи-спрайтов. */
+  function itemArtwork(kind) {
+    const shapes = {
+      heal: [
+        ['path', { d: 'M18 5h12v6l-3 4v4c5 2 8 6 8 11a12 12 0 1 1-22 0c0-5 3-9 8-11v-4l-3-4z' }],
+        ['path', { d: 'M18 11h12M16 28h16M24 22v9m-4.5-4.5h9' }]
+      ],
+      boost: [
+        ['path', { d: 'm29 7 12-3-3 12-15 15-9-9L29 7z' }],
+        ['path', { d: 'm14 23-7 7m10-2-6 6m12-10 6 6' }]
+      ],
+      advantage: [
+        ['circle', { cx: 24, cy: 24, r: 17 }],
+        ['circle', { cx: 24, cy: 24, r: 10 }],
+        ['path', { d: 'm24 13 3.2 6.5 7.2 1-5.2 5.1 1.2 7.2-6.4-3.4-6.4 3.4 1.2-7.2-5.2-5.1 7.2-1z' }]
+      ],
+      key: [
+        ['circle', { cx: 16, cy: 24, r: 8 }],
+        ['circle', { cx: 16, cy: 24, r: 2.5 }],
+        ['path', { d: 'M24 24h17m-6 0v5m-5-5v4' }]
+      ],
+      trophy: [
+        ['path', { d: 'm24 4 14 14-14 26L10 18 24 4z' }],
+        ['path', { d: 'M10 18h28M24 4v40m-7-20 7 8 7-8' }]
+      ]
+    };
+    const kindShapes = shapes[kind] || shapes.trophy;
+    const svg = svgNode('svg', {
+      class: 'item-card__art', viewBox: '0 0 48 48', focusable: 'false', 'aria-hidden': 'true'
+    }, []);
+    kindShapes.forEach(([tag, attrs]) => svg.appendChild(svgNode(tag, attrs)));
+    return svg;
+  }
+
+  /** Карточка предмета: локальный SVG, ясная метка типа, эффект и действие. */
   function itemCard(item) {
     const verb = E.itemVerb(item);
-    return h('div', { class: 'item-card item-card--' + item.kind + (item.kind === 'key' ? ' is-key' : '') }, [
-      h('span', { class: 'item-card__icon', text: item.icon }),
+    const consumable = ['heal', 'boost', 'advantage'].indexOf(item.kind) >= 0;
+    const label = item.kind === 'key' ? 'КЛЮЧЕВОЙ' : (item.kind === 'trophy' ? 'ПАМЯТЬ' : (consumable ? 'РАСХОДНИК' : 'ПРЕДМЕТ'));
+    return h('div', { class: 'item-card item-card--' + item.kind + (item.kind === 'key' ? ' is-key' : ''), dataset: { kind: item.kind } }, [
+      h('span', { class: 'item-card__icon item-card__icon--' + item.kind, 'aria-hidden': 'true' }, [
+        itemArtwork(item.kind),
+        h('span', { class: 'item-card__emoji', text: item.icon || '✦' })
+      ]),
       h('div', { class: 'item-card__body' }, [
         h('div', { class: 'item-card__name', text: item.name }),
-        h('div', { class: 'item-card__line', text: E.itemLine(item) })
+        h('div', { class: 'item-card__line', text: E.itemLine(item) }),
+        h('span', { class: 'item-card__badge item-card__badge--' + item.kind, text: label })
       ]),
       verb ? h('button', {
         class: 'item-card__use', type: 'button', text: verb,
-        title: E.itemLine(item),
+        title: E.itemLine(item), 'aria-label': verb + ' ' + item.name,
         onclick: () => runMech('use-item', item.id)
       }) : null
     ]);
@@ -16087,6 +16984,7 @@ body[data-theme] .mech-chip--use {
     (res.notes || []).forEach(n => notify(n.icon + ' ' + n.text, {
       kind: n.type === 'hp' && /−|-/.test(n.text) ? 'bad' : 'info', timeout: 3600
     }));
+    E.campaignSeals(g);
     autosave();
     renderMechanics();
     renderGameTop();
@@ -16109,10 +17007,14 @@ body[data-theme] .mech-chip--use {
     // состояния героя или действие, которое правда пригодится сейчас
     const acts = [];
     E.stateList(g).forEach(st => chips.appendChild(h('span', {
-      class: 'mech-chip ' + (st.mod > 0 ? 'mech-chip--good' : 'mech-chip--bad'),
-      title: st.hint + (st.turns ? ' · осталось ходов: ' + st.turns : ''),
-      text: st.icon + ' ' + st.title + ' ' + (st.mod > 0 ? '+' + st.mod : st.mod) + (st.turns ? ' · ' + st.turns + ' х.' : '')
-    })));
+      class: 'mech-chip mech-chip--state ' + (st.mod > 0 ? 'mech-chip--good' : 'mech-chip--bad'),
+      title: st.hint + (st.turns ? ' · осталось ходов: ' + st.turns : '')
+    }, [
+      h('span', { class: 'mech-chip__icon', text: st.icon || '✦', 'aria-hidden': 'true' }),
+      h('span', { class: 'mech-chip__name', text: st.title }),
+      h('strong', { class: 'mech-chip__modifier', text: (st.mod > 0 ? '+' : '') + st.mod }),
+      st.turns ? h('span', { class: 'mech-chip__turns', text: st.turns + ' х.' }) : null
+    ])));
     const known = E.npcList(g) || [];
 
     const push = (text, title, kind, id) => acts.push(h('button', {
@@ -16708,7 +17610,10 @@ body[data-theme] .mech-chip--use {
     const used = o.early
       ? earlyImagePrompt(g, place, sceneText)
       : (aiPrompt
-        ? E.composeSceneImagePrompt(g, { aiPrompt, sceneText, npc: g.scene && g.scene.npc, action })
+        ? E.composeSceneImagePrompt(g, {
+          aiPrompt, sceneText, npc: g.scene && g.scene.npc,
+          npcObject: g.scene && g.scene.npcObject, action
+        })
         : E.placePrompt(g, place, '', { noStyle: true }));
     // строка «рисуем кадр…» живёт недолго: сцена уже нарисована сама,
     // а кадр подтянется, когда генератор ответит, — ждать его на экране не нужно
@@ -17623,36 +18528,86 @@ body[data-theme] .mech-chip--use {
     Ambient.sync();
   }
 
-  /** Портрет героя: одна картинка на кампанию, показываем в шапке и в карточке. */
+  /** Готовим панель героя к новой кампании и запускаем портрет на фоне сцены. */
+  function prepareHeroPortrait(game) {
+    if (!game || !game.hero) return;
+    if (!game.id) game.id = E.newGameId();
+    const gameId = String(game.id);
+    if (State.portraitGameId !== gameId || State.portraitGameRef !== game) {
+      State.portraitRequestSeq++;
+      State.portraitLoading = false;
+      State.portraitGameId = gameId;
+      State.portraitGameRef = game;
+    }
+    State.portrait = game.hero.portrait || '';
+    showPortrait(State.portrait);
+    if (!game.hero.portrait) refreshPortrait(false);
+  }
+
+  function freshPortraitSeed() {
+    try {
+      if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        const bytes = new Uint32Array(1);
+        window.crypto.getRandomValues(bytes);
+        return (bytes[0] % 2147483646) + 1;
+      }
+    } catch (e) { /* криптографическое зерно необязательно для красоты */ }
+    return (((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0) % 2147483646) + 1;
+  }
+
+  /** Портрет опирается на выбранный класс/профессию и происхождение; одна картинка на кампанию. */
   async function refreshPortrait(force) {
     const g = State.game;
     if (!g || !g.hero) return;
     if (!force && g.hero.portrait) { showPortrait(g.hero.portrait); return; }
-    if (State.portraitLoading) return;
+    const gameId = String(g.id || '');
+    if (State.portraitLoading && State.portraitGameId === gameId && State.portraitGameRef === g) return;
+    State.portraitGameId = gameId;
+    State.portraitGameRef = g;
+    if (force || !Number.isFinite(Number(g.hero.portraitSeed)) || Number(g.hero.portraitSeed) < 1) {
+      g.hero.portraitSeed = freshPortraitSeed();
+    }
+    const requestSeq = State.portraitRequestSeq = (State.portraitRequestSeq || 0) + 1;
     State.portraitLoading = true;
+    autosave();
+    const avatar = $('#game-avatar');
+    if (avatar) {
+      if (g.hero.portrait) showPortrait(g.hero.portrait);
+      else showPortrait('');
+      avatar.classList.add('is-loading');
+    }
     try {
       const res = await API.generateImage({
         prompt: E.portraitPrompt(g),
         style: E.styleOf(g).imageStyle,
         aspect: '1:1',
         width: 384, height: 384,
-        seed: State.backdropSeed
+        seed: g.hero.portraitSeed
       });
-      if (res.ok) {
+      if (res && res.ok && State.game === g && State.portraitGameRef === g && State.portraitRequestSeq === requestSeq) {
         g.hero.portrait = res.url;
         showPortrait(res.url);
         autosave();
       }
-    } catch (e) { /* портрет — украшение, без него игра идёт */ }
+    } catch (e) { /* портрет украшает игру, но не блокирует её */ }
+    if (State.game !== g || State.portraitGameRef !== g || State.portraitRequestSeq !== requestSeq) return;
     State.portraitLoading = false;
+    if (g.hero.portrait) showPortrait(g.hero.portrait);
+    else showPortrait('');
   }
   function showPortrait(url) {
-    State.portrait = url || '';
+    const imageUrl = url || '';
+    State.portrait = imageUrl;
     const el = $('#game-avatar');
     if (!el) return;
-    if (!url) { el.hidden = true; return; }
+    el.classList.remove('is-loading');
     el.hidden = false;
-    el.style.backgroundImage = 'url("' + url + '")';
+    el.title = State.game && State.game.hero
+      ? [State.game.hero.name, State.game.hero.className, State.game.hero.originName].filter(Boolean).join(' · ')
+      : 'Портрет героя';
+    el.classList.toggle('is-placeholder', !imageUrl);
+    el.style.backgroundImage = imageUrl ? 'url("' + imageUrl + '")' : '';
+    el.textContent = imageUrl ? '' : ((State.game && State.game.hero && State.game.hero.icon) || '✦');
   }
 
   /* ---------------------------------------------------------- */
@@ -17800,6 +18755,7 @@ body[data-theme] .mech-chip--use {
     const check = E.resolveCheck({ stat: opt.stat, dc: ap.dc, bonus: baseMod + buff, advantage });
     E.pushLog(g, {
       kind: 'action',
+      turn: (g.turn || 0) + 1,
       text: opt.text,
       meta: 'd20 ' + check.roll + ' + ' + check.mod + ' = ' + check.total + ' против ' + check.dc + ' · ' + check.label
     });
@@ -17872,9 +18828,10 @@ body[data-theme] .mech-chip--use {
     if (!isWorldBuild) g.turn = (g.turn || 0) + 1;
     const notes = E.applyEffects(g, turn.effects);
     if (turn.chapter) g.chapter = turn.chapter;
-    if (turn.npc) E.pushLog(g, { kind: 'npc', text: turn.npc });
+    if (turn.npc) E.pushLog(g, { kind: 'npc', turn: g.turn || 0, text: turn.npc });
     E.pushLog(g, {
       kind: 'gm',
+      turn: g.turn || 0,
       text: turn.scene,
       notes: notes,
       offline: !!turn.offline,
@@ -17886,6 +18843,7 @@ body[data-theme] .mech-chip--use {
     }
     // память кампании: мастер помнит место, людей, нити и прошлые зачины
     E.rememberTurn(g, turn, action);
+    E.campaignSeals(g);
     const place = String(turn.place || E.memoryOf(g).place || turn.chapter || g.chapter || '').trim();
     const prevPlace = (g.scene && g.scene.place) || '';
     // место то же, если мастер назвал его теми же словами или пересказал иначе —
@@ -17897,6 +18855,7 @@ body[data-theme] .mech-chip--use {
       text: turn.scene,
       options: turn.options,
       npc: turn.npc || '',
+      npcObject: turn.npcObject || null,
       place,
       placeKey,
       chapter: turn.chapter || g.chapter || '',
@@ -17904,7 +18863,7 @@ body[data-theme] .mech-chip--use {
       offline: !!turn.offline,          // ход собрал встроенный мастер
       repeated: !!turn.repeated,        // канал повторил прошлую сцену — ход пересобрали
       imagePrompt: turn.imagePrompt || E.composeSceneImagePrompt(g, {
-        sceneText: turn.scene, npc: turn.npc, action
+        sceneText: turn.scene, npc: turn.npc, npcObject: turn.npcObject, action
       }),
       // мир запоминает, кем в нём играли: второй заход не спросит то же самое
       heroPickSaved: (() => {
@@ -18161,6 +19120,7 @@ body[data-theme] .mech-chip--use {
       epilogueStat('осталось в памяти', String(m.facts.length)),
       epilogueStat('пепел', '+' + (legacyRes ? legacyRes.ashes : 0))
     ]));
+    body.appendChild(campaignSealsBlock(g, 'epilogue'));
     if (legacyRes && legacyRes.opened.length) {
       const names = E.LEGACY_UNLOCKS.filter(u => legacyRes.opened.indexOf(u.id) >= 0).map(u => u.title);
       body.appendChild(h('p', { class: 'epilogue__unlock', text: '🕯 Для будущих жизней открыто: ' + names.join(', ') }));
@@ -18199,21 +19159,22 @@ body[data-theme] .mech-chip--use {
     if (dailyBox) body.appendChild(dailyBox);
 
     // Галерея кадров: только те, что нарисовали в этой кампании.
-    renderFrames(body);
+    renderFrames(body, g);
   }
 
   /**
    * Галерея кадров в финале. Кадр последнего хода сохраняется в базу чуть позже
-   * страницы, поэтому пробуем несколько раз, а не один.
+   * страницы, поэтому пробуем несколько раз, а не один. Чужие кампании не подмешиваем.
    */
-  function renderFrames(body, attempt) {
+  function renderFrames(body, game, attempt) {
     const tryNo = attempt || 0;
-    Frames.all().then(frames => {
-      const mine = (frames || []).filter(f => f && f.url);
+    const gameId = String(game && game.id || '');
+    Frames.all(gameId).then(frames => {
+      const mine = (frames || []).filter(f => f && f.url && gameId && String(f.gameId) === gameId);
       const stale = document.getElementById('epilogue-frames');
       if (stale) stale.remove();
       if (!mine.length) {
-        if (tryNo < 2 && body.isConnected) setTimeout(() => renderFrames(body, tryNo + 1), 2500);
+        if (tryNo < 2 && body.isConnected) setTimeout(() => renderFrames(body, game, tryNo + 1), 2500);
         return;
       }
       if (!body.isConnected) return;
@@ -18331,6 +19292,56 @@ body[data-theme] .mech-chip--use {
   /* ---------------------------------------------------------- */
   /* Карточка героя                                             */
   /* ---------------------------------------------------------- */
+  function heroStatChart(hero) {
+    const stats = (hero && hero.stats) || {};
+    const size = 236, center = 118, radius = 74, maxValue = 5;
+    const statDefs = E.STATS || [];
+    const point = (index, scale) => {
+      const angle = -Math.PI / 2 + index * Math.PI * 2 / Math.max(1, statDefs.length);
+      return { x: center + Math.cos(angle) * scale, y: center + Math.sin(angle) * scale };
+    };
+    const pointsText = scale => statDefs.map((_, i) => {
+      const p = point(i, scale);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+    const svg = svgNode('svg', {
+      class: 'stat-constellation__svg', viewBox: '0 0 ' + size + ' ' + size,
+      role: 'img', focusable: 'false',
+      'aria-label': 'Диаграмма семи характеристик героя: ' + statDefs.map(st => st.name + ' ' + (stats[st.id] || 0)).join(', ')
+    }, []);
+    svg.appendChild(svgNode('title', {}, []));
+    svg.lastChild.textContent = 'Профиль семи характеристик, шкала от нуля до пяти';
+    svg.appendChild(svgNode('desc', {}, []));
+    svg.lastChild.textContent = 'Значения также подписаны текстом в списке под диаграммой.';
+    [0.25, 0.5, 0.75, 1].forEach(scale => svg.appendChild(svgNode('polygon', {
+      class: 'stat-constellation__grid', points: pointsText(radius * scale)
+    })));
+    statDefs.forEach((stat, i) => {
+      const p = point(i, radius);
+      svg.appendChild(svgNode('line', {
+        class: 'stat-constellation__axis', x1: center, y1: center, x2: p.x.toFixed(1), y2: p.y.toFixed(1)
+      }));
+    });
+    const values = statDefs.map(st => Math.max(0, Math.min(maxValue, Number(stats[st.id]) || 0)) / maxValue * radius);
+    const valuePoints = values.map((scale, i) => {
+      const p = point(i, scale);
+      return p.x.toFixed(1) + ',' + p.y.toFixed(1);
+    }).join(' ');
+    svg.appendChild(svgNode('polygon', { class: 'stat-constellation__shape', points: valuePoints }));
+    statDefs.forEach((stat, i) => {
+      const p = point(i, values[i]);
+      svg.appendChild(svgNode('circle', { class: 'stat-constellation__point', cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: 3 }));
+      const labelPoint = point(i, radius + 19);
+      const label = svgNode('text', {
+        class: 'stat-constellation__label', x: labelPoint.x.toFixed(1), y: (labelPoint.y + 3).toFixed(1),
+        'text-anchor': Math.abs(labelPoint.x - center) < 8 ? 'middle' : (labelPoint.x < center ? 'end' : 'start')
+      });
+      label.textContent = stat.short || stat.name.slice(0, 3);
+      svg.appendChild(label);
+    });
+    return svg;
+  }
+
   function openHeroSheet() {
     const g = State.game;
     if (!g) return;
@@ -18340,21 +19351,30 @@ body[data-theme] .mech-chip--use {
       h('span', { class: 'hero-sheet__name', text: hh.icon + ' ' + hh.name }),
       h('span', { class: 'hero-sheet__arch', text: hh.className })
     ]);
+    const portraitFrame = h('div', {
+      class: 'hero-sheet__portrait-frame' + (portraitUrl ? '' : ' is-empty') + (State.portraitLoading ? ' is-loading' : ''),
+      'aria-label': portraitUrl ? 'Портрет героя' : 'Портрет героя появится здесь'
+    }, [portraitUrl
+      ? h('img', { class: 'hero-sheet__portrait', src: portraitUrl, alt: 'Портрет героя' })
+      : h('span', { class: 'hero-sheet__portrait-placeholder', text: hh.icon || '✦', 'aria-hidden': 'true' })
+    ]);
     const content = h('div', { class: 'hero-sheet' }, [
-      portraitUrl
-        ? h('div', { class: 'hero-sheet__top' }, [h('img', { class: 'hero-sheet__portrait', src: portraitUrl, alt: 'Портрет героя' }), titleRow])
-        : titleRow,
+      h('div', { class: 'hero-sheet__top' }, [portraitFrame, titleRow]),
       h('div', { class: 'hero-sheet__tags' }, [
         h('span', { class: 'tag tag--stat', text: hh.raceIcon + ' ' + hh.raceName }),
         h('span', { class: 'tag', text: hh.originIcon + ' ' + hh.originName }),
         h('span', { class: 'tag tag--chance', text: hh.ability.icon + ' ' + hh.ability.name + (hh.ability.ready ? ' готово' : ' (через ' + hh.ability.cooldown + ')') })
       ]),
-      h('div', { class: 'stat-grid stat-grid--chips' }, E.STATS.map(st => h('div', { class: 'stat-chip' }, [
-        h('span', { class: 'stat-chip__icon', text: st.icon }),
+      h('div', { class: 'section-title', text: 'Диаграмма характеристик' }),
+      h('div', { class: 'stat-constellation' }, [heroStatChart(hh)]),
+      h('div', { class: 'stat-grid stat-grid--chips' }, E.STATS.map(st => h('div', {
+        class: 'stat-chip', title: st.name + ': ' + hh.stats[st.id], 'aria-label': st.name + ': ' + hh.stats[st.id]
+      }, [
+        h('span', { class: 'stat-chip__icon', text: st.icon, 'aria-hidden': 'true' }),
         h('span', { class: 'stat-chip__name', text: st.short }),
         h('span', { class: 'stat-chip__value', text: '+' + hh.stats[st.id] })
       ])).concat([
-        h('div', { class: 'stat-chip stat-chip--hp' }, [
+        h('div', { class: 'stat-chip stat-chip--hp', title: 'Здоровье героя', 'aria-label': 'Здоровье ' + hh.hp + ' из ' + hh.maxHp }, [
           h('span', { class: 'stat-chip__icon', text: '❤️' }),
           h('span', { class: 'stat-chip__name', text: 'ЖИЗНЬ' }),
           h('span', { class: 'stat-chip__value', text: hh.hp + '/' + hh.maxHp })
@@ -18765,7 +19785,7 @@ body[data-theme] .mech-chip--use {
       statusLine,
 
       h('div', { class: 'section-title', text: '🧠 Ведущий мастер' }),
-      h('p', { class: 'muted small', text: 'Кто ведёт игру. «Авто» — игра сама берёт лучший доступный канал и тихо переходит на следующий, если тот замолчал.' }),
+      h('p', { class: 'muted small', text: 'По умолчанию «Авто» сначала пробует Mistral Large 3 для сильного сюжета, если канал доступен, затем переходит на резервные. Ведущего можно выбрать вручную.' }),
       masterRow,
       h('div', { class: 'section-title', text: '🎨 Генератор картинок' }),
       h('p', { class: 'muted small', text: 'По умолчанию выбран самый быстрый SANA. Здесь можно переключиться на другой генератор или «Авто».' }),
@@ -18998,6 +20018,94 @@ body[data-theme] .mech-chip--use {
   /* Журнал: цель, вехи арки, нити и знакомые                    */
   /* ---------------------------------------------------------- */
 
+  function npcPortraitKey(game, npc) {
+    return String(game && game.id || '') + '::' + String(npc && npc.name || '').toLowerCase().trim();
+  }
+
+  function npcNeedsPortrait(npc) {
+    return !!(npc && (Number(npc.seenCount) >= 2 || npc.helped || Number(npc.trust) >= 4 || (npc.relation && npc.relation !== 'neutral')));
+  }
+
+  function npcInitials(name) {
+    return String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2)
+      .map(part => part.charAt(0).toLocaleUpperCase()).join('') || '?';
+  }
+
+  function paintNpcPortrait(avatar, npc, url) {
+    if (!avatar) return;
+    clear(avatar);
+    avatar.classList.toggle('is-empty', !url);
+    avatar.setAttribute('aria-label', url ? 'Портрет ' + npc.name : 'Инициалы ' + npc.name);
+    avatar.classList.remove('is-loading');
+    if (url) {
+      const img = h('img', { class: 'npc-gallery__portrait-img', src: url, alt: '', 'aria-hidden': 'true', loading: 'lazy' });
+      img.addEventListener('error', () => paintNpcPortrait(avatar, npc, ''), { once: true });
+      avatar.appendChild(img);
+    } else {
+      avatar.appendChild(h('span', { class: 'npc-gallery__initials', text: npcInitials(npc.name), 'aria-hidden': 'true' }));
+    }
+  }
+
+  function npcPortraitPrompt(game, npc) {
+    const role = String(npc.role || npc.attitude || 'recurring character').replace(/[\r\n]+/g, ' ').trim();
+    const world = String(game.scenarioTitle || game.title || 'campaign setting').replace(/[\r\n]+/g, ' ').trim();
+    return [
+      'Single-character square head-and-shoulders portrait of the recurring fictional NPC ' + npc.name + ', ' + role + '.',
+      'One person only, expressive memorable face, distinctive silhouette, natural portrait framing, no text, no watermark.',
+      'Campaign setting: ' + world + '. Match the established visual art direction; keep the face recognizable in a small gallery thumbnail.'
+    ].join(' ');
+  }
+
+  async function generateNpcPortrait(game, npc, avatar) {
+    if (!game || !npc || npc.portrait || !npcNeedsPortrait(npc) || !API || !API.generateImage) return;
+    if (typeof API.imageSource === 'function' && API.imageSource() === 'local') return;
+    const key = npcPortraitKey(game, npc);
+    if (State.npcPortraitPending[key] || State.npcPortraitFailed[key]) return;
+    State.npcPortraitPending[key] = true;
+    npc.portraitSeed = Number(npc.portraitSeed) || E.rnd.seed();
+    if (avatar) avatar.classList.add('is-loading');
+    if (State.storage) State.storage.save(game);
+    try {
+      const res = await API.generateImage({
+        prompt: npcPortraitPrompt(game, npc),
+        style: E.styleOf(game).imageStyle,
+        aspect: '1:1', width: 256, height: 256,
+        seed: npc.portraitSeed
+      });
+      if (res && res.ok && res.url) {
+        npc.portrait = res.url;
+        if (State.storage) State.storage.save(game);
+        if (State.game === game && avatar && avatar.isConnected) paintNpcPortrait(avatar, npc, res.url);
+      } else {
+        State.npcPortraitFailed[key] = true;
+        if (State.game === game && avatar && avatar.isConnected) paintNpcPortrait(avatar, npc, '');
+      }
+    } catch (e) {
+      State.npcPortraitFailed[key] = true;
+      if (State.game === game && avatar && avatar.isConnected) paintNpcPortrait(avatar, npc, '');
+    } finally {
+      delete State.npcPortraitPending[key];
+    }
+  }
+
+  function campaignSealsBlock(game, context) {
+    const seals = E.campaignSeals(game);
+    const block = h('section', { class: 'campaign-seals' + (context ? ' campaign-seals--' + context : ''), 'aria-label': 'Печати ключевых событий кампании' }, [
+      h('div', { class: 'section-title', text: '🪙 Печати кампании' }),
+      h('div', { class: 'campaign-seals__grid' }, seals.map(seal => h('div', {
+        class: 'campaign-seal' + (seal.earned ? ' is-earned' : ' is-locked'),
+        title: seal.description,
+        'aria-label': seal.title + ': ' + (seal.earned ? 'получена' : 'ещё впереди') + '. ' + seal.description,
+        dataset: { sealId: seal.id }
+      }, [
+        h('span', { class: 'campaign-seal__icon', text: seal.icon, 'aria-hidden': 'true' }),
+        h('span', { class: 'campaign-seal__title', text: seal.title }),
+        h('span', { class: 'campaign-seal__status', text: seal.earned ? 'Получена' : 'Впереди' })
+      ])))
+    ]);
+    return block;
+  }
+
   function renderJournal() {
     const host = clear($('#journal-body'));
     const g = State.game;
@@ -19058,37 +20166,54 @@ body[data-theme] .mech-chip--use {
       host.appendChild(stBlock);
     }
 
-    // --- знакомые: отношение и доверие (блок B, пп.8, 10) ---
+    // --- галерея знакомых: портреты важных/повторных NPC + доверие ---
     const npcs = E.npcList(g) || [];
     if (npcs.length) {
-      const relBlock = h('div', { class: 'journal-block' }, [
+      const gallery = h('div', { class: 'journal-block npc-gallery-block' }, [
         h('div', { class: 'section-title', text: '👥 Знакомые' }),
-        h('p', { class: 'muted small', text: 'С другом и должником договориться легче, врага легче заподозрить. Соцбросок мастер учитывает сам.' })
+        h('p', { class: 'muted small', text: 'Важные и повторно встреченные персонажи получают сохранённый портрет; у остальных остаются инициалы. Доверие отмечено точками.' })
       ]);
+      const cards = h('div', { class: 'npc-gallery' });
+      const portraitCandidates = [];
       npcs.slice(0, 8).forEach(n => {
+        const record = mem.npcs.find(item => String(item && item.name || '').toLowerCase() === String(n.name || '').toLowerCase()) || n;
         const pips = '●'.repeat(Math.max(0, n.trust)) + '○'.repeat(Math.max(0, 5 - n.trust));
-        const row = h('div', { class: 'rel-card rel-card--' + (n.relation || 'neutral') }, [
-          h('span', { class: 'rel-card__icon', text: n.relationIcon || '👤' }),
-          h('div', { class: 'rel-card__body' }, [
-            h('div', { class: 'rel-card__name', text: n.name + (n.role ? ' · ' + n.role : '') }),
-            h('div', { class: 'rel-card__line' }, [
-              h('span', { text: (n.relationTitle || 'нейтрально') + ' ' }),
-              h('span', { class: 'rel-card__trust', text: pips, title: 'Доверие ' + n.trust + ' из 5' }),
-              n.note ? h('span', { text: ' · ' + n.note }) : null
-            ])
+        const avatar = h('div', {
+          class: 'npc-gallery__portrait' + (record.portrait ? '' : ' is-empty'),
+          role: 'img', 'aria-label': record.portrait ? 'Портрет ' + n.name : 'Инициалы ' + n.name
+        });
+        paintNpcPortrait(avatar, record, record.portrait || '');
+        const card = h('article', { class: 'npc-gallery__card npc-gallery__card--' + (n.relation || 'neutral') }, [
+          avatar,
+          h('div', { class: 'npc-gallery__body' }, [
+            h('div', { class: 'npc-gallery__name', text: n.name }),
+            h('div', { class: 'npc-gallery__role', text: n.role || 'Знакомый персонаж' }),
+            h('div', { class: 'npc-gallery__relation', title: n.note || '' }, [
+              h('span', { text: (n.relationIcon || '👤') + ' ' + (n.relationTitle || 'нейтрально') }),
+              h('span', { class: 'npc-gallery__trust', text: pips, title: 'Доверие: ' + n.trust + ' из 5', 'aria-label': 'Доверие ' + n.trust + ' из 5' })
+            ]),
+            n.helped ? h('span', { class: 'npc-gallery__helped', text: 'Выручал героя' }) : null,
+            n.relation === 'debtor' && !n.helped ? h('button', {
+              class: 'btn btn--ghost btn--sm npc-gallery__call', type: 'button', text: '🤝 Позвать',
+              title: 'Должник выручает один раз за кампанию',
+              onclick: () => runMech('call-debtor')
+            }) : null
           ])
         ]);
-        if (n.relation === 'debtor' && !n.helped) {
-          row.appendChild(h('button', {
-            class: 'item-card__use', type: 'button', text: '🤝 Позвать',
-            title: 'Должник выручает один раз за кампанию',
-            onclick: () => runMech('call-debtor')
-          }));
-        }
-        relBlock.appendChild(row);
+        cards.appendChild(card);
+        if (npcNeedsPortrait(n) && !record.portrait) portraitCandidates.push({ record, avatar });
       });
-      host.appendChild(relBlock);
+      gallery.appendChild(cards);
+      host.appendChild(gallery);
+      // Не блокируем игру и не дублируем запросы: рисуем максимум два новых портрета за открытие.
+      portraitCandidates
+        .filter(item => !State.npcPortraitPending[npcPortraitKey(g, item.record)] && !State.npcPortraitFailed[npcPortraitKey(g, item.record)])
+        .slice(0, 2)
+        .forEach(item => generateNpcPortrait(g, item.record, item.avatar));
     }
+
+    // Важные события кампании не теряются между ходами и остаются в финальной сводке.
+    host.appendChild(campaignSealsBlock(g, 'journal'));
 
     // арка: вехи, которые уже пройдены, и та, к которой идёт история
     if (arc && arc.steps && arc.steps.length) {
@@ -19120,6 +20245,8 @@ body[data-theme] .mech-chip--use {
       ]));
     }
 
+    renderCampaignChronicle(g, host);
+
     const cols = h('div', { class: 'journal-cols' }, [
       h('div', { class: 'journal-col' }, [
         h('div', { class: 'section-title', text: '🤝 Обещано' }),
@@ -19136,16 +20263,6 @@ body[data-theme] .mech-chip--use {
     ]);
     host.appendChild(cols);
 
-    if (mem.npcs.length) {
-      host.appendChild(h('div', { class: 'journal-block' }, [
-        h('div', { class: 'section-title', text: '👥 Знакомые' }),
-        h('div', { class: 'npc-list' }, mem.npcs.map(n => h('div', { class: 'npc-card' }, [
-          h('div', { class: 'npc-card__name', text: n.name }),
-          h('div', { class: 'muted small', text: [n.role, n.attitude].filter(Boolean).join(' · ') })
-        ])))
-      ]));
-    }
-
     if (mem.facts.length) {
       host.appendChild(h('div', { class: 'journal-block' }, [
         h('div', { class: 'section-title', text: '📌 Помним' }),
@@ -19155,6 +20272,94 @@ body[data-theme] .mech-chip--use {
 
     const chron = E.chronicleLine(g);
     if (chron) host.appendChild(h('p', { class: 'muted small journal-chronicle', text: chron }));
+  }
+
+  function hydrateChronicleFrames(list, game) {
+    Frames.all(game.id).then(frames => {
+      if (!list.isConnected || State.game !== game) return;
+      const mine = (frames || []).filter(frame => frame && frame.url && String(frame.gameId) === String(game.id));
+      if (!mine.length) return;
+      $$('.chronicle-card__thumb', list).forEach(thumb => {
+        const turn = Number(thumb.dataset.turn) || 0;
+        const place = thumb.dataset.place || '';
+        let frame = mine.filter(item => Number(item.turn) === turn).pop();
+        if (!frame && place) frame = mine.filter(item => item.place && E.isSamePlace(item.place, place)).pop();
+        if (!frame) return;
+        clear(thumb);
+        thumb.classList.add('has-frame');
+        thumb.appendChild(h('img', {
+          src: frame.url,
+          alt: 'Кадр хроники: ' + (frame.place || place || 'сцена'),
+          loading: 'lazy'
+        }));
+      });
+    }).catch(() => { /* хроника остаётся читаемой и без базы кадров */ });
+  }
+
+  function renderCampaignChronicle(game, host) {
+    const moments = E.campaignTimeline(game);
+    const block = h('section', { class: 'journal-block campaign-chronicle', id: 'journal-chronicle', 'aria-label': 'Иллюстрированная хроника кампании' }, [
+      h('div', { class: 'section-title', text: '📜 Хроника кампании' }),
+      h('p', { class: 'muted small', text: 'Выборы, последствия и сохранённые кадры этой истории.' })
+    ]);
+    if (!moments.length) {
+      block.appendChild(h('p', { class: 'muted small', text: 'Первые события появятся здесь после начала приключения.' }));
+      host.appendChild(block);
+      return;
+    }
+    const list = h('div', { class: 'chronicle-list' });
+    moments.slice(-8).forEach(moment => {
+      const scene = moment.scene || {};
+      const sceneText = String(scene.text || '').replace(/\s+/g, ' ').trim();
+      const notes = (moment.notes || []).slice(0, 2);
+      const thumb = h('div', {
+        class: 'chronicle-card__thumb',
+        dataset: { turn: moment.turn, place: moment.place || '' },
+        'aria-hidden': 'true'
+      }, [h('span', { class: 'chronicle-card__placeholder', text: moment.opening ? '✦' : '📜' })]);
+      const card = h('article', { class: 'chronicle-card' }, [
+        thumb,
+        h('div', { class: 'chronicle-card__body' }, [
+          h('div', { class: 'chronicle-card__head' }, [
+            h('span', { class: 'chronicle-card__turn', text: moment.opening ? 'Пролог' : 'Ход ' + moment.turn }),
+            moment.chapter ? h('span', { class: 'chronicle-card__chapter', text: moment.chapter }) : null
+          ]),
+          moment.place ? h('div', { class: 'chronicle-card__place', text: '📍 ' + moment.place }) : null,
+          moment.action ? h('div', { class: 'chronicle-card__action', text: moment.action.text || 'Выбор героя' }) : null,
+          moment.action && moment.action.meta ? h('div', { class: 'chronicle-card__roll', text: moment.action.meta }) : null,
+          sceneText ? h('p', { class: 'chronicle-card__result', text: sceneText.slice(0, 240) + (sceneText.length > 240 ? '…' : '') })
+            : h('p', { class: 'chronicle-card__result muted', text: 'Мастер ещё не записал последствия этого выбора.' }),
+          moment.npc ? h('div', { class: 'chronicle-card__npc', text: moment.npc }) : null,
+          notes.length ? h('div', { class: 'chronicle-card__notes' }, notes.map(note => h('span', {
+            class: 'chronicle-card__note',
+            text: (note.icon ? note.icon + ' ' : '') + String(note.text || '')
+          }))) : null
+        ])
+      ]);
+      list.appendChild(card);
+    });
+    block.appendChild(list);
+    host.appendChild(block);
+    hydrateChronicleFrames(list, game);
+  }
+
+  function hydrateMapFrames(list, game) {
+    Frames.all(game.id).then(frames => {
+      if (!list.isConnected || State.game !== game) return;
+      const mine = (frames || []).filter(frame => frame && frame.url && String(frame.gameId) === String(game.id));
+      if (!mine.length) return;
+      $$('.map-row__thumb', list).forEach(thumb => {
+        const place = thumb.dataset.place || '';
+        const exact = mine.filter(frame => String(frame.place || '').toLowerCase() === place.toLowerCase());
+        const frame = exact.pop() || mine.filter(item => item.place && E.isSamePlace(item.place, place)).pop();
+        if (!frame) return;
+        thumb.classList.add('has-frame');
+        thumb.insertBefore(h('img', {
+          class: 'map-row__image', src: frame.url,
+          alt: 'Сохранённый кадр: ' + (frame.place || place), loading: 'lazy'
+        }), thumb.firstChild);
+      });
+    }).catch(() => { /* карта остаётся доступной без базы кадров */ });
   }
 
   /* ---------------------------------------------------------- */
@@ -19170,7 +20375,8 @@ body[data-theme] .mech-chip--use {
       return;
     }
     const places = E.placeGraph ? E.placeGraph(g) : [];
-    $('#map-note').textContent = places.length ? places.length + ' мест' : '';
+    const note = $('#map-note');
+    if (note) note.textContent = places.length ? places.length + ' мест · маршрут кампании' : '';
     if (!places.length) {
       list.appendChild(h('div', { class: 'empty' }, [
         h('p', { text: 'Пока известно только одно место.' }),
@@ -19178,52 +20384,87 @@ body[data-theme] .mech-chip--use {
       ]));
       return;
     }
-    const W = 320, H = 180, pad = 26;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const W = 360, top = 32, step = 78;
+    const H = Math.max(128, top * 2 + Math.max(0, places.length - 1) * step);
+    const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     svg.setAttribute('class', 'map-svg');
-    const pos = places.map((p, i) => {
-      const angle = (i / places.length) * Math.PI * 2 - Math.PI / 2;
-      const radius = places.length === 1 ? 0 : Math.min(W, H) / 2 - pad;
-      return {
-        x: W / 2 + Math.cos(angle) * radius * 1.35,
-        y: H / 2 + Math.sin(angle) * radius,
-        p
-      };
-    });
-    pos.forEach((a, i) => {
-      const b = pos[(i + 1) % pos.length];
-      if (pos.length < 2) return;
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-      line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-      line.setAttribute('class', 'map-edge');
-      svg.appendChild(line);
-    });
+    svg.setAttribute('aria-hidden', 'true');
+    const currentIndexFound = places.findIndex(p => p.now);
+    const currentIndex = currentIndexFound >= 0 ? currentIndexFound : places.length - 1;
+    const pos = places.map((p, i) => ({
+      x: places.length === 1 ? W / 2 : (i % 2 === 0 ? 86 : W - 86),
+      y: places.length === 1 ? H / 2 : top + i * step,
+      p,
+      i
+    }));
+
+    // Открытая, хронологическая тропа — не замыкаем маршрут в декоративный круг.
+    for (let i = 0; i < pos.length - 1; i++) {
+      const a = pos[i], b = pos[i + 1];
+      const mid = (a.y + b.y) / 2;
+      const d = 'M ' + a.x + ' ' + a.y + ' C ' + a.x + ' ' + mid + ', ' + b.x + ' ' + mid + ', ' + b.x + ' ' + b.y;
+      const glow = document.createElementNS(NS, 'path');
+      glow.setAttribute('d', d);
+      glow.setAttribute('class', 'map-edge-glow' + (i < currentIndex ? ' is-travelled' : ''));
+      svg.appendChild(glow);
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'map-edge' + (i < currentIndex ? ' is-travelled' : ''));
+      svg.appendChild(path);
+    }
+
     pos.forEach(item => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      const isNow = !!item.p.now || item.i === currentIndex;
+      const group = document.createElementNS(NS, 'g');
+      group.setAttribute('class', 'map-node-group' + (isNow ? ' is-now' : (item.i < currentIndex ? ' is-past' : '')));
+      const halo = document.createElementNS(NS, 'circle');
+      halo.setAttribute('cx', item.x); halo.setAttribute('cy', item.y);
+      halo.setAttribute('r', isNow ? 21 : 15);
+      halo.setAttribute('class', 'map-node-halo');
+      group.appendChild(halo);
+      const circle = document.createElementNS(NS, 'circle');
       circle.setAttribute('cx', item.x); circle.setAttribute('cy', item.y);
-      circle.setAttribute('r', item.p.now ? 9 : 6);
-      circle.setAttribute('class', 'map-node' + (item.p.now ? ' is-now' : ''));
-      svg.appendChild(circle);
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', item.x); text.setAttribute('y', item.y - 12);
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('class', 'map-label');
-      text.textContent = item.p.title.slice(0, 16);
-      svg.appendChild(text);
+      circle.setAttribute('r', isNow ? 13 : 10);
+      circle.setAttribute('class', 'map-node');
+      group.appendChild(circle);
+      const number = document.createElementNS(NS, 'text');
+      number.setAttribute('x', item.x); number.setAttribute('y', item.y + 4);
+      number.setAttribute('text-anchor', 'middle');
+      number.setAttribute('class', 'map-node__index');
+      number.textContent = isNow ? '✦' : String(item.i + 1);
+      group.appendChild(number);
+      const title = document.createElementNS(NS, 'title');
+      title.textContent = item.p.title + (isNow ? ' — текущее место' : '');
+      group.appendChild(title);
+      svg.appendChild(group);
     });
     canvas.appendChild(svg);
 
-    places.forEach(pl => {
-      list.appendChild(h('div', { class: 'map-row' + (pl.now ? ' is-now' : '') }, [
-        h('span', { class: 'map-row__dot', text: pl.now ? '◉' : '○' }),
+    const placeIcons = {
+      forest: '🌲', village: '🏘️', keep: '🏰', ruins: '🪨', tavern: '🍺',
+      temple: '⛩️', library: '📚', workshop: '⚒️', station: '🚉', cave: '🕳️',
+      battlefield: '⚔️', interior: '🏠', swamp: '🌫️', road: '🛤️', canyon: '⛰️',
+      bridge: '🌉', desert: '🏜️', snow: '❄️'
+    };
+    places.forEach((pl, i) => {
+      const isNow = !!pl.now || i === currentIndex;
+      const kind = E.sceneKindFromText ? E.sceneKindFromText(pl.title + ' ' + (pl.chapter || '')) : 'forest';
+      const icon = placeIcons[kind] || '📍';
+      list.appendChild(h('div', { class: 'map-row' + (isNow ? ' is-now' : (i < currentIndex ? ' is-past' : '')) }, [
+        h('span', { class: 'map-row__thumb', dataset: { place: pl.title }, 'aria-hidden': 'true' }, [
+          h('span', { class: 'map-row__thumb-icon', text: icon })
+        ]),
         h('div', { class: 'map-row__body' }, [
-          h('div', { class: 'map-row__title', text: pl.title + (pl.now ? ' — вы здесь' : '') }),
-          h('div', { class: 'muted small', text: [pl.chapter, pl.turns ? 'ходов: ' + pl.turns : ''].filter(Boolean).join(' · ') })
-        ])
+          h('div', { class: 'map-row__title', text: pl.title + (isNow ? ' — вы здесь' : '') }),
+          h('div', { class: 'map-row__meta', text: [pl.chapter, pl.turns ? 'визитов: ' + pl.turns : ''].filter(Boolean).join(' · ') })
+        ]),
+        h('span', { class: 'map-row__step', text: String(i + 1), 'aria-hidden': 'true' })
       ]));
     });
+    hydrateMapFrames(list, g);
   }
 
   /* ---------------------------------------------------------- */
@@ -19431,6 +20672,10 @@ body[data-theme] .mech-chip--use {
     $('#game-title').textContent = book.title;
     $('#game-sub').textContent = node.chapter + ' · шагов: ' + (b.steps || []).length;
     $('#game-avatar').hidden = true;
+    const heroLine = $('#game-hero-line');
+    if (heroLine) { heroLine.hidden = true; heroLine.textContent = ''; }
+    const scenePlace = $('#scene-place');
+    if (scenePlace) { scenePlace.hidden = true; scenePlace.textContent = ''; }
     const hp = $('#game-hp');
     if (hp && hp.parentElement) hp.parentElement.style.display = 'none';
     renderSceneText(node.text.join('\n\n'), { typewriter: !!opts && opts.fresh });
@@ -19999,13 +21244,17 @@ body[data-theme] .mech-chip--use {
         } catch (e) { resolve(false); }
       });
     }
-    async function all() {
+    async function all(gameId) {
       const db = await open();
       if (!db) return [];
       return new Promise(resolve => {
         try {
           const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
-          req.onsuccess = () => resolve((req.result || []).sort((a, b) => a.at - b.at).slice(-MAX));
+          req.onsuccess = () => {
+            let rows = (req.result || []).filter(frame => frame && frame.url).sort((a, b) => a.at - b.at);
+            if (gameId) rows = rows.filter(frame => String(frame.gameId) === String(gameId));
+            resolve(rows.slice(-MAX));
+          };
           req.onerror = () => resolve([]);
         } catch (e) { resolve([]); }
       });
@@ -20083,7 +21332,8 @@ body[data-theme] .mech-chip--use {
     const rows = [
       'Ходов: ' + data.turns + ' · бросков: ' + data.checks,
       data.place ? 'Последнее место: ' + data.place : '',
-      data.people.length ? 'Рядом были: ' + data.people.join(', ') : ''
+      data.people.length ? 'Рядом были: ' + data.people.join(', ') : '',
+      data.seals && data.seals.length ? 'Печати: ' + data.seals.join(', ') : ''
     ].filter(Boolean);
     rows.forEach(r => { c.fillText(String(r).slice(0, 52), 60, y); y += 50; });
 

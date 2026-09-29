@@ -34,5 +34,5 @@ test('PWA precaches all menu sprites, theme artwork, cover images and transition
   const dice = fs.readFileSync(path.join(root, 'assets', 'dice-transition.png'));
   assert.equal(dice.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'ассет кубика не является PNG');
   assert.equal(dice[25], 6, 'у кубика должен быть alpha-канал');
-  assert.match(worker, /const VERSION = 'dt2-v24'/, 'не обновлена версия service worker');
+  assert.match(worker, /const VERSION = 'dt2-v29'/, 'не обновлена версия service worker');
 });

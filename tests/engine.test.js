@@ -617,9 +617,20 @@ test('промпт картинки: герой попадает в кадр в�
     'враг назван в кадре: ' + withEnemy);
   assert.ok(withEnemy.length > 'dark alley, rain'.length, 'к промпту добавлены участники');
   assert.ok(withEnemy.length <= 380, 'промпт не раздувается: ' + withEnemy.length);
-  const aiDrewPeople = E.composeSceneImagePrompt(g, { aiPrompt: 'armored knight and two bandits in a rain-soaked alley, cinematic' });
-  assert.strictEqual(aiDrewPeople, 'armored knight and two bandits in a rain-soaked alley, cinematic',
-    'если ИИ уже нарисовал героя, промпт не дублируется');
+  const aiDrewPeople = E.composeSceneImagePrompt(g, {
+    aiPrompt: 'armored knight and two bandits in a rain-soaked alley, cinematic'
+  });
+  assert.ok(/group shot|multi-character/i.test(aiDrewPeople), 'даже готовый групповой промпт явно просит показать всех: ' + aiDrewPeople);
+  assert.ok(/two bandits/i.test(aiDrewPeople), 'число участников сохраняется: ' + aiDrewPeople);
+  assert.ok(/hero/i.test(aiDrewPeople), 'главный герой не пропадает из группового кадра');
+  const npcGroup = E.composeSceneImagePrompt(g, {
+    aiPrompt: 'rainy inn common room at night',
+    sceneText: 'Мара беседует с двумя стражниками возле камина.',
+    npcObject: { name: 'Мара', role: 'проводница', attitude: 'ally' }
+  });
+  assert.ok(/group shot|multi-character/i.test(npcGroup), 'npcObject и массовка включают групповой кадр: ' + npcGroup);
+  assert.ok(/companion guide/i.test(npcGroup), 'роль NPC превращается в визуальную подсказку: ' + npcGroup);
+  assert.ok(/armed figures|guards/i.test(npcGroup), 'стражники явно добавлены в изображение: ' + npcGroup);
   const heroOnly = E.composeSceneImagePrompt(g, { aiPrompt: 'misty forest at dawn' });
   assert.ok(/hero/i.test(heroOnly), 'без подсказки герой всё равно добавляется');
 });
@@ -1079,6 +1090,24 @@ test('память кампании копится и уходит мастер�
   assert.strictEqual(m.openings[0], 'Тропа сужается между чёрными стволами', 'зачин запомнен');
 });
 
+test('повторные встречи считают знакомых и сохраняют портрет в записи NPC', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  game.turn = 1;
+  const first = { name: 'Мара', role: 'картограф', attitude: 'верная союзница', voice: 'female' };
+  E.rememberTurn(game, { npcObject: first, scene: 'Мара показывает карту.' });
+  const record = E.memoryOf(game).npcs[0];
+  assert.equal(record.seenCount, 1);
+  record.portrait = 'data:image/png;base64,portrait';
+  record.portraitSeed = 73421;
+  game.turn = 2;
+  E.rememberTurn(game, { npcObject: first, scene: 'Мара возвращается.' });
+  assert.equal(record.seenCount, 2, 'повторная встреча увеличивает счётчик');
+  const known = E.npcList(game)[0];
+  assert.equal(known.portrait, 'data:image/png;base64,portrait', 'портрет остаётся в памяти NPC');
+  assert.equal(known.portraitSeed, 73421, 'seed портрета сохраняется');
+  assert.equal(known.seenCount, 2);
+});
+
 test('пустой ход копит простой, а не память о прогрессе', () => {
   const g = E.createGame({ scenarioId: 'asgeld', heroName: 'Кай', classId: 'rogue' });
   g.intro = { plan: ['шаг', 'два', 'три'] };
@@ -1099,13 +1128,22 @@ test('тон и жёсткость попадают в промпт хода', (
 
 test('арт-стиль выбирается по игре и один для всей кампании', () => {
   const g = E.createGame({
-    scenarioId: 'mygame', heroName: 'Ви', classId: 'warrior',
+    scenarioId: 'mygame', heroName: 'Ви', classId: 'scholar', originId: 'scholar',
     worldConfig: { gameName: 'Cyberpunk 2077' }
   });
   assert.strictEqual(E.styleOf(g).id, 'neon', 'киберпанк — неон');
   const again = E.styleOf(g);
   assert.strictEqual(again.id, 'neon', 'стиль не меняется по ходу игры');
-  assert.ok(E.portraitPrompt(g).includes('portrait'), 'промпт портрета героя готов');
+  const portrait = E.portraitPrompt(g);
+  assert.ok(portrait.includes('portrait'), 'промпт портрета героя готов');
+  assert.ok(portrait.includes('class/profession Учёный'), 'образ учитывает выбранный класс');
+  assert.ok(portrait.includes('background Учёный-отступник'), 'образ учитывает происхождение героя');
+  assert.ok(Number.isInteger(g.hero.portraitSeed) && g.hero.portraitSeed > 0, 'у кампании есть отдельное зерно портрета');
+  const nextRun = E.createGame({
+    scenarioId: 'mygame', heroName: 'Ви', classId: 'scholar', originId: 'scholar',
+    worldConfig: { gameName: 'Cyberpunk 2077' }
+  });
+  assert.notStrictEqual(nextRun.hero.portraitSeed, g.hero.portraitSeed, 'новая кампания получает другой образ');
   const place = E.placeKey(g, 'Тесный трактир, огонь в очаге');
   assert.strictEqual(place, E.placeKey(g, 'тесный трактир огонь в очаге!'), 'ключ места устойчив к знакам');
   const prompt = E.placePrompt(g, 'Тесный трактир', 'warm light', { noStyle: true });
@@ -1370,6 +1408,47 @@ test('карта мест: узлы собираются из памяти, те
   assert.ok(nodes[1].turns >= 2, 'счётчик ходов по месту должен считать повторы');
 });
 
+test('хроника связывает выбор героя с ответом мастера и хранит turn/place', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  game.turn = 2;
+  game.log = [
+    { kind: 'gm', turn: 1, text: 'Начало истории.', place: 'Старый причал' },
+    { kind: 'action', turn: 2, text: 'Перепрыгнуть через разлом', meta: 'd20 17 · успех' },
+    { kind: 'npc', turn: 2, text: 'Мара: «Держись за верёвку»' },
+    { kind: 'gm', turn: 2, text: 'Ты приземляешься у ворот.', place: 'Северные ворота', notes: [{ type: 'item', text: 'Получено: ключ' }] }
+  ];
+  const timeline = E.campaignTimeline(game);
+  assert.equal(timeline.length, 2);
+  assert.equal(timeline[0].opening, true);
+  assert.equal(timeline[0].place, 'Старый причал');
+  assert.equal(timeline[1].turn, 2);
+  assert.equal(timeline[1].action.text, 'Перепрыгнуть через разлом');
+  assert.equal(timeline[1].scene.place, 'Северные ворота');
+  assert.equal(timeline[1].npc, 'Мара: «Держись за верёвку»');
+  assert.equal(timeline[1].notes[0].type, 'item');
+});
+
+test('печати кампании отмечают реальные события и остаются в сохранении', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  game.turn = 4;
+  game.log = [
+    { kind: 'action', turn: 2, text: 'Идти за знаком', meta: 'd20 12 · успех' },
+    { kind: 'gm', turn: 2, place: 'Порт', notes: [{ type: 'item', text: 'Получено: медальон' }] },
+    { kind: 'gm', turn: 3, place: 'Маяк', notes: [{ type: 'state', text: 'Состояние: Рана' }] },
+    { kind: 'gm', turn: 4, place: 'Старая башня' }
+  ];
+  game.scene = { place: 'Старая башня' };
+  game.memory = { npcs: [{ name: 'Мара', helped: true }], places: [] };
+  game.questDone = true;
+  const seals = E.campaignSeals(game);
+  const unlocked = seals.filter(seal => seal.earned).map(seal => seal.id);
+  ['first-step', 'explorer', 'ally', 'find', 'scar', 'victory'].forEach(id => assert.ok(unlocked.includes(id), 'не выдана печать ' + id));
+  game.log = [];
+  game.questDone = false;
+  const afterReload = E.campaignSeals(game).filter(seal => seal.earned).map(seal => seal.id);
+  assert.deepEqual(afterReload, unlocked, 'полученные печати закреплены в сохранении');
+});
+
 test('второй шанс без канала объясняет ошибку и не оставляет игрока в тупике', () => {
   const game = E.createGame({ scenarioId: 'custom', heroName: 'Кай' });
   E.rememberTurn(game, { scene: 'Ты бросился на троих сразу.', place: 'Переправа', options: [] }, { text: 'Атаковать' });
@@ -1439,6 +1518,7 @@ test('карточка кампании: вердикт, вехи и факты 
   assert.ok(/достигнута/.test(card.verdict), 'вердикт должен быть понятным: ' + card.verdict);
   assert.equal(card.turns, 9);
   assert.equal(card.ashes, 3);
+  assert.ok(card.seals.includes('Цель достигнута'), 'ключевые печати попадают в сводную карточку');
   assert.ok(card.facts.length, 'в карточке должны быть факты из памяти');
   assert.ok(card.milestones.length, 'в карточке должны быть вехи');
   assert.ok(card.mood, 'и настроение тоже');

@@ -208,22 +208,25 @@
 
     <!-- ============ ЭКРАН 4: ИГРА ============ -->
     <section class="screen screen--game" id="screen-game" hidden>
-      <!-- 8% сверху: название игры + закрыть -->
+      <!-- Шапка кампании: портрет, имя и профессия героя, название мира и состояние -->
       <header class="game-topbar">
-        <div class="game-topbar__text">
-          <span class="game-avatar" id="game-avatar" hidden></span>
-          <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
-          <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
-          <div class="game-status" id="game-status" hidden>
-            <span class="spinner spinner--sm"></span>
-            <span class="game-status__text" id="game-status-text"></span>
+        <div class="game-topbar__identity">
+          <span class="game-avatar" id="game-avatar" aria-hidden="true" hidden></span>
+          <div class="game-topbar__text">
+            <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
+            <div class="game-hero-line" id="game-hero-line" hidden></div>
+            <div class="game-sub" id="game-sub">Пролог · Ход 1</div>
+            <div class="game-status" id="game-status" hidden>
+              <span class="spinner spinner--sm"></span>
+              <span class="game-status__text" id="game-status-text"></span>
+            </div>
           </div>
         </div>
         <button class="icon-btn icon-btn--close" type="button" data-act="close-game" aria-label="Закрыть игру">✕</button>
         <div class="hp-track"><div class="hp-fill" id="game-hp"></div></div>
       </header>
 
-      <!-- 22%: картинка окружающего мира (мгновенный фон + ИИ поверх) -->
+      <!-- Кинематографическое окно локации: процедурный фон сразу, AI-кадр поверх -->
       <div class="scene-media" id="scene-media">
         <img id="scene-img" alt="Фон местности" hidden>
         <img id="scene-img2" alt="" aria-hidden="true" hidden>
@@ -232,14 +235,17 @@
         <div class="scene-media__status" id="scene-status">
           <span class="dot"></span><span id="scene-status-text">рисуем…</span>
         </div>
+        <div class="scene-media__caption">
+          <div class="scene-media__place" id="scene-place" hidden></div>
+          <div class="scene-chapter" id="scene-chapter" hidden></div>
+        </div>
         <span class="scene-media__badge" id="scene-badge" hidden></span>
         <button class="icon-btn scene-media__reload" type="button" data-act="reload-image" aria-label="Перерисовать">⟳</button>
       </div>
 
-      <!-- Текст ИИ-мастера -->
+      <!-- Текст ИИ-мастера в отдельной читаемой карточке -->
       <div class="panel" id="panel">
         <div class="notices" id="notices"></div>
-        <div class="scene-chapter" id="scene-chapter" hidden></div>
         <div class="scene-text__body" id="scene-text" role="status" aria-live="polite" aria-atomic="false"></div>
         <div class="scene-npc" id="scene-npc" hidden></div>
         <!-- Кнопки-иконки одинаковой ширины: ряд ровный, палец попадает с первого раза -->
@@ -419,8 +425,13 @@
 
   <!-- ============ ОВЕРЛЕЙ ОЖИДАНИЯ (сборка мира) ============ -->
   <div class="overlay" id="loading" hidden>
-    <div class="loading-box">
-      <span class="spinner spinner--lg"></span>
+    <div class="loading-box" role="status" aria-live="polite" aria-busy="true">
+      <div class="loading-skeleton" aria-hidden="true">
+        <span class="loading-skeleton__moon"></span>
+        <span class="loading-skeleton__ridge loading-skeleton__ridge--back"></span>
+        <span class="loading-skeleton__ridge loading-skeleton__ridge--front"></span>
+      </div>
+      <span class="spinner spinner--lg" aria-hidden="true"></span>
       <div class="loading-box__title" id="loading-title">Мастер строит мир…</div>
       <div class="loading-box__text" id="loading-text">Это займёт несколько секунд</div>
     </div>

@@ -403,6 +403,7 @@
           aiPrompt: parsed.imagePrompt,
           sceneText: parsed.scene,
           npc: parsed.npc,
+          npcObject: parsed.npcObject,
           action
         });
         return Object.assign(parsed, { source: res.source });
@@ -458,7 +459,8 @@
         parsed.imagePrompt = E.composeSceneImagePrompt(game, {
           aiPrompt: parsed.imagePrompt,
           sceneText: parsed.scene,
-          npc: parsed.npc
+          npc: parsed.npc,
+          npcObject: parsed.npcObject
         });
         return Object.assign(parsed, { source: res.source });
       }
@@ -571,11 +573,13 @@
           hero: data.hero || null,
           scene,
           chapter: data.chapter || 'Пролог',
-          npc: data.npc || '',
+          npc: typeof data.npc === 'string' ? data.npc : (data.npc && data.npc.name ? String(data.npc.name) : ''),
+          npcObject: data.npc && typeof data.npc === 'object' ? data.npc : null,
           imagePrompt: E.composeSceneImagePrompt(game, {
             aiPrompt: data.imagePrompt || base.imagePrompts[0],
             sceneText: scene,
-            npc: data.npc
+            npc: typeof data.npc === 'string' ? data.npc : '',
+            npcObject: data.npc && typeof data.npc === 'object' ? data.npc : null
           }),
           options,
           effects: { hp: 0, item: '', goal: false }

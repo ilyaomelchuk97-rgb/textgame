@@ -1023,7 +1023,8 @@ function isJunk(text) {
  */
 function masterChoices() {
   const out = [
-    { id: 'auto', title: 'Авто (умный, быстрый)', hint: 'игра сама выбирает лучший живой канал',
+    { id: 'auto', title: genReady() && GEN_TEXT_MODELS[0] === 'mistralai/mistral-large-3' ? 'Авто · Mistral Large 3' : 'Авто · лучший доступный',
+      hint: 'сначала сильная модель для сюжета; если недоступна — переход на резервные каналы',
       available: true, detail: textProvidersSummary().join(', ') }
   ];
   if (GEN_KEY_ACTIVE) {
@@ -1124,6 +1125,16 @@ function textProvidersSummary() {
 
 /** Провайдеры в порядке приоритета. Каждый: {name, run(messages, model)} → текст. */
 const PROVIDERS = [
+  {
+    // Стандартный сильный повествовательный канал: Mistral Large 3 первым,
+    // затем быстрые модели шлюза; при недоступности авто продолжает по резервам.
+    name: 'gen',
+    enabled: () => genReady(),
+    async run(messages, budgetMs, kind) {
+      const res = await genChatRotating(messages, { budgetMs: Math.max(8000, Math.min(32000, budgetMs || 26000)), kind });
+      return res.text;
+    }
+  },
   {
     name: 'groq',
     enabled: () => !!process.env.GROQ_API_KEY,
@@ -1235,16 +1246,6 @@ const PROVIDERS = [
       const key = hfOwnKey(ctx) || HF_BASE_KEY;
       const budget = Math.max(6000, Math.min(30000, budgetMs || 24000));
       return hfChat(messages, key, budget);
-    }
-  },
-  {
-    // Шлюз gen.pollinations.ai: умные модели (Mistral Large 3, GLM-5.3, Qwen 3.8).
-    // Он идёт первым — мастер должен быть толковым, а не «на сдачу».
-    name: 'gen',
-    enabled: () => genReady(),
-    async run(messages, budgetMs, kind) {
-      const res = await genChatRotating(messages, { budgetMs: Math.max(8000, Math.min(32000, budgetMs || 26000)), kind });
-      return res.text;
     }
   },
   {
