@@ -374,6 +374,8 @@
       if (el) el.hidden = id !== screenId;
     });
     document.body.dataset.screen = screenId;
+    const menuScreen = $('#screen-menu');
+    if (menuScreen) menuScreen.dataset.motion = Settings.data.motion === false ? 'off' : 'on';
     const el = document.getElementById('screen-' + screenId);
     if (el) el.scrollTop = 0;
     if (screenId === 'menu') refreshMenu();
@@ -799,7 +801,7 @@
   /* ---------------------------------------------------------- */
   /* Выбор мира: вкладки, случайные, по играм, свой мир          */
   /* ---------------------------------------------------------- */
-  function openScenarios() {
+  function prepareScenarios() {
     leaveDaily();
     State.scenarioSet = E.randomScenarioSet(0);
     renderRandomScenarios();
@@ -808,6 +810,10 @@
     renderSavedWorlds();
     renderBooks();
     setWorldMode('random');
+  }
+
+  function openScenarios() {
+    prepareScenarios();
     show('scenarios');
   }
 
@@ -824,6 +830,7 @@
       ? $('.menu-dice')
       : $('#screen-scenarios [data-act="reroll-scenarios"]');
     const changeScreen = backward ? () => show('menu') : openScenarios;
+    const changePreparedScreen = backward ? changeScreen : () => show('scenarios');
     const expectedScreen = backward ? 'scenarios' : 'menu';
     if (!source || !target || Settings.data.motion === false || prefersReducedMotion() ||
         typeof source.animate !== 'function' || document.body.dataset.screen !== expectedScreen) {
@@ -851,6 +858,13 @@
     const startY = sourceBox.top + sourceBox.height / 2;
     const viewW = document.documentElement.clientWidth || window.innerWidth;
     const viewH = window.innerHeight || document.documentElement.clientHeight;
+    const compactPhone = Math.min(viewW, viewH) <= 430 &&
+      ((navigator.maxTouchPoints || 0) > 0 || /iPhone|iPad|iPod/.test(navigator.userAgent || ''));
+    const frameCount = compactPhone ? 8 : 24;
+    const launchDuration = compactPhone ? 520 : 760;
+    const landingDuration = compactPhone ? 460 : 740;
+    const launchRotation = compactPhone ? 360 : 1080;
+    const landingRotation = compactPhone ? 540 : 1800;
     // Диагонали хватает, чтобы кубик закрыл углы экрана при любом угле; лишнее
     // увеличение почти вдвое создавало огромную текстуру и тормозило Safari на iPhone.
     const coverScale = Math.max(1, Math.hypot(viewW, viewH) * 1.12 / tileSize);
@@ -866,9 +880,10 @@
       const u = 1 - t;
       return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
     };
-    // Одна непрерывная кривая вместо набора точек с отдельным easing и заметными остановками.
+    // Кривая одна и непрерывная: на iPhone всего 9 кадров-точек вместо 49,
+    // а плавность между ними оставляем композитору Safari.
     const curveFrames = path => {
-      const count = 48;
+      const count = frameCount;
       return Array.from({ length: count + 1 }, (_, i) => {
         const offset = i / count;
         const t = smooth(offset);
@@ -899,9 +914,11 @@
       die.style.left = px(startX - tileSize / 2);
       die.style.top = px(startY - tileSize / 2);
 
-      const glyph = document.createElement('img');
+      const glyph = sourceGlyph.tagName === 'IMG'
+        ? sourceGlyph.cloneNode(false)
+        : document.createElement('img');
       glyph.className = 'dice-transition__glyph';
-      glyph.src = diceTransitionUrl();
+      glyph.src = sourceGlyph.currentSrc || sourceGlyph.src || diceTransitionUrl();
       glyph.alt = '';
       glyph.decoding = 'async';
       glyph.draggable = false;
@@ -928,16 +945,18 @@
         control2: { x: coverX + viewW * launchSide * 0.22, y: coverY - viewH * 0.18 },
         to: { x: coverX, y: coverY },
         scaleFrom: 1, scaleTo: coverScale,
-        rotationFrom: 0, rotationTo: spin * 1080
+        rotationFrom: 0, rotationTo: spin * launchRotation
       });
-      const launch = die.animate(launchFrames, { duration: 760, easing: 'linear', fill: 'forwards' });
+      const launch = die.animate(launchFrames, { duration: launchDuration, easing: 'linear', fill: 'forwards' });
+      // Подготавливаем тяжёлую подборку во время первого пролёта, а не пока
+      // закрывающий экран кубик ждёт смены вкладки.
+      if (!backward) prepareScenarios();
       await waitForAnimations([launch]);
 
       // В этот момент единственный большой кубик полностью закрывает экран.
-      changeScreen();
+      // Сценарии уже подготовлены; один синхронный замер заменяет два кадра ожидания.
+      changePreparedScreen();
       switched = true;
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
       const targetBox = targetGlyph.getBoundingClientRect();
       if (targetBox.width < 1 || targetBox.height < 1) return;
       const landingScale = Math.max(0.18, Math.min(
@@ -956,9 +975,9 @@
           : { x: targetX - viewW * 0.18, y: targetY + viewH * 0.30 },
         to: { x: targetX, y: targetY },
         scaleFrom: coverScale, scaleTo: landingScale,
-        rotationFrom: spin * 1080, rotationTo: spin * 1800
+        rotationFrom: spin * launchRotation, rotationTo: spin * landingRotation
       });
-      const landing = die.animate(landingFrames, { duration: 740, easing: 'linear', fill: 'forwards' });
+      const landing = die.animate(landingFrames, { duration: landingDuration, easing: 'linear', fill: 'forwards' });
       await waitForAnimations([landing]);
     } catch (error) {
       if (!switched) {
@@ -988,9 +1007,54 @@
     $('#scenario-scroll').scrollTop = 0;
   }
 
+  const HOME_SCENES = Array.from({ length: 10 }, (_, i) => 'home-scene-' + String(i + 1).padStart(2, '0'));
+  const HOME_SCENE_KEY = 'dt2:lastHomeScene';
+
   function assetUrl(name) {
     const inlined = window.DT_ASSETS && window.DT_ASSETS[name];
     return inlined || ('assets/' + name + '.jpg');
+  }
+  function homeSceneUrl(name) {
+    const inlined = window.DT_ASSETS && window.DT_ASSETS[name];
+    if (inlined) return inlined;
+    const match = /home-scene-(\d{2})$/.exec(String(name || ''));
+    return 'assets/home-scenes/home-' + (match ? match[1] : '01') + '.jpg';
+  }
+  function nextHomeScene() {
+    const previous = Local.get(HOME_SCENE_KEY, '');
+    const choices = HOME_SCENES.filter(name => name !== previous);
+    const pool = choices.length ? choices : HOME_SCENES;
+    const selected = pool[Math.floor(Math.random() * pool.length)] || HOME_SCENES[0];
+    Local.set(HOME_SCENE_KEY, selected);
+    return selected;
+  }
+  function bindMenuParallax() {
+    const screen = $('#screen-menu');
+    const bg = $('.menu-bg');
+    if (!screen || !bg || screen.dataset.parallaxBound === '1') return;
+    screen.dataset.parallaxBound = '1';
+    let queued = false, px = 0, py = 0;
+    const move = ev => {
+      if (screen.dataset.motion === 'off' || !ev || ev.pointerType === 'touch' && ev.buttons === 0) return;
+      const rect = screen.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      px = ((ev.clientX - rect.left) / rect.width - .5) * 7;
+      py = ((ev.clientY - rect.top) / rect.height - .5) * 6;
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        bg.style.setProperty('--menu-pan-x', px.toFixed(1) + 'px');
+        bg.style.setProperty('--menu-pan-y', py.toFixed(1) + 'px');
+      });
+    };
+    const reset = () => {
+      bg.style.setProperty('--menu-pan-x', '0px');
+      bg.style.setProperty('--menu-pan-y', '0px');
+    };
+    screen.addEventListener('pointermove', move, { passive: true });
+    screen.addEventListener('pointerleave', reset, { passive: true });
+    screen.addEventListener('pointercancel', reset, { passive: true });
   }
   function diceTransitionUrl() {
     return (window.DT_ASSETS && window.DT_ASSETS['dice-transition']) || 'assets/dice-transition.png';
@@ -3122,9 +3186,43 @@
    * Safari и вебвью прячут/показывают панель адреса, из-за чего страница
    * либо оставляет пустоту снизу, либо прячет текст за краем. Меряем сами.
    */
-  function syncAppHeight() {
+  function isStandaloneDisplay() {
+    try {
+      return !!((window.navigator && window.navigator.standalone === true) ||
+        (window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches ||
+          window.matchMedia('(display-mode: fullscreen)').matches)));
+    } catch (e) { return !!(window.navigator && window.navigator.standalone === true); }
+  }
+
+  function appViewportHeight() {
     const vv = window.visualViewport;
-    const h = Math.round((vv && vv.height) || window.innerHeight || 0);
+    const visualHeight = Number(vv && vv.height) || Number(window.innerHeight) || 0;
+    if (!isStandaloneDisplay()) return visualHeight;
+
+    // В установленном iPhone-приложении нижней панели Safari нет. WebKit иногда
+    // всё равно отдаёт высоту как будто панель браузера оставлена снизу; в standalone
+    // берём весь экран, оставляя safe-area для системного индикатора. Клавиатуре
+    // разрешаем временно уменьшить область, чтобы поле ввода не оказалось под ней.
+    const active = document.activeElement;
+    const editing = !!(active && active.matches &&
+      active.matches('input, textarea, select, [contenteditable="true"]'));
+    if (editing && visualHeight > 200) return visualHeight;
+
+    const screenWidth = Number(window.screen && window.screen.width) || 0;
+    const screenHeight = Number(window.screen && window.screen.height) || 0;
+    const portraitExtent = Math.max(screenWidth, screenHeight);
+    const landscapeExtent = Math.min(screenWidth, screenHeight);
+    const fullScreenHeight = window.innerWidth > window.innerHeight ? landscapeExtent : portraitExtent;
+    return Math.max(
+      visualHeight,
+      Number(window.innerHeight) || 0,
+      Number(document.documentElement.clientHeight) || 0,
+      fullScreenHeight || 0
+    );
+  }
+
+  function syncAppHeight() {
+    const h = Math.round(appViewportHeight());
     if (h > 200) document.documentElement.style.setProperty('--app-h', h + 'px');
   }
 
@@ -3137,6 +3235,8 @@
     };
     window.addEventListener('resize', soon);
     window.addEventListener('orientationchange', soon);
+    document.addEventListener('focusin', soon);
+    document.addEventListener('focusout', soon);
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', soon);
       window.visualViewport.addEventListener('scroll', soon);
@@ -4255,20 +4355,8 @@
     renderChapter(g);
     const npcEl = $('#scene-npc');
     const said = E.npcLine(turn);
-    if (said && said.line) {
-      // реплика знакомого — отдельной строкой: её видно, её же читает свой голос
-      npcEl.textContent = '🗣 ' + (said.name ? said.name + ': ' : '') + '«' + said.line + '»';
-      npcEl.hidden = false;
-      npcEl.dataset.npc = said.name || 'знакомый';
-      npcEl.dataset.say = said.line;
-    } else if (turn.npc) {
-      npcEl.textContent = '👤 ' + turn.npc;
-      npcEl.hidden = false;
-      npcEl.dataset.npc = turn.npc;
-    } else {
-      npcEl.hidden = true;
-      delete npcEl.dataset.npc;
-    }
+    // У реплики есть собеседник: показываем его портрет, пол и фразу отдельно от рассказа.
+    renderSceneNpc(npcEl, g, turn, said);
     renderActions(turn.options, false);
 
     // В книге ИИ не участвует — про недоступного мастера там говорить нечего.
@@ -5358,18 +5446,57 @@
     return !!(npc && (Number(npc.seenCount) >= 2 || npc.helped || Number(npc.trust) >= 4 || (npc.relation && npc.relation !== 'neutral')));
   }
 
-  function npcInitials(name) {
-    return String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2)
-      .map(part => part.charAt(0).toLocaleUpperCase()).join('') || '?';
+  function npcGenderInfo(npc) {
+    const gender = E.npcGender(npc);
+    return gender === 'female' ? { id: 'female', icon: '♀', label: 'Женщина' }
+      : { id: 'male', icon: '♂', label: 'Мужчина' };
+  }
+
+  let npcPortraitReturnFocus = null;
+  let npcPortraitCloseTimer = null;
+  function openNpcPortraitViewer(url, npc, opener) {
+    if (!url) return;
+    const viewer = $('#npc-portrait-viewer');
+    const image = $('#npc-portrait-image');
+    const title = $('#npc-portrait-title');
+    const close = $('#npc-portrait-close');
+    if (!viewer || !image || !title) return;
+    clearTimeout(npcPortraitCloseTimer);
+    npcPortraitReturnFocus = opener || document.activeElement;
+    const gender = npcGenderInfo(npc);
+    const role = String(npc && npc.role || '').trim();
+    title.textContent = [npc && npc.name, gender.icon + ' ' + gender.label, role].filter(Boolean).join(' · ');
+    image.src = url;
+    image.alt = 'Портрет: ' + (npc && npc.name || 'знакомый персонаж') + ', ' + gender.label.toLowerCase();
+    viewer.hidden = false;
+    requestAnimationFrame(() => viewer.classList.add('is-open'));
+    if (close) close.focus();
+  }
+
+  function closeNpcPortraitViewer() {
+    const viewer = $('#npc-portrait-viewer');
+    if (!viewer || viewer.hidden) return;
+    viewer.classList.remove('is-open');
+    npcPortraitCloseTimer = setTimeout(() => { viewer.hidden = true; }, 210);
+    if (npcPortraitReturnFocus && npcPortraitReturnFocus.isConnected && npcPortraitReturnFocus.focus) {
+      npcPortraitReturnFocus.focus();
+    }
+    npcPortraitReturnFocus = null;
   }
 
   function paintNpcPortrait(avatar, npc, url) {
     if (!avatar) return;
+    const available = !!url;
     clear(avatar);
-    avatar.classList.toggle('is-empty', !url);
-    avatar.setAttribute('aria-label', url ? 'Портрет ' + npc.name : 'Инициалы ' + npc.name);
+    avatar.classList.toggle('is-empty', !available);
+    avatar.setAttribute('aria-label', available ? 'Открыть портрет ' + npc.name : 'Портрет ' + npc.name + ' ещё не готов');
     avatar.classList.remove('is-loading');
-    if (url) {
+    if (avatar.tagName === 'BUTTON') {
+      avatar.disabled = !available;
+      avatar.title = available ? 'Открыть портрет на весь экран' : 'Портрет создаётся';
+      avatar.onclick = available ? () => openNpcPortraitViewer(url, npc, avatar) : null;
+    }
+    if (available) {
       const img = h('img', { class: 'npc-gallery__portrait-img', src: url, alt: '', 'aria-hidden': 'true', loading: 'lazy' });
       img.addEventListener('error', () => paintNpcPortrait(avatar, npc, ''), { once: true });
       avatar.appendChild(img);
@@ -5378,18 +5505,66 @@
     }
   }
 
-  function npcPortraitPrompt(game, npc) {
-    const role = String(npc.role || npc.attitude || 'recurring character').replace(/[\r\n]+/g, ' ').trim();
-    const world = String(game.scenarioTitle || game.title || 'campaign setting').replace(/[\r\n]+/g, ' ').trim();
-    return [
-      'Single-character square head-and-shoulders portrait of the recurring fictional NPC ' + npc.name + ', ' + role + '.',
-      'One person only, expressive memorable face, distinctive silhouette, natural portrait framing, no text, no watermark.',
-      'Campaign setting: ' + world + '. Match the established visual art direction; keep the face recognizable in a small gallery thumbnail.'
-    ].join(' ');
+  function renderSceneNpc(host, game, turn, said) {
+    const object = turn && (turn.npcObject || (turn.npc && typeof turn.npc === 'object' ? turn.npc : null));
+    const name = String((said && said.name) || (object && object.name) ||
+      (turn && typeof turn.npc === 'string' ? turn.npc : '')).trim();
+    if (!host || !name) {
+      if (host) { host.hidden = true; clear(host); delete host.dataset.npc; delete host.dataset.say; delete host.dataset.gender; }
+      return null;
+    }
+
+    const memory = E.memoryOf(game);
+    const record = memory.npcs.find(n => String(n.name || '').toLowerCase() === name.toLowerCase()) ||
+      Object.assign({ name, portrait: '', role: '', description: '', gender: E.npcGender(object || { name }) }, object || {});
+    const gender = npcGenderInfo(record);
+    const line = String((said && said.line) || '').trim();
+    const role = String(record.role || (object && object.role) || '').trim();
+    const avatar = h('button', {
+      class: 'npc-gallery__portrait scene-npc__portrait', type: 'button', disabled: !record.portrait,
+      'aria-label': record.portrait ? 'Открыть портрет ' + name : 'Портрет ' + name + ' создаётся'
+    });
+    paintNpcPortrait(avatar, record, record.portrait || '');
+
+    clear(host);
+    host.hidden = false;
+    host.dataset.npc = name;
+    host.dataset.gender = gender.id;
+    if (line) host.dataset.say = line; else delete host.dataset.say;
+    host.appendChild(avatar);
+    host.appendChild(h('div', { class: 'scene-npc__copy' }, [
+      h('div', { class: 'scene-npc__heading' }, [
+        h('span', { class: 'scene-npc__name', text: name }),
+        h('span', { class: 'scene-npc__gender', text: gender.icon + ' ' + gender.label })
+      ]),
+      line ? h('div', { class: 'scene-npc__line', text: '«' + line + '»' })
+        : (role ? h('div', { class: 'scene-npc__line', text: role }) : null)
+    ]));
+
+    // Реплика — разговор: создаём для собеседника сохранённый портрет в фоне.
+    if (line && record) generateNpcPortrait(game, record, avatar, true);
+    return record;
   }
 
-  async function generateNpcPortrait(game, npc, avatar) {
-    if (!game || !npc || npc.portrait || !npcNeedsPortrait(npc) || !API || !API.generateImage) return;
+  function npcPortraitPrompt(game, npc) {
+    const role = String(npc.role || npc.attitude || 'recurring character').replace(/[\r\n]+/g, ' ').trim();
+    const appearance = String(npc.description || npc.appearance || '').replace(/[\r\n]+/g, ' ').trim();
+    const world = String(game.scenarioTitle || game.title || 'campaign setting').replace(/[\r\n]+/g, ' ').trim();
+    const gender = npcGenderInfo(npc);
+    const genderPrompt = gender.id === 'female'
+      ? 'Clearly depict a female person, a woman with feminine face and presentation; do not depict a man.'
+      : 'Clearly depict a male person, a man with masculine face and presentation; do not depict a woman.';
+    return [
+      'Single-character square head-and-shoulders portrait of the recurring fictional NPC ' + npc.name + ', ' + role + '.',
+      'Gender is ' + gender.id + '. ' + genderPrompt,
+      appearance ? 'Stable appearance: ' + appearance + '.' : '',
+      'One person only, expressive memorable face, distinctive silhouette, natural portrait framing, no text, no watermark.',
+      'Campaign setting: ' + world + '. Match the established visual art direction; keep the face recognizable in a small gallery thumbnail.'
+    ].filter(Boolean).join(' ');
+  }
+
+  async function generateNpcPortrait(game, npc, avatar, force) {
+    if (!game || !npc || npc.portrait || (!force && !npcNeedsPortrait(npc)) || !API || !API.generateImage) return;
     if (typeof API.imageSource === 'function' && API.imageSource() === 'local') return;
     const key = npcPortraitKey(game, npc);
     if (State.npcPortraitPending[key] || State.npcPortraitFailed[key]) return;
@@ -5401,7 +5576,7 @@
       const res = await API.generateImage({
         prompt: npcPortraitPrompt(game, npc),
         style: E.styleOf(game).imageStyle,
-        aspect: '1:1', width: 256, height: 256,
+        aspect: '1:1', width: 512, height: 512,
         seed: npc.portraitSeed
       });
       if (res && res.ok && res.url) {
@@ -5510,16 +5685,17 @@
       npcs.slice(0, 8).forEach(n => {
         const record = mem.npcs.find(item => String(item && item.name || '').toLowerCase() === String(n.name || '').toLowerCase()) || n;
         const pips = '●'.repeat(Math.max(0, n.trust)) + '○'.repeat(Math.max(0, 5 - n.trust));
-        const avatar = h('div', {
+        const avatar = h('button', {
           class: 'npc-gallery__portrait' + (record.portrait ? '' : ' is-empty'),
-          role: 'img', 'aria-label': record.portrait ? 'Портрет ' + n.name : 'Инициалы ' + n.name
+          type: 'button', disabled: !record.portrait,
+          'aria-label': record.portrait ? 'Открыть портрет ' + n.name : 'Портрет ' + n.name + ' ещё не создан'
         });
         paintNpcPortrait(avatar, record, record.portrait || '');
         const card = h('article', { class: 'npc-gallery__card npc-gallery__card--' + (n.relation || 'neutral') }, [
           avatar,
           h('div', { class: 'npc-gallery__body' }, [
             h('div', { class: 'npc-gallery__name', text: n.name }),
-            h('div', { class: 'npc-gallery__role', text: n.role || 'Знакомый персонаж' }),
+            h('div', { class: 'npc-gallery__role', text: [npcGenderInfo(record).icon + ' ' + npcGenderInfo(record).label, n.role || 'Знакомый персонаж'].join(' · ') }),
             h('div', { class: 'npc-gallery__relation', title: n.note || '' }, [
               h('span', { text: (n.relationIcon || '👤') + ' ' + (n.relationTitle || 'нейтрально') }),
               h('span', { class: 'npc-gallery__trust', text: pips, title: 'Доверие: ' + n.trust + ' из 5', 'aria-label': 'Доверие ' + n.trust + ' из 5' })
@@ -6989,6 +7165,10 @@
 
     $('#file-input').addEventListener('change', ev => { importFiles(ev.target.files); ev.target.value = ''; });
     $('#modal').addEventListener('click', ev => { if (ev.target.id === 'modal') closeModal(); });
+    $('#npc-portrait-close').addEventListener('click', closeNpcPortraitViewer);
+    $('#npc-portrait-viewer').addEventListener('click', ev => {
+      if (ev.target.id === 'npc-portrait-viewer') closeNpcPortraitViewer();
+    });
     $('#log-toggle').addEventListener('click', () => {
       const wrap = $('#log-wrap');
       wrap.hidden = !wrap.hidden;
@@ -6997,12 +7177,23 @@
 
     // клавиши: 1/2/3 — вариант, U — умение, Esc — закрыть диалог
     document.addEventListener('keydown', ev => {
-      if (document.body.dataset.screen !== 'game') return;
+      if (ev.key === 'Tab') {
+        const portraitViewer = $('#npc-portrait-viewer');
+        if (portraitViewer && !portraitViewer.hidden) {
+          const closeButton = $('#npc-portrait-close');
+          if (closeButton) { ev.preventDefault(); closeButton.focus(); }
+          return;
+        }
+      }
       if (ev.key === 'Escape') {
+        const portraitViewer = $('#npc-portrait-viewer');
+        if (portraitViewer && !portraitViewer.hidden) { closeNpcPortraitViewer(); return; }
+        if (document.body.dataset.screen !== 'game') return;
         if (!$('#modal').hidden) { closeModal(); return; }
         if (State.prologueOpen) { closePrologue(); return; }
         return;
       }
+      if (document.body.dataset.screen !== 'game') return;
       if (State.prologueOpen) return;
       if (ev.key.toLowerCase() === 'u' || ev.key.toLowerCase() === 'г') { onUseAbility(); return; }
       const index = ['1', '2', '3', '4'].indexOf(ev.key);
@@ -7034,9 +7225,8 @@
   /* ---------------------------------------------------------- */
   function setupViewport() {
     const apply = () => {
-      const vv = window.visualViewport;
-      const hgt = vv ? vv.height : window.innerHeight;
-      document.documentElement.style.setProperty('--app-h', Math.round(hgt) + 'px');
+      const hgt = appViewportHeight();
+      if (hgt > 200) document.documentElement.style.setProperty('--app-h', Math.round(hgt) + 'px');
     };
     apply();
     window.addEventListener('resize', apply);
@@ -7107,7 +7297,12 @@
     });
     $('#sound-toggle').textContent = Settings.data.muted ? '🔇' : '🔊';
     const menuBgEl = $('.menu-bg');
-    if (menuBgEl) menuBgEl.style.backgroundImage = 'url("' + assetUrl('menu-bg') + '")';
+    if (menuBgEl) {
+      const scene = nextHomeScene();
+      menuBgEl.style.setProperty('--menu-bg', 'url("' + homeSceneUrl(scene) + '")');
+      menuBgEl.dataset.scene = scene;
+    }
+    bindMenuParallax();
     refreshMenu();
     show('menu');
 

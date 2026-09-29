@@ -592,7 +592,7 @@
     return npcMemory(game).map(n => {
       const info = relationInfo(n);
       return {
-        name: n.name, role: n.role || '', voice: n.voice || '',
+        name: n.name, role: n.role || '', description: n.description || '', gender: npcGender(n), voice: n.voice || '',
         relation: info.id, relationTitle: info.title, relationIcon: info.icon,
         trust: info.trust, helped: !!n.helped, note: info.note,
         seen: n.seen || 0, seenCount: Math.max(1, Number(n.seenCount) || 1),
@@ -958,12 +958,14 @@
       '  "plan": ["шаг сценария 1", "шаг 2", "шаг 3"],',
       '  "opening": "сцена, 2-3 предложения, второе лицо, живая деталь, ощутимая угроза",',
       '  "chapter": "название первой главы, 2-4 слова",',
-      '  "npc": "имя и одна деталь персонажа, появившегося рядом, иначе пустая строка",',
+      '  "npc": {"name": "Имя", "gender": "male | female", "role": "кто он", "description": "внешность, 3–8 слов", "attitude": "друг | должник | нейтрально | враг", "voice": "как говорит"} или пустая строка,',
       '  "imagePrompt": "English image prompt for the first scene: location + light + mood + the hero and every other visible participant",',
       '  "options": [ {"text": "...", "stat": "str|agi|con|int|per|wit|cha", "difficulty": "easy|medium|hard|deadly"} x3 ]',
       '}',
       'Ровно 3 варианта действий, каждый не длиннее 12 слов. Только JSON, без пояснений.',
-      'В imagePrompt перечисли героя и всех, кто рядом в завязке; при нескольких участниках явно укажи группу и покажи их вместе, не одиночным портретом.',
+      'В imagePrompt перечисли героя и всех, кто рядом в завязке; для каждого человека укажи male/female, при группе сохрани точное количество.',
+      'При нескольких участниках покажи их вместе, не одиночным портретом.',
+      'Если в первой сцене есть NPC, обязательно укажи gender строго male или female; опиши пол и внешность согласованно и сохраняй их дальше.',
       '',
       'ВАЖНО: пиши предельно коротко — ответ должен целиком влезть в лимит длины.',
       'Про класс, вид и происхождение героя здесь не пиши: их мастер придумывает отдельным ответом.'
@@ -1292,6 +1294,8 @@
       else n.seenCount = Math.round(Number(n.seenCount));
       if (typeof n.portrait !== 'string') n.portrait = '';
       if (!Number.isFinite(Number(n.portraitSeed))) n.portraitSeed = 0;
+      if (typeof n.description !== 'string') n.description = String(n.appearance || '');
+      n.gender = normalizeNpcGender(n.gender) || npcGender(n) || (npcVoiceFor(n) === 'female' ? 'female' : 'male');
     });
     if (!Array.isArray(m.threads)) m.threads = [];
     if (!Array.isArray(m.openings)) m.openings = [];
@@ -1338,7 +1342,8 @@
     const idx = Math.max(0, Math.min(plan.length - 1, Number.isFinite(m.step) ? m.step : 0));
     const step = plan.length ? plan[idx] : '';
     const known = m.npcs.slice(-6).map(n => {
-      const bits = [n.role, n.attitude, n.voice ? 'говорит: ' + n.voice : ''].filter(Boolean);
+      const sex = npcGender(n) === 'female' ? 'женщина' : 'мужчина';
+      const bits = [sex, n.role, n.description, n.attitude, n.voice ? 'говорит: ' + n.voice : ''].filter(Boolean);
       return bits.length ? `${n.name} (${bits.join(', ')})` : n.name;
     });
     return [
@@ -1391,10 +1396,14 @@
       const name = String(npc.name || '').trim().slice(0, 40);
       if (name) {
         const known = m.npcs.find(n => n.name.toLowerCase() === name.toLowerCase());
+        const gender = npcGender(npc) || (npcVoiceFor(npc) === 'female' ? 'female' : 'male');
+        const description = String(npc.description || npc.appearance || '').trim().slice(0, 100);
         if (known) {
           known.seen = game.turn;
           known.seenCount = (Number(known.seenCount) || 1) + 1;
+          if (!normalizeNpcGender(known.gender)) known.gender = gender;
           if (npc.role) known.role = String(npc.role).slice(0, 40);
+          if (description) known.description = description;
           if (npc.attitude) known.attitude = String(npc.attitude).slice(0, 40);
           if (npc.voice) known.voice = String(npc.voice).slice(0, 60);
           if (npc.trust !== undefined) known.trust = clamp(Math.round(Number(npc.trust) || 0), 0, 5);
@@ -1403,7 +1412,9 @@
         } else {
           m.npcs.push({
             name, seen: game.turn, seenCount: 1,
+            gender,
             role: String(npc.role || npc.detail || '').slice(0, 40),
+            description,
             attitude: String(npc.attitude || '').slice(0, 40),
             relation: relationFromText(npc.attitude),
             trust: Number.isFinite(Number(npc.trust)) ? clamp(Math.round(Number(npc.trust)), 0, 5) : trustFromRelation(relationFromText(npc.attitude)),
@@ -2179,18 +2190,42 @@
   /* ---------------------------------------------------------- */
 
   const FEMALE_HINT_RE = /(ниц|ица|ка$|ша$|са$|нья|ель|иха|ова|ева|ина|ая$|я$)/i;
+  const FEMALE_ROLE_RE = /(женщин|девуш|ведьм|жриц|старух|мать|сестр|госпож|леди|королев|барменш|торговк|проводниц|лекарк|воительниц)/i;
+  const MALE_ROLE_RE = /(мужчин|парень|юнош|старик|воин|кузнец|наёмник|наемник|стражник|капитан|жрец|мастер|охотник|солдат|гигант|корол[яь]|рыцарь)/i;
+  function normalizeNpcGender(value) {
+    const g = String(value || '').trim().toLowerCase();
+    if (/^(female|woman|girl|f|жен|женщина|девушка|женский)$/.test(g)) return 'female';
+    if (/^(male|man|boy|m|муж|мужчина|парень|мужской)$/.test(g)) return 'male';
+    return '';
+  }
+  function npcGender(npc) {
+    const n = npc || {};
+    const explicit = normalizeNpcGender(n.gender || n.sex || n.genderPresentation);
+    if (explicit) return explicit;
+    const voiceGender = normalizeNpcGender(n.voice);
+    if (voiceGender) return voiceGender;
+    const role = String(n.role || '') + ' ' + String(n.description || n.appearance || '') + ' ' + String(n.voice || '');
+    if (FEMALE_ROLE_RE.test(role)) return 'female';
+    if (MALE_ROLE_RE.test(role)) return 'male';
+    const name = String(n.name || '').trim();
+    // Убираем самые частые мужские имена на -я из старых сохранений: пол по имени — лишь запасной сигнал.
+    if (/^(илья|никита|кузя|лука|фома)$/i.test(name)) return 'male';
+    if (FEMALE_HINT_RE.test(role.trim().split(/[\s,]+/)[0] || '') || FEMALE_HINT_RE.test(name)) return 'female';
+    return '';
+  }
   /**
-   * Голос знакомого — по имени, манере речи и роли. Нужен и озвучке
-   * (другой тембр на реплику), и оформлению (реплика выделяется строкой).
+   * Голос знакомого — сначала по явно заданному полу, затем по роли/имени.
+   * Старые сохранения без пола продолжают использовать прежнее распознавание.
    */
   function npcVoiceFor(npc) {
     const n = npc || {};
+    const explicit = npcGender(n);
+    if (explicit) return explicit;
     const name = String(n.name || '');
     const role = String(n.role || '') + ' ' + String(n.voice || '');
-    // женский род ищем и в роли («караванщица», «жрица»), и в имени («Мара», «Аня»)
-    const female = /(женщ|девуш|ведьм|жрица|старух|мать|сестра|госпож|леди|королев|барменша|торговка)/i.test(role) ||
+    const female = FEMALE_ROLE_RE.test(role) ||
       FEMALE_HINT_RE.test(role.trim().split(/[\s,]+/)[0] || '') || FEMALE_HINT_RE.test(name);
-    const deep = /(старик|воин|кузнец|наёмник|наемник|стражник|капитан|жрец|мастер|охотник|солдат|гигант)/i.test(role);
+    const deep = MALE_ROLE_RE.test(role);
     return female ? 'female' : (deep ? 'male' : 'andrew');
   }
   /** Строка реплики: мастер может вернуть её в поле npc.line или в кавычках в сцене. */
@@ -3124,6 +3159,7 @@
     const npcText = [
       typeof o.npc === 'string' ? o.npc : '',
       npcObject && npcObject.name,
+      npcObject && (npcGender(npcObject) === 'female' ? 'female woman' : 'male man'),
       npcObject && npcObject.role,
       npcObject && npcObject.description,
       npcObject && npcObject.attitude
@@ -3151,15 +3187,20 @@
     if (!HERO_PROMPT_RE.test(base)) {
       parts.push(heroArtTag(game) + ' in the foreground, seen from behind');
     }
-    if (npcPresent && !/\b(?:companion|ally|friend|guide|merchant|innkeeper|NPC)\b/i.test(base)) {
+    if (npcPresent) {
       const role = [npcObject && npcObject.role, npcObject && npcObject.description, npcObject && npcObject.attitude, npcText].join(' ').toLowerCase();
-      const npcArt = /проводниц|проводник|guide/.test(role) ? 'a companion guide beside the hero'
-        : /страж|охран|guard|soldier/.test(role) ? 'a companion guard beside the hero'
-        : /торгов|купец|merchant/.test(role) ? 'a merchant companion beside the hero'
-        : /жриц|священ|priest/.test(role) ? 'a priest companion beside the hero'
-        : /враг|противник|enemy|rival/.test(role) ? 'a rival NPC facing the hero'
-        : 'a distinct companion NPC beside the hero';
-      parts.push(npcArt);
+      const genderWord = npcGender(npcObject || { name: typeof o.npc === 'string' ? o.npc : '' }) === 'female' ? 'female' : 'male';
+      // Даже если базовый промпт уже говорит "companion" или "NPC", повторяем его пол явно.
+      parts.push(genderWord === 'female' ? 'female woman NPC' : 'male man NPC');
+      if (!/\b(?:companion|ally|friend|guide|merchant|innkeeper|NPC)\b/i.test(base)) {
+        const npcArt = /проводниц|проводник|guide/.test(role) ? 'a ' + genderWord + ' companion guide beside the hero'
+          : /страж|охран|guard|soldier/.test(role) ? 'a ' + genderWord + ' companion guard beside the hero'
+          : /торгов|купец|merchant/.test(role) ? 'a ' + genderWord + ' merchant companion beside the hero'
+          : /жриц|священ|priest/.test(role) ? 'a ' + genderWord + ' priest companion beside the hero'
+          : /враг|противник|enemy|rival/.test(role) ? 'a ' + genderWord + ' rival NPC facing the hero'
+          : 'a distinct ' + genderWord + ' companion NPC beside the hero';
+        parts.push(npcArt);
+      }
     }
     // Добавляем каждый распознанный тип участника, а не только первого врага в списке.
     actors.enemies.slice(0, 3).forEach(type => {
@@ -3753,7 +3794,7 @@
     '  "scene": "2–4 предложения описания сцены и последствий действия игрока",',
     '  "place": "где мы сейчас, 2–4 слова по-русски (например: «ночной рынок у моста»)",',
     '  "chapter": "название главы, 2–4 слова, если сменилась локация, иначе пустая строка",',
-    '  "npc": {"name": "Имя", "role": "кто он", "attitude": "друг | должник | нейтрально | враг", "trust": 0, "voice": "как говорит, 2–4 слова"} или пустая строка,',
+    '  "npc": {"name": "Имя", "gender": "male | female", "role": "кто он", "description": "внешность, 3–8 слов", "attitude": "друг | должник | нейтрально | враг", "trust": 0, "voice": "как говорит, 2–4 слова", "line": "реплика, если персонаж говорит"} или пустая строка,',
     '  "imagePrompt": "English prompt for an image generator, 10-18 words: место, свет, настроение, кто в кадре",',
     '  "world": "только для первой сцены: 2–4 предложения о мире — где мы, как здесь всё устроено, чем живут люди",',
     '  "backstory": "только для первой сцены: 3–5 предложений предыстории героя — откуда он, что потерял, почему он здесь",',
@@ -3772,10 +3813,15 @@
     '"effects.supplies" — на сколько изменились припасы героя (обычно 0: −1 за ночёвку или трату, +1 за находку).',
     '"effects.state" — состояние героя: wound (рана), fatigue (усталость), inspired (вдохновение), marked (на мушке) или пусто.',
     '"effects.give" — предмет с эффектом: kind heal (лечит на power), boost (+power к проверке stat на ход), advantage (преимущество), key (ключ к вехе).',
+    '"npc.gender" обязателен для каждого NPC: только "male" или "female"; выбери мужской или женский пол явно.',
+    'Не оставляй gender пустым и не меняй пол уже знакомого персонажа; для фантастического вида тоже укажи male/female-представление.',
+    'Если персонаж возвращается, строго используй пол из блока памяти и соблюдай соответствующий род в сцене.',
+    '"npc.description" — короткие устойчивые внешние признаки для повторного портрета; не меняй их без причины.',
     '"npc.trust" — доверие к знакомому 0–5; другу легче соврать и попросить, враг заметит обман.',
     'Пиши на русском, но "imagePrompt" — всегда на английском.',
     '',
     'ПРАВИЛА ДЛЯ "imagePrompt": в кадре должны быть все участники текущей сцены, а не только главный герой.',
+    'Для каждого человека/разумного персонажа явно укажи male или female; для знакомого NPC используй строго его сохранённый npc.gender.',
     'Явно перечисляй героя, каждого сопровождающего NPC и всех противников/существ; сохраняй названное в сцене количество.',
     'Если людей или существ несколько — напиши это прямо (например: hero, two guards and a wolf), расположи их вместе',
     'в одном общем кадре, различимо и без обрезания лишних участников. Не делай одиночный портрет, если рядом есть другие.',
@@ -5173,7 +5219,7 @@
     offlineTurn, offlineOpening, offlineScene, offlineWorldIntro, offlineBackstory, offlinePlan, isRepeatedScene,
     sceneMood, MOODS,
     emptyArc, arcOf, arcNow, arcAdvance, arcLine, compactMemory, chronicleLine,
-    validateTurn, repairHint, npcVoiceFor, npcLine, offlineSecondChance, openingQuestion,
+    validateTurn, repairHint, npcVoiceFor, npcGender, normalizeNpcGender, npcLine, offlineSecondChance, openingQuestion,
     STYLE_PRESETS, styleById, stylePrompt, sceneKeywords, scenePromptCoverage, reinforcePrompt,
     sceneActors, composeSceneImagePrompt, parsePlan, storyOptions, useAbility, tickCooldowns,
     actionFocus, FOCUS_ART,

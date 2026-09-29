@@ -18,8 +18,9 @@ test('переход использует один AI-кубик в меню, н
   assert.ok(flight.includes("source.querySelector('.dice-icon')"));
   assert.ok(flight.includes("target.querySelector('.dice-icon')"));
   assert.ok(flight.includes("document.createElement('img')"));
+  assert.ok(flight.includes("sourceGlyph.cloneNode(false)"), 'переход клонирует уже загруженную AI-картинку');
   assert.ok(flight.includes("glyph.className = 'dice-transition__glyph'"));
-  assert.ok(flight.includes('glyph.src = diceTransitionUrl()'));
+  assert.ok(flight.includes('sourceGlyph.currentSrc || sourceGlyph.src || diceTransitionUrl()'));
   assert.ok(flight.includes('target.classList.add(\'is-launching\')'));
   assert.ok(flight.includes('target.classList.remove(\'is-launching\')'));
   assert.ok(flight.includes('die.appendChild(glyph)'));
@@ -44,8 +45,13 @@ test('кубик центрирован над логотипом, высота 
 
 test('кубик летит по плавной кривой и закрывает весь экран в пике', () => {
   assert.ok(flight.includes('const curveFrames = path =>'));
-  assert.ok(flight.includes('const count = 48'));
+  assert.ok(flight.includes('const count = frameCount'));
+  assert.ok(flight.includes('const frameCount = compactPhone ? 8 : 24'));
   assert.ok(flight.includes('const t = smooth(offset)'));
+  assert.ok(flight.includes('const launchDuration = compactPhone ? 520 : 760'));
+  assert.ok(flight.includes('const landingDuration = compactPhone ? 460 : 740'));
+  assert.ok(flight.includes('const launchRotation = compactPhone ? 360 : 1080'));
+  assert.ok(flight.includes('const landingRotation = compactPhone ? 540 : 1800'));
   assert.ok(flight.includes('scaleTo: coverScale'));
   assert.ok(flight.includes('Math.hypot(viewW, viewH) * 1.12 / tileSize'));
   assert.ok(flight.includes("transform: 'translate3d('"), 'координаты и масштаб идут единым GPU transform');
@@ -53,6 +59,9 @@ test('кубик летит по плавной кривой и закрывае
   assert.doesNotMatch(flight, /glyph\.animate/, 'тяжёлый filter не анимируется на PNG');
   assert.ok(flight.includes('die.animate(launchFrames'));
   assert.ok(flight.includes('die.animate(landingFrames'));
+  assert.ok(flight.includes('changePreparedScreen()'));
+  assert.ok(!flight.includes('requestAnimationFrame(() => requestAnimationFrame(resolve))'), 'между дугами нет лишней паузы');
+  assert.ok(app.indexOf('if (!backward) prepareScenarios();') < app.indexOf('await waitForAnimations([launch])'), 'экран выбора готовится пока кубик летит');
   assert.ok(!flight.includes("easing: 'cubic-bezier(.2,.72,.32,1)'"));
 });
 

@@ -10,11 +10,15 @@
 
 // Увеличиваем версию при изменении оболочки: PWA не должна оставаться на
 // закэшированных HTML/CSS/JS и пропускать новые изображения интерфейса.
-const VERSION = 'dt2-v29';
+const VERSION = 'dt2-v31';
 const SHELL_CACHE = VERSION + '-shell';
 const COVER_IMAGES = [
   'menu-bg', 'sc-forest', 'sc-ocean', 'sc-space', 'sc-noir', 'sc-waste',
   'gw-azeroth', 'gw-nightcity', 'gw-runes', 'gw-custom'
+];
+const HOME_SCENE_IMAGES = [
+  'home-01', 'home-02', 'home-03', 'home-04', 'home-05',
+  'home-06', 'home-07', 'home-08', 'home-09', 'home-10'
 ];
 const CRITTER_IMAGES = [
   'knight', 'dragon', 'engineer', 'necro', 'cyber', 'orc', 'mage',
@@ -49,6 +53,7 @@ const SHELL = [
   './src/daily.js',
   './src/metrics.js',
   ...COVER_IMAGES.map(name => './assets/' + name + '.jpg'),
+  ...HOME_SCENE_IMAGES.map(name => './assets/home-scenes/' + name + '.jpg'),
   './assets/dice-transition.png',
   ...CRITTER_IMAGES.map(name => './assets/critters/' + name + '-run.webp'),
   ...THEME_IMAGES.map(name => './assets/themes/' + name + '.webp'),

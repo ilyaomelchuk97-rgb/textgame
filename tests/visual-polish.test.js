@@ -96,7 +96,7 @@ test('important NPCs get one saved portrait; other contacts keep initials and tr
   assert.match(app, /seenCount\) >= 2/);
   assert.match(app, /npc\.portraitSeed = Number\(npc\.portraitSeed\) \|\| E\.rnd\.seed\(\)/);
   assert.match(app, /npc\.portrait = res\.url/);
-  assert.match(app, /width: 256, height: 256/);
+  assert.match(app, /width: 512, height: 512/);
   assert.match(app, /State\.npcPortraitPending\[key\]/);
   assert.match(engine, /seenCount: 1/);
   assert.match(app, /npc-gallery__trust/);

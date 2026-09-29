@@ -22,6 +22,7 @@ COVERS = ["menu-bg", "sc-forest", "sc-ocean", "sc-space", "sc-noir", "sc-waste",
           "gw-azeroth", "gw-nightcity", "gw-runes", "gw-custom"]
 CRITTERS = ["knight", "dragon", "engineer", "necro", "cyber", "orc", "mage",
             "assassin", "golem", "wolf", "drone", "ghost", "zombie", "pirate"]
+HOME_SCENES = ["home-scene-%02d" % i for i in range(1, 11)]
 
 
 def data_uri(path: pathlib.Path) -> str:
@@ -61,8 +62,14 @@ def webp_bytes(path: pathlib.Path, max_side: int, quality: int = 72):
 
 def asset_uri(name: str, path: pathlib.Path) -> str:
     """Картинка в data-URI: компактный WebP, если поддерживается, иначе оригинал."""
-    max_side = MENU_MAX if name == "menu-bg" else (1024 if name == "dice-transition" else WEBP_MAX)
-    quality = 90 if name == "dice-transition" else 72
+    if name == "menu-bg":
+        max_side, quality = MENU_MAX, 72
+    elif name == "dice-transition":
+        max_side, quality = 1024, 90
+    elif name.startswith("home-scene-"):
+        max_side, quality = 1536, 84
+    else:
+        max_side, quality = WEBP_MAX, 72
     raw = webp_bytes(path, max_side, quality)
     if raw:
         return "data:image/webp;base64,%s" % base64.b64encode(raw).decode("ascii")
@@ -98,6 +105,14 @@ def main() -> int:
         path = ASSETS / ("%s.jpg" % name)
         if not path.exists():
             print("! нет файла %s" % path, file=sys.stderr)
+            return 1
+        assets_map[name] = asset_uri(name, path)
+
+    for name in HOME_SCENES:
+        scene_id = name.rsplit("-", 1)[-1]
+        path = ASSETS / "home-scenes" / ("home-%s.jpg" % scene_id)
+        if not path.exists():
+            print("! нет фоновой сцены %s" % path, file=sys.stderr)
             return 1
         assets_map[name] = asset_uri(name, path)
 

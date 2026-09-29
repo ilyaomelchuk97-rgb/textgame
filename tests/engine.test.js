@@ -1365,6 +1365,36 @@ test('знакомые получают свой голос: женщин, му�
   assert.ok(line && /Иди за мной/.test(line.line), 'реплика должна вытаскиваться из ответа мастера');
 });
 
+test('ИИ задаёт NPC явный пол, сохраняет его в памяти и передаёт художнику', () => {
+  const game = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  game.turn = 1;
+  const npc = {
+    name: 'Мара', gender: 'female', role: 'проводница',
+    description: 'короткие серебряные волосы', attitude: 'союзница'
+  };
+  E.rememberTurn(game, { npcObject: npc, scene: 'Мара говорит и показывает дорогу.' });
+  const saved = E.npcList(game)[0];
+  assert.equal(saved.gender, 'female');
+  assert.equal(saved.description, npc.description);
+  assert.match(E.memoryBlock(game), /Мара \(женщина/);
+  assert.equal(E.npcVoiceFor({ name: 'Мара', gender: 'male', role: 'ведьма' }), 'male', 'явный пол важнее имени и роли');
+  assert.match(E.SYSTEM_PROMPT, /npc\.gender/);
+  const legacy = E.createGame({ scenarioId: 'custom', heroName: 'Ирма' });
+  legacy.memory.npcs = [{ name: 'Незнакомка', voice: 'female' }];
+  assert.equal(E.memoryOf(legacy).npcs[0].gender, 'female', 'старые голоса мигрируют в явный пол');
+  const frame = E.composeSceneImagePrompt(game, {
+    sceneText: 'Мара заговорила у моста.',
+    npcObject: Object.assign({}, npc, { attitude: 'friendly ally' })
+  });
+  assert.match(frame, /female companion guide/);
+  const framedCompanion = E.composeSceneImagePrompt(game, {
+    sceneText: 'Мара рядом у моста.',
+    aiPrompt: 'cinematic shot of a companion NPC beside a bridge',
+    npcObject: npc
+  });
+  assert.match(framedCompanion, /female woman NPC/, 'пол добавляется, даже если мастер уже написал NPC в промпте');
+});
+
 test('кадр сверяется со сценой: чего не хватает в промпте, досыпается словами', () => {
   const scene = 'Ночной рынок у моста: горит костёр, ветер несёт пепел, у ворот стоит телега.';
   const poor = 'dark fantasy market';
