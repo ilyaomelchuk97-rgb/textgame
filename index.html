@@ -21,7 +21,14 @@
 
     <!-- ============ ЭКРАН 1: ГЛАВНОЕ МЕНЮ ============ -->
     <section class="screen screen--menu" id="screen-menu">
-      <div class="menu-bg"></div>
+      <div class="menu-bg" data-scene="home-scene-01">
+        <img class="menu-bg__image" src="assets/home-scenes/home-01.jpg" alt="" aria-hidden="true"
+             fetchpriority="high" decoding="async">
+        <div class="menu-bg__layer menu-bg__layer--sky" aria-hidden="true"></div>
+        <div class="menu-bg__layer menu-bg__layer--mid" aria-hidden="true"></div>
+        <div class="menu-bg__layer menu-bg__layer--near" aria-hidden="true"></div>
+        <div class="menu-bg__specular" aria-hidden="true"></div>
+      </div>
       <div class="menu-veil"></div>
       <div class="menu-inner">
         <div class="menu-head">
@@ -32,6 +39,7 @@
 
         <div class="menu-buttons">
           <button class="btn btn--primary" type="button" data-act="new-game">Начать новую игру</button>
+          <button class="btn btn--ghost online-menu-button" type="button" id="open-online-adventure">🗺 Открытый мир · онлайн</button>
           <button class="btn btn--ghost" type="button" data-act="my-games">
             Мои игры <span class="badge" id="menu-saves-count" hidden></span>
           </button>
@@ -47,6 +55,106 @@
           <button class="icon-btn" type="button" data-act="settings" aria-label="Настройки">⚙️</button>
           <span class="ai-status" id="ai-status">ИИ: проверяем связь…</span>
         </div>
+      </div>
+    </section>
+
+    <!-- ============ ОТДЕЛЬНЫЙ РЕЖИМ: ОНЛАЙН-МИР И КАРТА ============ -->
+    <section class="screen screen--online" id="screen-online" hidden aria-label="Открытый онлайн-мир">
+      <header class="sub-header online-head">
+        <button class="icon-btn" type="button" id="online-exit" aria-label="В меню">‹</button>
+        <div class="online-head__title"><h2>Открытый мир</h2><span>одиночное онлайн-приключение</span></div>
+        <button class="icon-btn" type="button" id="online-cloud-save" aria-label="Сохранить кампанию в облаке" hidden>☁</button>
+      </header>
+      <div class="online-scroll">
+        <section class="online-setup" id="online-setup">
+          <div class="notice notice--info online-intro">
+            Отдельная кампания с перемещением по клеточной карте, длинной цепочкой заданий и пошаговыми боями.
+            Мир и герой собираются мастером ИИ; авторский мир тоже можно задать самому.
+          </div>
+          <div class="online-world-modes" role="group" aria-label="Способ создания мира">
+            <button class="tab is-active" type="button" data-online-world-mode="ai" aria-pressed="true">✨ Мир создаёт ИИ</button>
+            <button class="tab" type="button" data-online-world-mode="custom" aria-pressed="false">✍ Мой мир + ИИ-мастер</button>
+          </div>
+          <label class="field" for="online-world-title">
+            <span class="field__label">Название или затравка мира</span>
+            <input class="input" id="online-world-title" type="text" maxlength="80" placeholder="Например: Острова под двумя лунами" autocomplete="off">
+          </label>
+          <label class="field" for="online-world-description">
+            <span class="field__label">Описание мира и желаемого приключения</span>
+            <textarea class="input input--area" id="online-world-description" maxlength="900" rows="4" placeholder="Опиши места, атмосферу, угрозу или оставь пустым — мастер придумает всё сам"></textarea>
+          </label>
+          <label class="field" for="online-hero-name">
+            <span class="field__label">Имя героя</span>
+            <input class="input" id="online-hero-name" type="text" maxlength="24" placeholder="Например: Эйра" autocomplete="off">
+          </label>
+          <button class="btn btn--primary online-start" type="button" id="online-start">🌍 Создать мир и героя</button>
+          <section class="online-hero-picker online-card" id="online-hero-picker" hidden aria-labelledby="online-hero-picker-title">
+            <h3 id="online-hero-picker-title">Выбери героя, которого предложил мастер</h3>
+            <p class="muted small">ИИ подбирает варианты под этот мир. Выбранный класс, вид и происхождение определяют характеристики и запас здоровья.</p>
+            <label class="field online-hero-choice" for="online-hero-class"><span class="field__label">Класс / путь</span><select class="input" id="online-hero-class"></select></label>
+            <label class="field online-hero-choice" for="online-hero-race"><span class="field__label">Раса / вид</span><select class="input" id="online-hero-race"></select></label>
+            <label class="field online-hero-choice" for="online-hero-origin"><span class="field__label">Происхождение</span><select class="input" id="online-hero-origin"></select></label>
+            <p class="online-hero-preview" id="online-hero-preview" aria-live="polite"></p>
+            <div class="online-hero-actions"><button class="btn btn--primary" type="button" id="online-hero-confirm">Начать приключение</button><button class="btn btn--ghost btn--sm" type="button" id="online-hero-back">Изменить описание мира</button></div>
+          </section>
+          <div class="online-status" id="online-setup-status" role="status" aria-live="polite"></div>
+          <div class="online-cloud-load">
+            <label class="field" for="online-cloud-input">
+              <span class="field__label">Продолжить кампанию по коду</span>
+              <input class="input input--slim" id="online-cloud-input" type="text" maxlength="8" placeholder="Код из облака" autocomplete="off" autocapitalize="characters">
+            </label>
+            <button class="btn btn--ghost btn--sm" type="button" id="online-cloud-load">Загрузить онлайн-сейв</button>
+          </div>
+          <div class="online-resume" id="online-resume" hidden>
+            <div class="online-resume__text" id="online-resume-text"></div>
+            <button class="btn btn--ghost btn--sm" type="button" id="online-resume-button">Продолжить локальную кампанию</button>
+          </div>
+        </section>
+
+        <section class="online-play" id="online-play" hidden>
+          <div class="online-hud online-card">
+            <div class="online-hud__hero"><span class="online-hud__icon" id="online-hero-icon">🧭</span><div><strong id="online-hero-title"></strong><small id="online-hero-meta"></small></div></div>
+            <div class="online-hud__health"><span id="online-hp-label"></span><div class="online-hp-track"><i id="online-hp-fill"></i></div></div>
+            <div class="online-hud__world"><span id="online-world-title-play"></span><small id="online-world-subtitle"></small></div>
+          </div>
+          <div class="online-quest-head online-card" id="online-current-quest"></div>
+          <div class="online-columns">
+            <div class="online-exploration">
+              <div class="online-map-card online-card">
+                <div class="online-map-heading"><strong>Карта исследования</strong><span id="online-coordinates"></span></div>
+                <div class="online-map" id="online-map" role="grid" aria-label="Клеточная карта мира"></div>
+                <div class="online-map-legend"><span>🧝 ты</span><span>📍 цель</span><span>⚔️ враг</span><span>❔ тайна</span></div>
+                <div class="online-dpad" role="group" aria-label="Перемещение по карте">
+                  <span></span><button type="button" data-online-move="0,-1" aria-label="Идти вверх">▲</button><span></span>
+                  <button type="button" data-online-move="-1,0" aria-label="Идти влево">◀</button>
+                  <button type="button" data-online-move="0,1" aria-label="Идти вниз">▼</button>
+                  <button type="button" data-online-move="1,0" aria-label="Идти вправо">▶</button>
+                </div>
+                <p class="online-map-hint">Ходи кнопками или стрелками клавиатуры. Вода и горы непроходимы.</p>
+              </div>
+              <div class="online-event online-card" id="online-event" hidden></div>
+              <div class="online-battle online-card" id="online-battle" hidden></div>
+              <div class="online-romance online-card" id="online-romance" hidden></div>
+              <div class="online-story online-card">
+                <div class="online-section-title">Последние события</div>
+                <div id="online-story-log" aria-live="polite"></div>
+              </div>
+            </div>
+            <aside class="online-sidebar">
+              <div class="online-quest-list online-card">
+                <div class="online-section-title">Главная линия <span id="online-quest-count"></span></div>
+                <ol id="online-questline"></ol>
+              </div>
+              <div class="online-companion-card online-card" id="online-companion-card"></div>
+              <div class="online-save-card online-card">
+                <div class="online-section-title">Кампания онлайн</div>
+                <p class="muted small">Прогресс сохраняется на этом устройстве. Создай облачный код, чтобы продолжить на другом.</p>
+                <button class="btn btn--ghost btn--sm" type="button" id="online-save-button">☁ Создать код сохранения</button>
+                <div class="online-cloud-result" id="online-cloud-result" hidden></div>
+              </div>
+            </aside>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -160,7 +268,6 @@
       </header>
       <div class="scroll">
         <div class="scenario-banner" id="hero-scenario"></div>
-        <div class="hero-legacy" id="hero-legacy" hidden></div>
 
         <label class="field" for="hero-name">
           <span class="field__label">Имя героя</span>
@@ -174,11 +281,6 @@
         <div class="hint hint--profile" id="hero-profile-note" hidden>
           <span class="hint__text" id="hero-profile-text"></span>
           <button class="link-btn" type="button" id="hero-reroll" data-act="reroll-hero">🎲 Другой набор</button>
-        </div>
-
-        <div class="hint hint--pick" id="hero-pick-note" hidden>
-          <span class="hint__text" id="hero-pick-text"></span>
-          <button class="link-btn" type="button" id="hero-pick-change">сменить</button>
         </div>
 
         <div id="section-class">
@@ -463,5 +565,6 @@
   <script src="src/critters.js"></script>
   <script src="src/api.js"></script>
   <script src="src/app.js"></script>
+  <script src="src/online-adventure.js"></script>
 </body>
 </html>

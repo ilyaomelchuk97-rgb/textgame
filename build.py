@@ -97,7 +97,7 @@ def main() -> int:
 
     js_parts = [(SRC / name).read_text(encoding="utf-8")
                 for name in ("metrics.js", "stories.js", "daily.js", "books.js", "engine.js", "backdrop.js",
-                             "critters.js", "api.js", "app.js")]
+                             "critters.js", "api.js", "app.js", "online-adventure.js")]
 
     # 1. Встроить картинки меню/сценариев (и в CSS, и в JS-карту ассетов)
     assets_map = {}
@@ -108,6 +108,7 @@ def main() -> int:
             return 1
         assets_map[name] = asset_uri(name, path)
 
+    home_layers = {}
     for name in HOME_SCENES:
         scene_id = name.rsplit("-", 1)[-1]
         path = ASSETS / "home-scenes" / ("home-%s.jpg" % scene_id)
@@ -115,12 +116,37 @@ def main() -> int:
             print("! нет фоновой сцены %s" % path, file=sys.stderr)
             return 1
         assets_map[name] = asset_uri(name, path)
+        layer_dir = ASSETS / "home-scenes" / "layers"
+        sky_p = layer_dir / ("home-%s-sky.webp" % scene_id)
+        bld_p = layer_dir / ("home-%s-buildings.webp" % scene_id)
+        mon_p = layer_dir / ("home-%s-monster.webp" % scene_id)
+        if sky_p.exists() and bld_p.exists() and mon_p.exists():
+            home_layers[name] = {
+                "sky": data_uri(sky_p),
+                "buildings": data_uri(bld_p),
+                "monster": data_uri(mon_p),
+            }
+
+    if "home-scene-01" in home_layers:
+        for k in ("sky", "buildings", "monster"):
+            css = css.replace(
+                "../assets/home-scenes/layers/home-01-%s.webp" % k,
+                home_layers["home-scene-01"][k],
+            )
 
     dice_path = ASSETS / "dice-transition.png"
     if not dice_path.exists():
         print("! нет изображения кубика %s" % dice_path, file=sys.stderr)
         return 1
     assets_map["dice-transition"] = asset_uri("dice-transition", dice_path)
+
+    # В index.html первый фон уже виден до старта JS. В однофайловой сборке
+    # заменяем его локальный URL на вшитый ресурс, чтобы не было внешней зависимости.
+    html = html.replace(
+        'src="assets/home-scenes/home-01.jpg"',
+        'src="%s"' % assets_map[HOME_SCENES[0]],
+        1,
+    )
 
     critter_assets = {}
     for name in CRITTERS:
@@ -131,11 +157,13 @@ def main() -> int:
         critter_assets[name] = data_uri(path)
 
     # Меню использует эти карты для обложек и локальных спрайтов персонажей.
+    import json
     assets_js = (
-        "<script>window.DT_ASSETS={%s};window.DT_CRITTER_SPRITES={%s};</script>"
+        "<script>window.DT_ASSETS={%s};window.DT_CRITTER_SPRITES={%s};window.DT_HOME_LAYERS=%s;</script>"
         % (
             ",".join('"%s":"%s"' % (name, uri) for name, uri in assets_map.items()),
             ",".join('"%s":"%s"' % (name, uri) for name, uri in critter_assets.items()),
+            json.dumps(home_layers, separators=(",", ":")),
         )
     )
 
@@ -159,7 +187,8 @@ def main() -> int:
         r'<script src="src/backdrop\.js"></script>\s*'
         r'<script src="src/critters\.js"></script>\s*'
         r'<script src="src/api\.js"></script>\s*'
-        r'<script src="src/app\.js"></script>',
+        r'<script src="src/app\.js"></script>\s*'
+        r'<script src="src/online-adventure\.js"></script>',
         lambda _m: assets_js + "\n" + scripts,
         html,
     )

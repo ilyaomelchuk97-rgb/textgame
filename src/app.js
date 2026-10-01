@@ -1018,7 +1018,9 @@
     const inlined = window.DT_ASSETS && window.DT_ASSETS[name];
     if (inlined) return inlined;
     const match = /home-scene-(\d{2})$/.exec(String(name || ''));
-    return 'assets/home-scenes/home-' + (match ? match[1] : '01') + '.jpg';
+    const path = 'assets/home-scenes/home-' + (match ? match[1] : '01') + '.jpg';
+    // Абсолютный URL снимает неоднозначность путей в index.html и при вложенной публикации.
+    try { return new URL(path, document.baseURI).href; } catch (e) { return path; }
   }
   function nextHomeScene() {
     const previous = Local.get(HOME_SCENE_KEY, '');
@@ -1028,32 +1030,135 @@
     Local.set(HOME_SCENE_KEY, selected);
     return selected;
   }
+  function homeSceneLayers(name) {
+    const inlined = window.DT_HOME_LAYERS && window.DT_HOME_LAYERS[name];
+    if (inlined) return inlined;
+    const match = /home-scene-(\d{2})$/.exec(String(name || ''));
+    const id = match ? match[1] : '01';
+    const resolve = file => {
+      const p = 'assets/home-scenes/layers/' + file;
+      try { return new URL(p, document.baseURI).href; } catch (e) { return p; }
+    };
+    return {
+      sky: resolve('home-' + id + '-sky.webp'),
+      buildings: resolve('home-' + id + '-buildings.webp'),
+      monster: resolve('home-' + id + '-monster.webp')
+    };
+  }
+  function applyHomeScene(name, bg) {
+    if (!bg) return;
+    const image = $('.menu-bg__image', bg);
+    const scene = HOME_SCENES.includes(name) ? name : HOME_SCENES[0];
+    bg.dataset.scene = scene;
+    const layers = homeSceneLayers(scene);
+    bg.style.setProperty('--scene-sky-url', 'url("' + String(layers.sky).replace(/"/g, '\\"') + '")');
+    bg.style.setProperty('--scene-buildings-url', 'url("' + String(layers.buildings).replace(/"/g, '\\"') + '")');
+    bg.style.setProperty('--scene-monster-url', 'url("' + String(layers.monster).replace(/"/g, '\\"') + '")');
+    if (!image) return;
+    image.dataset.scene = scene;
+    image.onload = () => {
+      if (image.dataset.scene === scene) {
+        bg.dataset.imageState = 'ready';
+      }
+    };
+    image.onerror = () => {
+      if (image.dataset.scene !== scene) return;
+      bg.dataset.imageState = 'error';
+      if (scene !== HOME_SCENES[0]) applyHomeScene(HOME_SCENES[0], bg);
+    };
+    bg.dataset.imageState = 'loading';
+    image.src = homeSceneUrl(scene);
+  }
   function bindMenuParallax() {
     const screen = $('#screen-menu');
     const bg = $('.menu-bg');
     if (!screen || !bg || screen.dataset.parallaxBound === '1') return;
     screen.dataset.parallaxBound = '1';
     let queued = false, px = 0, py = 0;
+    let targetX = 0, targetY = 0, curX = 0, curY = 0;
+    let gyroRequested = false;
+    const reducedMotion = () => {
+      try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+      catch (e) { return false; }
+    };
+    const applyVars = (x, y) => {
+      const tx = (x / 22) * 5.2;
+      const ty = (-y / 18) * 4.4;
+      bg.style.setProperty('--menu-pan-x', (x * 0.35).toFixed(1) + 'px');
+      bg.style.setProperty('--menu-pan-y', (y * 0.35).toFixed(1) + 'px');
+      bg.style.setProperty('--parallax-x', x.toFixed(2) + 'px');
+      bg.style.setProperty('--parallax-y', y.toFixed(2) + 'px');
+      bg.style.setProperty('--tilt-x', tx.toFixed(2) + 'deg');
+      bg.style.setProperty('--tilt-y', ty.toFixed(2) + 'deg');
+    };
+    const reset = () => {
+      targetX = 0;
+      targetY = 0;
+      bg.style.setProperty('--menu-pan-x', '0px');
+      bg.style.setProperty('--menu-pan-y', '0px');
+      bg.style.setProperty('--parallax-x', '0px');
+      bg.style.setProperty('--parallax-y', '0px');
+      bg.style.setProperty('--tilt-x', '0deg');
+      bg.style.setProperty('--tilt-y', '0deg');
+    };
+    const requestGyro = () => {
+      if (gyroRequested) return;
+      gyroRequested = true;
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          DeviceOrientationEvent.requestPermission().then(state => {
+            if (state === 'granted') window.addEventListener('deviceorientation', onOrientation, { passive: true });
+          }).catch(() => {});
+        }
+      } catch (e) {}
+    };
+    const onOrientation = ev => {
+      if (!ev || screen.dataset.motion === 'off' || reducedMotion()) return;
+      const gamma = Math.max(-28, Math.min(28, Number(ev.gamma) || 0));
+      const beta = Math.max(-28, Math.min(28, (Number(ev.beta) || 45) - 45));
+      targetX = (gamma / 28) * 22;
+      targetY = (beta / 28) * 18;
+    };
+    if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window &&
+        typeof DeviceOrientationEvent.requestPermission !== 'function') {
+      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+    }
     const move = ev => {
-      if (screen.dataset.motion === 'off' || !ev || ev.pointerType === 'touch' && ev.buttons === 0) return;
+      if (!ev) return;
+      requestGyro();
+      if (screen.dataset.motion === 'off' || reducedMotion()) { reset(); return; }
       const rect = screen.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      px = ((ev.clientX - rect.left) / rect.width - .5) * 7;
-      py = ((ev.clientY - rect.top) / rect.height - .5) * 6;
+      const nx = (ev.clientX - rect.left) / rect.width - .5;
+      const ny = (ev.clientY - rect.top) / rect.height - .5;
+      px = nx * 7;
+      py = ny * 6;
+      targetX = nx * 24;
+      targetY = ny * 18;
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
-        bg.style.setProperty('--menu-pan-x', px.toFixed(1) + 'px');
-        bg.style.setProperty('--menu-pan-y', py.toFixed(1) + 'px');
+        applyVars(targetX, targetY);
       });
     };
-    const reset = () => {
-      bg.style.setProperty('--menu-pan-x', '0px');
-      bg.style.setProperty('--menu-pan-y', '0px');
+    const tick = now => {
+      if (!screen.hidden && screen.dataset.motion !== 'off' && !reducedMotion()) {
+        const t = Number(now) || 0;
+        const swayX = Math.sin(t * 0.0011) * 9.5 + Math.cos(t * 0.00065) * 4.5;
+        const swayY = Math.cos(t * 0.00085) * 7.0 + Math.sin(t * 0.0014) * 3.2;
+        const goalX = Math.max(-26, Math.min(26, targetX + swayX));
+        const goalY = Math.max(-20, Math.min(20, targetY + swayY));
+        curX += (goalX - curX) * 0.08;
+        curY += (goalY - curY) * 0.08;
+        applyVars(curX, curY);
+      }
+      requestAnimationFrame(tick);
     };
+    requestAnimationFrame(tick);
+    screen.addEventListener('pointerdown', move, { passive: true });
     screen.addEventListener('pointermove', move, { passive: true });
-    screen.addEventListener('pointerleave', reset, { passive: true });
+    screen.addEventListener('pointerleave', () => { targetX = 0; targetY = 0; }, { passive: true });
     screen.addEventListener('pointercancel', reset, { passive: true });
   }
   function diceTransitionUrl() {
@@ -1338,7 +1443,6 @@
   /** После нового набора: перерисовываем шаги и держим выбор корректным. */
   function afterProfileChange() {
     const p = Legacy.merge(heroProfile());
-    renderLegacyBlock();
     if (!p.classes.some(c => c.id === State.draft.classId)) State.draft.classId = p.classes[0].id;
     if (p.showRace && !p.races.some(r => r.id === State.draft.raceId)) State.draft.raceId = p.races[0].id;
     if (p.showOrigin && !p.origins.some(o => o.id === State.draft.originId)) State.draft.originId = p.origins[0].id;
@@ -1351,19 +1455,6 @@
       renderOriginList();
       renderStatPreview();
     }
-  }
-
-  /** Строка о прошлых жизнях на экране героя. */
-  function renderLegacyBlock() {
-    const el = $('#hero-legacy');
-    if (!el) return;
-    const text = Legacy.note();
-    el.hidden = !text;
-    if (!text) return;
-    clear(el);
-    el.appendChild(h('span', { class: 'hero-legacy__text', text: '🕯 ' + text }));
-    const next = E.legacyNextUnlock(Legacy.get());
-    if (next) el.appendChild(h('span', { class: 'hero-legacy__next', text: 'Дальше откроется: ' + next.title }));
   }
 
   /** Что мастер уже придумывал для этой игры: просим не повторяться. */
@@ -1656,41 +1747,6 @@
     return { cover: s.cover, title, goal, icon: s.icon };
   }
 
-  /**
-   * true — разделы класса/вида/происхождения раскрыты вручную. Когда выбор за мир
-   * уже сделан, они свёрнуты: игрок видит одну строку с итогом и кнопку «сменить».
-   */
-  let heroStepsOpen = false;
-
-  /** Строка «уже выбрано» над разделами: что выбрано и как это сменить. */
-  function renderHeroPickRow() {
-    const note = $('#hero-pick-note');
-    const text = $('#hero-pick-text');
-    const change = $('#hero-pick-change');
-    if (!note || !text || !change) return;
-    // забег дня: герой задан судьбой, менять нечего — строку «сменить» не показываем
-    if (State.daily) { note.hidden = true; return; }
-    const pick = loadHeroPick();
-    if (!pick || heroStepsOpen) { note.hidden = true; return; }
-    const cls = pick.classId ? E.classById(pick.classId) : null;
-    const race = pick.raceId ? E.raceById(pick.raceId) : null;
-    const origin = pick.originId ? E.originById(pick.originId) : null;
-    const bits = [cls && (cls.icon + ' ' + cls.title), race && (race.icon + ' ' + race.title), origin && origin.title]
-      .filter(Boolean);
-    if (!bits.length) { note.hidden = true; return; }
-    note.hidden = false;
-    text.textContent = 'В этом мире уже выбрано: ' + bits.join(' · ');
-    change.textContent = 'сменить';
-    change.onclick = () => {
-      heroStepsOpen = true;
-      renderHeroPickRow();
-      applyProfileToForm();
-      renderClassList(); renderRaceList(); renderOriginList();
-      const first = $('#section-class');
-      if (first && first.scrollIntoView) first.scrollIntoView({ block: 'center' });
-    };
-  }
-
   function openHero() {
     const s = heroBannerScenario();
     const banner = clear($('#hero-scenario'));
@@ -1741,8 +1797,8 @@
     $('#label-class').textContent = p.classLabel;
     $('#label-race').textContent = p.raceLabel;
     $('#label-origin').textContent = p.originLabel;
-    // Выбор за этот мир уже сделан? Тогда шаги не спрашиваем второй раз:
-    // подставляем прежнее и прячем разделы, пока игрок сам не нажмёт «сменить».
+    // Сохранённый выбор подставляем заранее, но разделы оставляем видимыми,
+    // чтобы класс, вид и происхождение можно было сразу поменять.
     const pick = loadHeroPick();
     if (pick) {
       if (pick.classId && (!State.draft.classId || !p.classes.some(c => c.id === State.draft.classId))) State.draft.classId = pick.classId;
@@ -1757,11 +1813,9 @@
     if (oneClass) State.draft.classId = p.classes[0].id;
     if (oneRace) State.draft.raceId = p.races[0].id;
     if (oneOrigin) State.draft.originId = p.origins[0].id;
-    const chose = !heroStepsOpen && !!pick;
-    $('#section-class').hidden = !p.showClass || oneClass || chose;
-    $('#section-race').hidden = !p.showRace || oneRace || chose;
-    $('#section-origin').hidden = !p.showOrigin || oneOrigin || chose;
-    renderHeroPickRow();
+    $('#section-class').hidden = !p.showClass || oneClass;
+    $('#section-race').hidden = !p.showRace || oneRace;
+    $('#section-origin').hidden = !p.showOrigin || oneOrigin;
     const noAI = (p.source === 'local' || p.source === 'default');
     const who = p.noteWho || (noAI ? '🧠 Мастер (без ИИ): '
       : (p.source === 'cache' ? '🧠 Мастер (прошлый заход): ' : '🧠 Мастер: '));
@@ -1780,7 +1834,13 @@
       const ability = (c.ability && typeof c.ability === 'object') ? c.ability : E.abilityById(c.ability);
       wrap.appendChild(h('button', {
         class: 'arch-card' + (active ? ' is-active' : ''), type: 'button',
-        onclick: () => { State.draft.classId = c.id; Sound.tap(); renderClassList(); renderStatPreview(); }
+        'aria-pressed': active ? 'true' : 'false',
+        onclick: () => {
+          State.draft.classId = c.id;
+          renderClassList();
+          renderStatPreview();
+          Sound.tap();
+        }
       }, [
         h('span', { class: 'arch-card__icon', text: c.icon }),
         h('span', { class: 'arch-card__main' }, [
@@ -1800,7 +1860,13 @@
       const active = r.id === State.draft.raceId;
       wrap.appendChild(h('button', {
         class: 'chip chip--tall' + (active ? ' is-on' : ''), type: 'button',
-        onclick: () => { State.draft.raceId = r.id; Sound.tap(); renderRaceList(); renderStatPreview(); }
+        'aria-pressed': active ? 'true' : 'false',
+        onclick: () => {
+          State.draft.raceId = r.id;
+          renderRaceList();
+          renderStatPreview();
+          Sound.tap();
+        }
       }, [
         h('span', { class: 'chip__title', text: r.icon + ' ' + r.title }),
         h('span', { class: 'chip__sub', text: r.hint || (r.flavor ? E.raceFlavor(r, setting) : '') || r.trait || '' })
@@ -1819,7 +1885,13 @@
       const bonus = E.STAT_IDS.filter(id => o.bonus[id]).map(id => E.statById(id).short + ' +' + o.bonus[id]);
       wrap.appendChild(h('button', {
         class: 'arch-card arch-card--slim' + (active ? ' is-active' : ''), type: 'button',
-        onclick: () => { State.draft.originId = o.id; Sound.tap(); renderOriginList(); renderStatPreview(); }
+        'aria-pressed': active ? 'true' : 'false',
+        onclick: () => {
+          State.draft.originId = o.id;
+          renderOriginList();
+          renderStatPreview();
+          Sound.tap();
+        }
       }, [
         h('span', { class: 'arch-card__icon', text: o.icon }),
         h('span', { class: 'arch-card__main' }, [
@@ -3219,30 +3291,6 @@
       Number(document.documentElement.clientHeight) || 0,
       fullScreenHeight || 0
     );
-  }
-
-  function syncAppHeight() {
-    const h = Math.round(appViewportHeight());
-    if (h > 200) document.documentElement.style.setProperty('--app-h', h + 'px');
-  }
-
-  function watchAppHeight() {
-    syncAppHeight();
-    let raf = 0;
-    const soon = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => { raf = 0; syncAppHeight(); });
-    };
-    window.addEventListener('resize', soon);
-    window.addEventListener('orientationchange', soon);
-    document.addEventListener('focusin', soon);
-    document.addEventListener('focusout', soon);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', soon);
-      window.visualViewport.addEventListener('scroll', soon);
-    }
-    // Safari иногда меняет высоту без событий — подстрахуемся редкой проверкой
-    setInterval(syncAppHeight, 1500);
   }
 
   /* ---------------------------------------------------------- */
@@ -4767,6 +4815,7 @@
     if (!g) return;
     const hh = g.hero;
     const portraitUrl = State.portrait || hh.portrait || '';
+    const inventoryText = E.inventoryNames(hh.inventory).join(', ') || 'Пусто';
     const titleRow = h('div', { class: 'hero-sheet__row' }, [
       h('span', { class: 'hero-sheet__name', text: hh.icon + ' ' + hh.name }),
       h('span', { class: 'hero-sheet__arch', text: hh.className })
@@ -4803,7 +4852,7 @@
       h('div', { class: 'section-title', text: 'Задача' }),
       h('p', { class: 'muted', text: g.goal + (g.questDone ? ' — выполнено 🏁' : '') }),
       h('div', { class: 'section-title', text: 'Инвентарь' }),
-      h('p', { class: 'muted', text: hh.inventory.length ? hh.inventory.join(', ') : 'Пусто' }),
+      h('p', { class: 'muted', text: inventoryText }),
       (hh.hooks && hh.hooks.length) ? h('div', { class: 'section-title', text: 'Личные крючки' }) : null,
       (hh.hooks && hh.hooks.length) ? h('ul', { class: 'hooks' }, hh.hooks.map(x => h('li', { text: x }))) : null
     ]);
@@ -7224,14 +7273,46 @@
   /* Viewport                                                   */
   /* ---------------------------------------------------------- */
   function setupViewport() {
+    const root = document.documentElement;
+    let frame = 0;
+    let expandedHeight = 0;
+    const isEditing = () => {
+      const active = document.activeElement;
+      return !!(active && active.matches &&
+        active.matches('input, textarea, select, [contenteditable="true"]'));
+    };
     const apply = () => {
-      const hgt = appViewportHeight();
-      if (hgt > 200) document.documentElement.style.setProperty('--app-h', Math.round(hgt) + 'px');
+      frame = 0;
+      const visualHeight = Number(window.visualViewport && window.visualViewport.height) ||
+        Number(window.innerHeight) || 0;
+      const editing = isEditing();
+      const height = appViewportHeight();
+      if (!editing || !expandedHeight) expandedHeight = Math.round(height || visualHeight);
+      const keyboardOpen = editing && expandedHeight > 0 &&
+        expandedHeight - visualHeight > Math.max(100, expandedHeight * 0.18);
+      root.dataset.keyboardOpen = keyboardOpen ? '1' : '0';
+      if (height > 200) root.style.setProperty('--app-h', Math.round(height) + 'px');
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(apply);
+    };
+    const afterViewportTransition = () => {
+      schedule();
+      // iOS reports focus before the keyboard finishes resizing the visual viewport.
+      setTimeout(schedule, 180);
     };
     apply();
-    window.addEventListener('resize', apply);
-    window.addEventListener('orientationchange', () => setTimeout(apply, 250));
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', apply);
+    window.addEventListener('resize', schedule, { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(afterViewportTransition, 220), { passive: true });
+    window.addEventListener('pageshow', schedule, { passive: true });
+    document.addEventListener('focusin', afterViewportTransition, true);
+    document.addEventListener('focusout', afterViewportTransition, true);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(); });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', schedule, { passive: true });
+      window.visualViewport.addEventListener('scroll', schedule, { passive: true });
+    }
   }
 
   /* ---------------------------------------------------------- */
@@ -7262,7 +7343,6 @@
       icon.decoding = 'async';
       icon.draggable = false;
     });
-    watchAppHeight();
     const panel = $('#panel');
     if (panel) panel.addEventListener('scroll', updatePanelFade, { passive: true });
     window.addEventListener('resize', updatePanelFade);
@@ -7297,11 +7377,7 @@
     });
     $('#sound-toggle').textContent = Settings.data.muted ? '🔇' : '🔊';
     const menuBgEl = $('.menu-bg');
-    if (menuBgEl) {
-      const scene = nextHomeScene();
-      menuBgEl.style.setProperty('--menu-bg', 'url("' + homeSceneUrl(scene) + '")');
-      menuBgEl.dataset.scene = scene;
-    }
+    if (menuBgEl) applyHomeScene(nextHomeScene(), menuBgEl);
     bindMenuParallax();
     refreshMenu();
     show('menu');

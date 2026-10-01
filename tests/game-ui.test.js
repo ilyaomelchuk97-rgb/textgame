@@ -47,6 +47,16 @@ test('the AI specifies male or female NPCs and keeps gender consistent in memory
   assert.match(app, /Clearly depict a male person/);
 });
 
+test('hero creator no longer shows legacy or previous-pick notices, while saved choices remain editable', () => {
+  assert.doesNotMatch(html, /class="hero-legacy"/);
+  assert.doesNotMatch(html, /class="hint hint--pick"/);
+  assert.doesNotMatch(app, /hero-legacy|hero-pick-note|hero-pick-change|renderHeroPickRow|heroStepsOpen/);
+  assert.match(app, /const pick = loadHeroPick\(\)/);
+  assert.match(app, /\$\('#section-class'\)\.hidden = !p\.showClass \|\| oneClass/);
+  assert.match(app, /\$\('#section-race'\)\.hidden = !p\.showRace \|\| oneRace/);
+  assert.match(app, /\$\('#section-origin'\)\.hidden = !p\.showOrigin \|\| oneOrigin/);
+});
+
 test('standalone iPhone height uses the whole screen, but still shrinks for the keyboard', () => {
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /apple-mobile-web-app-capable/);

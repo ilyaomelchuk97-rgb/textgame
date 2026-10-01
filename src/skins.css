@@ -52,6 +52,10 @@
   --sk-scene-gloss: none;
   --sk-glow: none;
   --sk-tap: color-mix(in srgb, var(--accent, #6fe3b8) 34%, transparent);
+  /* Белый отклик на тёмных поверхностях; светлые темы переопределяют его на зелёный. */
+  --sk-select-color: rgba(255,255,255,.92);
+  --sk-select-wash: rgba(255,255,255,.16);
+  --sk-select-glow: rgba(255,255,255,.36);
 
   /* Материал темы: настоящие фактуры (картинки, вшитые в сборку).
      Тема задаёт три слоя затемнения — фон, полосы и панель текста, —
@@ -95,6 +99,16 @@ body[data-theme] .btn--primary {
   border-color: var(--sk-primary-edge);
   color: var(--sk-primary-text);
   box-shadow: var(--sk-primary-shadow);
+}
+body[data-theme] #screen-menu [data-act="new-game"],
+body[data-theme] #screen-online button:not(.online-tile),
+body[data-theme] #screen-online .btn,
+body[data-theme] #screen-online .btn--primary,
+body[data-theme] #screen-online .btn--ghost,
+body[data-theme] #screen-online .tab,
+body[data-theme] #screen-online .tab.is-active,
+body[data-theme] #screen-online .icon-btn {
+  color: #ffffff;
 }
 body[data-theme] .btn--ghost {
   background-color: transparent;
@@ -232,7 +246,6 @@ body[data-theme] .book-card,
 body[data-theme] .arch-card,
 body[data-theme] .save-card,
 body[data-theme] .scenario-card,
-body[data-theme] .hero-legacy,
 body[data-theme] .epilogue__stat,
 body[data-theme] .notice,
 body[data-theme] .item-card {
@@ -340,7 +353,7 @@ body[data-theme="night"], .skin-demo[data-tp="night"] {
   --sk-btn-shadow: 0 2px 6px rgba(0,0,0,.32);
   --sk-btn-text: #e6eef5; --sk-btn-muted: #8d9aa8;
   --sk-primary-paint: linear-gradient(180deg, #6fe3b8, #34b98a);
-  --sk-primary-text: #f5fbff; --sk-primary-edge: rgba(255,255,255,.25);
+  --sk-primary-text: #04231a; --sk-primary-edge: rgba(255,255,255,.25);
   --sk-bar-paint: linear-gradient(180deg, rgba(12,19,22,.98), rgba(9,15,18,.92));
   --sk-bar-edge: rgba(145,200,190,.14);
   --sk-bar-shadow: 0 -6px 20px rgba(0,0,0,.32);
@@ -376,6 +389,9 @@ body[data-theme="material"], .skin-demo[data-tp="material"] {
   --sk-bar-shadow: 0 -1px 0 rgba(28,27,31,.06), 0 -8px 24px rgba(28,27,31,.06);
   --sk-scene-gloss: radial-gradient(140% 70% at 50% 0%, rgba(103,80,164,.06), rgba(103,80,164,0) 70%);
   --sk-tap: rgba(103,80,164,.22);
+  --sk-select-color: #17854f;
+  --sk-select-wash: rgba(23,133,79,.14);
+  --sk-select-glow: rgba(23,133,79,.36);
 }
 
 /* --- Киберпанк: сканлайны, неоновая кромка, свечение --- */
@@ -402,7 +418,7 @@ body[data-theme="neon"], .skin-demo[data-tp="neon"] {
   --sk-btn-text: #eae6ff; --sk-btn-muted: #9a95c4;
   --sk-primary-paint: linear-gradient(180deg, #49e0ff, #2a9fd6);
   --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.16) 0 1px, rgba(255,255,255,0) 1px 4px);
-  --sk-primary-text: #f4f7ff; --sk-primary-edge: rgba(255,92,240,.55);
+  --sk-primary-text: #001018; --sk-primary-edge: rgba(255,92,240,.55);
   --sk-primary-shadow: 0 0 18px rgba(73,224,255,.5);
   --sk-bar-paint: linear-gradient(180deg, rgba(14,10,30,.98), rgba(10,7,22,.94));
   --sk-bar-edge: rgba(73,224,255,.35);
@@ -436,7 +452,7 @@ body[data-theme="terminal"], .skin-demo[data-tp="terminal"] {
   --sk-btn-text: #c8ffdd; --sk-btn-muted: #6fae8a;
   --sk-primary-paint: linear-gradient(180deg, #63ff9e, #12a052);
   --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.12) 0 1px, rgba(255,255,255,0) 1px 4px);
-  --sk-primary-text: #eafff0; --sk-primary-edge: rgba(120,255,170,.6);
+  --sk-primary-text: #041a0e; --sk-primary-edge: rgba(120,255,170,.6);
   --sk-primary-shadow: 0 0 16px rgba(99,255,158,.4);
   --sk-bar-paint: linear-gradient(180deg, rgba(5,16,10,.98), rgba(3,10,6,.95));
   --sk-bar-edge: rgba(120,255,170,.4);
@@ -481,10 +497,10 @@ body[data-theme="parchment"], .skin-demo[data-tp="parchment"] {
   --sk-btn-gloss: radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,.75), rgba(255,255,255,0) 55%);
   --sk-btn-edge: rgba(120,86,40,.5);
   --sk-btn-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 3px 10px rgba(60,40,14,.28);
-  --sk-btn-text: #3a2a14; --sk-btn-muted: rgba(58,42,20,.72);
-  --sk-primary-paint: linear-gradient(180deg, #c9903f, #9a6a26);
+  --sk-btn-text: #3a2a14; --sk-btn-muted: #59411f;
+  --sk-primary-paint: linear-gradient(180deg, #c9903f, #ac7a32);
   --sk-primary-gloss: radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,.45), rgba(255,255,255,0) 60%);
-  --sk-primary-text: #2a1c08; --sk-primary-edge: rgba(70,46,14,.55);
+  --sk-primary-text: #120b02; --sk-primary-edge: rgba(70,46,14,.55);
   --sk-primary-shadow: 0 6px 16px rgba(90,60,20,.32);
   --sk-bar-paint: linear-gradient(180deg, rgba(26,20,11,.96), rgba(16,12,7,.94));
   --sk-bar-edge: rgba(215,180,120,.3);
@@ -535,7 +551,7 @@ body[data-theme="ink"], .skin-demo[data-tp="ink"] {
   --sk-btn-text: #ece9e3; --sk-btn-muted: #9b968c;
   --sk-primary-paint: linear-gradient(180deg, #e0b378, #b07f3c);
   --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 55%);
-  --sk-primary-text: #f4eee4; --sk-primary-edge: rgba(255,235,200,.35);
+  --sk-primary-text: #1b1206; --sk-primary-edge: rgba(255,235,200,.35);
   --sk-primary-shadow: 0 4px 14px rgba(180,130,60,.3);
   --sk-bar-paint: linear-gradient(180deg, rgba(16,16,18,.98), rgba(10,10,11,.95));
   --sk-bar-edge: rgba(217,167,106,.3);
@@ -568,7 +584,7 @@ body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
   --sk-btn-text: #ffe9e0; --sk-btn-muted: #c39aa8;
   --sk-primary-paint: linear-gradient(180deg, #ffb066, #e2703a);
   --sk-primary-gloss: radial-gradient(120% 100% at 20% -20%, rgba(255,235,200,.6), rgba(255,235,200,0) 60%);
-  --sk-primary-text: #fff1e8; --sk-primary-edge: rgba(255,220,180,.5);
+  --sk-primary-text: #2a1207; --sk-primary-edge: rgba(255,220,180,.5);
   --sk-primary-shadow: 0 10px 26px rgba(255,140,80,.35);
   --sk-bar-paint: linear-gradient(180deg, rgba(44,20,48,.98), rgba(28,13,32,.95));
   --sk-bar-edge: rgba(255,170,130,.35);
@@ -592,27 +608,20 @@ body[data-theme="ice"], .skin-demo[data-tp="ice"] {
   --sk-r-card: 18px; --sk-r-btn: 16px; --sk-r-small: 12px; --sk-r-chip: 999px;
   /* наледь: снежные шапки по верхним углам, холодный низ, морозные лучики */
   --sk-card-paint: linear-gradient(168deg, #fdfeff, #e4f1fc 42%, #cbe1f4 100%);
-  --sk-card-gloss:
-    radial-gradient(120% 80% at 12% -14%, rgba(255,255,255,.98), rgba(255,255,255,0) 55%),
-    radial-gradient(90% 70% at 92% -18%, rgba(255,255,255,.85), rgba(255,255,255,0) 52%),
-    radial-gradient(70% 60% at 50% 120%, rgba(150,205,238,.55), rgba(150,205,238,0) 62%),
-    repeating-linear-gradient(112deg, rgba(255,255,255,.45) 0 1px, rgba(255,255,255,0) 1px 9px);
+  /* Однослойный блик: многослойное значение сдвигало слот ice-tex в background-size. */
+  --sk-card-gloss: linear-gradient(180deg, rgba(255,255,255,.82) 0%, rgba(255,255,255,.16) 34%, rgba(255,255,255,0) 68%);
   --sk-card-edge: rgba(255,255,255,.92);
   --sk-card-shadow: 0 1px 0 rgba(255,255,255,.95) inset,
     0 -7px 14px rgba(120,180,220,.35) inset, 0 8px 22px rgba(60,120,170,.22);
   --sk-btn-paint: linear-gradient(170deg, #f6fcff, #d5e9fa 52%, #bad6ee);
-  --sk-btn-gloss:
-    radial-gradient(120% 90% at 10% -22%, rgba(255,255,255,1), rgba(255,255,255,0) 58%),
-    radial-gradient(70% 60% at 88% 118%, rgba(150,205,238,.5), rgba(150,205,238,0) 60%),
-    repeating-linear-gradient(118deg, rgba(255,255,255,.5) 0 1px, rgba(255,255,255,0) 1px 8px);
+  /* Один слой блика оставляет ice-ui-button.webp на правильном месте в стеке. */
+  --sk-btn-gloss: linear-gradient(180deg, rgba(255,255,255,.94) 0%, rgba(255,255,255,.18) 42%, rgba(150,205,238,.14) 100%);
   --sk-btn-edge: rgba(255,255,255,.95);
   --sk-btn-shadow: 0 1px 0 #ffffff inset, 0 -4px 10px rgba(130,185,225,.35) inset,
     0 6px 16px rgba(60,120,170,.2);
-  --sk-btn-text: #123244; --sk-btn-muted: #3d627b;
-  --sk-primary-paint: linear-gradient(170deg, #9ad8ff, #3f92cd 55%, #1f6da3);
-  --sk-primary-gloss:
-    radial-gradient(120% 90% at 12% -22%, rgba(255,255,255,.9), rgba(255,255,255,0) 60%),
-    repeating-linear-gradient(118deg, rgba(255,255,255,.28) 0 1px, rgba(255,255,255,0) 1px 9px);
+  --sk-btn-text: #123244; --sk-btn-muted: #34566e;
+  --sk-primary-paint: linear-gradient(170deg, #a6ddfa, #83bce0 55%, #6faacc);
+  --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.72) 0%, rgba(255,255,255,.12) 48%, rgba(255,255,255,0) 100%);
   --sk-primary-text: #04222f; --sk-primary-edge: rgba(255,255,255,.85);
   --sk-primary-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 6px 18px rgba(50,125,180,.35);
   --sk-bar-paint: linear-gradient(180deg, rgba(255,255,255,.99), rgba(232,242,250,.96));
@@ -622,6 +631,9 @@ body[data-theme="ice"], .skin-demo[data-tp="ice"] {
   --sk-scene-gloss: radial-gradient(120% 60% at 50% -10%, rgba(255,255,255,.5), rgba(255,255,255,0) 60%);
   --sk-glow: 0 1px 0 rgba(255,255,255,.9);
   --sk-tap: rgba(120,190,235,.45);
+  --sk-select-color: #17854f;
+  --sk-select-wash: rgba(23,133,79,.13);
+  --sk-select-glow: rgba(23,133,79,.38);
 }
 /* наледь по кромке: сосульки висят с шапки над кадром и с подвала игры.
    Сосульки кладём поверх тёмного кадра — там их видно, а на светлой шапке
@@ -680,7 +692,7 @@ body[data-theme="oled"], .skin-demo[data-tp="oled"] {
   --sk-btn-text: #f2f2f2; --sk-btn-muted: #9a9a9a;
   --sk-primary-paint: none; --sk-primary-tint: #f2f2f2;
   --sk-primary-gloss: none; --sk-primary-edge: rgba(255,255,255,.4);
-  --sk-primary-text: #ffffff; --sk-primary-shadow: none;
+  --sk-primary-text: #111111; --sk-primary-shadow: none;
   --sk-bar-paint: #000000; --sk-bar-edge: rgba(255,255,255,.12); --sk-bar-shadow: none;
   --sk-scene-gloss: none; --sk-glow: none;
   --sk-tap: rgba(255,255,255,.18);
@@ -781,4 +793,64 @@ body[data-theme] .mech-chip--use {
   background-position: center;
   background-repeat: no-repeat, no-repeat, repeat, no-repeat;
   background-blend-mode: normal, var(--sk-art-btn-blend, soft-light), overlay, normal;
+}
+
+/* На активных чипах подпись берёт тот же контрастный цвет, что и заголовок. */
+body[data-theme] .chip.is-on .chip__sub { color: var(--sk-primary-text); }
+/* Пергаментные ghost-кнопки на тёмных полосах/главном фоне не должны
+   наследовать тёмный цвет текста от светлой бумажной пластины. */
+body[data-theme="parchment"] .screen--menu .btn--ghost,
+body[data-theme="parchment"] .footer-bar .btn--ghost,
+body[data-theme="parchment"] .actions .btn--ghost,
+body[data-theme="parchment"] .game-topbar .btn--ghost,
+body[data-theme="parchment"] .mech-bar .btn--ghost { color: var(--text); }
+
+/* ------------------------------------------------------------
+ * 6. Видимая обратная связь: выбранное и нажатое не теряется под текстурами.
+ *    Тёмные темы используют белый ореол, светлые — зелёный.
+ * ------------------------------------------------------------ */
+body[data-theme] button:active:not(:disabled) {
+  outline: 2px solid var(--sk-select-color);
+  outline-offset: 2px;
+  filter: brightness(1.08) drop-shadow(0 0 8px var(--sk-select-glow));
+}
+body[data-theme] button:focus-visible {
+  outline: 2px solid var(--sk-select-color);
+  outline-offset: 2px;
+}
+
+/* Слой подсветки рисуется поверх материала карточки, а не под ним. */
+body[data-theme] .arch-card.is-active {
+  border-color: var(--sk-select-color);
+  background-color: var(--sk-card-tint, transparent);
+  background-image:
+    linear-gradient(0deg, var(--sk-select-wash), var(--sk-select-wash)),
+    var(--sk-art-tex, none),
+    var(--sk-card-paint, none);
+  background-size: auto, var(--sk-art-tex-size) var(--sk-art-tex-size), auto;
+  background-position: center;
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-blend-mode: normal, overlay, normal;
+  box-shadow:
+    var(--sk-card-shadow, none),
+    inset 0 0 0 1px var(--sk-select-color),
+    0 0 0 2px var(--sk-select-color),
+    0 0 20px var(--sk-select-glow);
+  filter: brightness(1.045);
+}
+
+/* У остальных переключателей выбранное состояние тоже остаётся заметным
+   после отпускания пальца/мыши, не только пока действует :active. */
+body[data-theme] .tab.is-active,
+body[data-theme] .chip.is-on,
+body[data-theme] .rules-btn.is-on,
+body[data-theme] .books-filter__chip.is-on,
+body[data-theme] .bar-btn.is-on,
+body[data-theme] .mech-chip--use.is-on,
+body[data-theme] button[aria-pressed="true"]:not(.arch-card) {
+  border-color: var(--sk-select-color);
+  box-shadow:
+    var(--sk-primary-shadow, var(--sk-btn-shadow, none)),
+    0 0 0 2px var(--sk-select-color),
+    0 0 18px var(--sk-select-glow);
 }

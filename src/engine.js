@@ -393,14 +393,42 @@
     return ((ITEM_KINDS[item.kind] || ITEM_KINDS.trophy).verb) || '';
   }
 
-  /** Старые сохранения хранили просто названия — превращаем их в предметы. */
+  /** Имя предмета в старых и новых форматах; никогда не сводим объект к «[object Object]». */
+  function inventoryEntryName(entry) {
+    if (typeof entry === 'string' || typeof entry === 'number') {
+      const clean = String(entry).replace(/\s+/g, ' ').trim();
+      return /^\[object(?:\s+[^\]]*)?\]$/i.test(clean) ? '' : clean;
+    }
+    if (!entry || typeof entry !== 'object') return '';
+    const candidates = [entry.name, entry.title, entry.label, entry.itemName, entry.item, entry.text, entry.description];
+    for (const value of candidates) {
+      if (typeof value === 'string' || typeof value === 'number') {
+        const clean = String(value).replace(/\s+/g, ' ').trim();
+        if (clean && !/^\[object(?:\s+[^\]]*)?\]$/i.test(clean)) return clean;
+      } else if (value && typeof value === 'object') {
+        const nested = inventoryEntryName(value);
+        if (nested) return nested;
+      }
+    }
+    return '';
+  }
+
+  function inventoryNames(list) {
+    return (Array.isArray(list) ? list : []).map(inventoryEntryName).filter(Boolean);
+  }
+
+  /** Старые сохранения хранили строки; ответы мастера могут вернуть объект предмета. */
   function normalizeInventory(list) {
     return (Array.isArray(list) ? list : []).map(entry => {
-      if (entry && typeof entry === 'object' && entry.name) {
-        const ready = makeItem(entry.name, { id: entry.id, kind: entry.kind, power: entry.power, stat: entry.stat, icon: entry.icon });
-        return ready;
-      }
-      return makeItem(String(entry || ''));
+      const name = inventoryEntryName(entry);
+      if (!name) return null;
+      if (!entry || typeof entry !== 'object') return makeItem(name);
+      const nested = entry.item && typeof entry.item === 'object' ? entry.item : {};
+      const field = key => entry[key] !== undefined ? entry[key] : nested[key];
+      return makeItem(name, {
+        id: field('id'), kind: field('kind'), power: field('power'),
+        stat: field('stat'), icon: field('icon')
+      });
     }).filter(Boolean).slice(0, 12);
   }
 
@@ -2136,7 +2164,7 @@
     const hp = game.hero.hp, maxHp = game.hero.maxHp;
     lines.push('Герой: ' + game.hero.className + (game.hero.raceName ? ', ' + game.hero.raceName : '') +
       ', здоровье ' + hp + '/' + maxHp + (maxHp && hp <= maxHp * 0.25 ? ' — держится из последних сил' : '') +
-      (game.hero.inventory.length ? ', при себе: ' + game.hero.inventory.slice(-3).join(', ') : ''));
+      (game.hero.inventory.length ? ', при себе: ' + inventoryNames(game.hero.inventory).slice(-3).join(', ') : ''));
     game.chronicle = { lines, at: game.turn || 0 };
     return game.chronicle;
   }
@@ -3853,7 +3881,7 @@
     const h = game.hero;
     const st = h.stats;
     const statsLine = STAT_IDS.map(id => `${statById(id).name}: ${st[id]}`).join(', ');
-    const inv = h.inventory.length ? h.inventory.join(', ') : 'пусто';
+    const inv = inventoryNames(h.inventory).join(', ') || 'пусто';
     const hooks = (h.hooks || []).length ? h.hooks.join(' ') : '';
     const r = raceById(h.raceId), o = originById(h.originId);
     return [
@@ -4606,7 +4634,8 @@
     parts.push(`${h.name} — ${String(h.raceName).toLowerCase()}, ${String(c.title).toLowerCase()}. ${c.blurb}`);
     parts.push(o.hook);
     parts.push(r.trait);
-    if (h.inventory.length) parts.push(`С собой — ${h.inventory.join(', ')}: немного, но это всё, что осталось.`);
+    const items = inventoryNames(h.inventory);
+    if (items.length) parts.push(`С собой — ${items.join(', ')}: немного, но это всё, что осталось.`);
     parts.push(`Цель, которая привела сюда: ${game.goal || s0Goal(game)}`);
     return parts.join(' ');
   }
@@ -4728,9 +4757,10 @@
       out.push(`Ты делаешь это по-своему: ${ability}.`);
       out.push(`${ability} — и мир на мгновение подстраивается под тебя.`);
     }
-    if (hero.inventory && hero.inventory.length) {
-      out.push(`${hero.inventory[0]} снова пригодился.`);
-      if (hero.inventory[1]) out.push(`${hero.inventory[1]} в руке — и дело идёт быстрее.`);
+    const items = inventoryNames(hero.inventory);
+    if (items.length) {
+      out.push(`${items[0]} снова пригодился.`);
+      if (items[1]) out.push(`${items[1]} в руке — и дело идёт быстрее.`);
     }
     // про обычного человека так не скажешь: «сказывается порода» — только про нелюдей
     if (hero.raceName && !/^(человек|human|люди|человечество)$/i.test(String(hero.raceName).trim())) {
@@ -5171,9 +5201,8 @@
     // блок B: припасы, состояния и предметы с эффектом — и для старых сейвов тоже
     if (!Array.isArray(h.states)) h.states = [];
     if (!Number.isFinite(Number(h.supplies))) h.supplies = SUPPLIES_START;
-    if (!Array.isArray(h.inventory) || (h.inventory[0] && typeof h.inventory[0] === 'string')) {
-      h.inventory = normalizeInventory(h.inventory);
-    }
+    // Нормализуем все форматы предметов, включая объекты от мастера и старых сейвов.
+    h.inventory = normalizeInventory(h.inventory);
     if (h.states.length) h.states = h.states.filter(st => stateById(st.id)).map(st => ({ id: st.id, turns: clamp(Number(st.turns) || 1, 1, STATE_MAX_TURNS) }));
     if (h.buffStat === undefined) h.buffStat = '';
     if (h.buffLabel === undefined) h.buffLabel = '';
@@ -5205,7 +5234,7 @@
     fillProfileGaps, statForText, heroPromptThreat, isSamePlace, placeStems, sceneLightFromText,
     abilityFromOption, cleanBonus, hpBonusFromStats, CUSTOM_ICONS,
     makeStats, maxHpFor, makeAbility,
-    ITEM_KINDS, itemLine, itemVerb, makeItem, normalizeInventory, heroItems, useItem, itemById,
+    ITEM_KINDS, itemLine, itemVerb, makeItem, inventoryNames, normalizeInventory, heroItems, useItem, itemById,
     STATES, stateById, stateList, stateLine, stateMod, addState, removeState, hasState, tickStates,
     SUPPLIES_START, SUPPLIES_MAX, suppliesOf, addSupplies, spendSupplies, restStop, healStop, bypassDanger,
     RELATIONS, relationOf, relationInfo, trustOf, setTrust, npcList, npcInText, socialPlan, callDebtor,

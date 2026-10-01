@@ -10,7 +10,7 @@
 
 // Увеличиваем версию при изменении оболочки: PWA не должна оставаться на
 // закэшированных HTML/CSS/JS и пропускать новые изображения интерфейса.
-const VERSION = 'dt2-v31';
+const VERSION = 'dt2-v42';
 const SHELL_CACHE = VERSION + '-shell';
 const COVER_IMAGES = [
   'menu-bg', 'sc-forest', 'sc-ocean', 'sc-space', 'sc-noir', 'sc-waste',
@@ -20,19 +20,24 @@ const HOME_SCENE_IMAGES = [
   'home-01', 'home-02', 'home-03', 'home-04', 'home-05',
   'home-06', 'home-07', 'home-08', 'home-09', 'home-10'
 ];
+const HOME_SCENE_LAYERS = HOME_SCENE_IMAGES.flatMap(name => [
+  './assets/home-scenes/layers/' + name + '-sky.webp',
+  './assets/home-scenes/layers/' + name + '-buildings.webp',
+  './assets/home-scenes/layers/' + name + '-monster.webp'
+]);
 const CRITTER_IMAGES = [
   'knight', 'dragon', 'engineer', 'necro', 'cyber', 'orc', 'mage',
   'assassin', 'golem', 'wolf', 'drone', 'ghost', 'zombie', 'pirate'
 ];
 const THEME_IMAGES = [
-  'ice-bg', 'ice-tex', 'ice-ui-bg', 'ice-ui-button',
-  'ink-bg', 'ink-tex', 'ink-ui-bg', 'ink-ui-button',
-  'material-bg', 'material-tex', 'material-ui-bg', 'material-ui-button',
-  'neon-bg', 'neon-tex', 'neon-ui-bg', 'neon-ui-button',
-  'night-bg', 'night-tex', 'night-ui-bg', 'night-ui-button',
+  'ice-tex', 'ice-ui-bg', 'ice-ui-button',
+  'ink-tex', 'ink-ui-bg', 'ink-ui-button',
+  'material-tex', 'material-ui-bg', 'material-ui-button',
+  'neon-tex', 'neon-ui-bg', 'neon-ui-button',
+  'night-tex', 'night-ui-bg', 'night-ui-button',
   'oled-ui-bg', 'oled-ui-button',
-  'parchment-bg', 'parchment-tex', 'parchment-ui-bg', 'parchment-ui-button',
-  'sunset-bg', 'sunset-tex', 'sunset-ui-bg', 'sunset-ui-button',
+  'parchment-tex', 'parchment-ui-bg', 'parchment-ui-button',
+  'sunset-tex', 'sunset-ui-bg', 'sunset-ui-button',
   'terminal-bg', 'terminal-tex', 'terminal-ui-button'
 ];
 const SHELL = [
@@ -48,12 +53,14 @@ const SHELL = [
   './src/critters.js',
   './src/api.js',
   './src/app.js',
+  './src/online-adventure.js',
   './src/books.js',
   './src/stories.js',
   './src/daily.js',
   './src/metrics.js',
   ...COVER_IMAGES.map(name => './assets/' + name + '.jpg'),
   ...HOME_SCENE_IMAGES.map(name => './assets/home-scenes/' + name + '.jpg'),
+  ...HOME_SCENE_LAYERS,
   './assets/dice-transition.png',
   ...CRITTER_IMAGES.map(name => './assets/critters/' + name + '-run.webp'),
   ...THEME_IMAGES.map(name => './assets/themes/' + name + '.webp'),
