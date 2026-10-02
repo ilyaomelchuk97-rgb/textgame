@@ -10,7 +10,7 @@
 
 // Увеличиваем версию при изменении оболочки: PWA не должна оставаться на
 // закэшированных HTML/CSS/JS и пропускать новые изображения интерфейса.
-const VERSION = 'dt2-v42';
+const VERSION = 'dt2-v45';
 const SHELL_CACHE = VERSION + '-shell';
 const COVER_IMAGES = [
   'menu-bg', 'sc-forest', 'sc-ocean', 'sc-space', 'sc-noir', 'sc-waste',

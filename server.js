@@ -233,7 +233,10 @@ function serveStatic(req, res, abs, stat) {
   const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"';
   const ext = path.extname(abs).toLowerCase();
   const type = MIME[ext] || 'application/octet-stream';
-  const headers = { 'Content-Type': type };
+  const headers = {
+    'Content-Type': type,
+    'Permissions-Policy': 'accelerometer=*, gyroscope=*, magnetometer=*'
+  };
   if (ext === '.jpg' || ext === '.png' || ext === '.webp' || ext === '.ico') {
     headers['Cache-Control'] = 'public, max-age=86400';
     headers['ETag'] = etag;
@@ -2204,6 +2207,9 @@ const server = http.createServer(async (req, res) => {
 // если клиент ушёл — молча закрываем ответ
 process.on('uncaughtException', err => {
   console.error('[uncaught]', String(err && err.message || err));
+});
+process.on('unhandledRejection', err => {
+  console.error('[unhandledRejection]', String(err && err.message || err));
 });
 
 async function handleRequest(req, res) {

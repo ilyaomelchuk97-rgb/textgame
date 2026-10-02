@@ -37,11 +37,11 @@
   --sk-btn-text: var(--text);
   --sk-btn-muted: var(--muted);
 
-  --sk-primary-paint: linear-gradient(180deg, var(--accent, #6fe3b8), color-mix(in srgb, var(--accent, #6fe3b8) 72%, #000 12%));
+  --sk-primary-paint: linear-gradient(180deg, #1b7a58, #0f523a);
   --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 52%);
   --sk-primary-tint: transparent;
-  --sk-primary-edge: rgba(255,255,255,.25);
-  --sk-primary-text: #04231a;
+  --sk-primary-edge: rgba(255,255,255,.35);
+  --sk-primary-text: #ffffff;
   --sk-primary-shadow: 0 8px 22px color-mix(in srgb, var(--accent, #6fe3b8) 26%, transparent);
 
   --sk-bar-paint: var(--bar-bg);
@@ -351,9 +351,9 @@ body[data-theme="night"], .skin-demo[data-tp="night"] {
   --sk-btn-gloss: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 48%);
   --sk-btn-edge: rgba(145,200,190,.26);
   --sk-btn-shadow: 0 2px 6px rgba(0,0,0,.32);
-  --sk-btn-text: #e6eef5; --sk-btn-muted: #8d9aa8;
-  --sk-primary-paint: linear-gradient(180deg, #6fe3b8, #34b98a);
-  --sk-primary-text: #04231a; --sk-primary-edge: rgba(255,255,255,.25);
+  --sk-btn-text: #ffffff; --sk-btn-muted: #dbe8f4;
+  --sk-primary-paint: linear-gradient(180deg, #1b7a58, #0f523a);
+  --sk-primary-text: #ffffff; --sk-primary-edge: rgba(111,227,184,.55);
   --sk-bar-paint: linear-gradient(180deg, rgba(12,19,22,.98), rgba(9,15,18,.92));
   --sk-bar-edge: rgba(145,200,190,.14);
   --sk-bar-shadow: 0 -6px 20px rgba(0,0,0,.32);
@@ -415,10 +415,10 @@ body[data-theme="neon"], .skin-demo[data-tp="neon"] {
   --sk-btn-gloss: repeating-linear-gradient(0deg, rgba(73,224,255,.07) 0 1px, rgba(73,224,255,0) 1px 3px);
   --sk-btn-edge: rgba(73,224,255,.5);
   --sk-btn-shadow: 0 0 12px rgba(73,224,255,.18), 0 0 0 1px rgba(73,224,255,.12) inset;
-  --sk-btn-text: #eae6ff; --sk-btn-muted: #9a95c4;
-  --sk-primary-paint: linear-gradient(180deg, #49e0ff, #2a9fd6);
+  --sk-btn-text: #ffffff; --sk-btn-muted: #e5e0ff;
+  --sk-primary-paint: linear-gradient(180deg, #0e6f9e, #1b3d82);
   --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.16) 0 1px, rgba(255,255,255,0) 1px 4px);
-  --sk-primary-text: #001018; --sk-primary-edge: rgba(255,92,240,.55);
+  --sk-primary-text: #ffffff; --sk-primary-edge: rgba(255,92,240,.65);
   --sk-primary-shadow: 0 0 18px rgba(73,224,255,.5);
   --sk-bar-paint: linear-gradient(180deg, rgba(14,10,30,.98), rgba(10,7,22,.94));
   --sk-bar-edge: rgba(73,224,255,.35);
@@ -449,10 +449,10 @@ body[data-theme="terminal"], .skin-demo[data-tp="terminal"] {
   --sk-btn-gloss: repeating-linear-gradient(0deg, rgba(120,255,170,.05) 0 1px, rgba(0,0,0,0) 1px 4px);
   --sk-btn-edge: rgba(120,255,170,.5);
   --sk-btn-shadow: 0 0 10px rgba(120,255,170,.14);
-  --sk-btn-text: #c8ffdd; --sk-btn-muted: #6fae8a;
-  --sk-primary-paint: linear-gradient(180deg, #63ff9e, #12a052);
+  --sk-btn-text: #ecfff4; --sk-btn-muted: #c8ffe0;
+  --sk-primary-paint: linear-gradient(180deg, #117a3e, #094d26);
   --sk-primary-gloss: repeating-linear-gradient(0deg, rgba(255,255,255,.12) 0 1px, rgba(255,255,255,0) 1px 4px);
-  --sk-primary-text: #041a0e; --sk-primary-edge: rgba(120,255,170,.6);
+  --sk-primary-text: #ffffff; --sk-primary-edge: rgba(120,255,170,.75);
   --sk-primary-shadow: 0 0 16px rgba(99,255,158,.4);
   --sk-bar-paint: linear-gradient(180deg, rgba(5,16,10,.98), rgba(3,10,6,.95));
   --sk-bar-edge: rgba(120,255,170,.4);
@@ -548,10 +548,10 @@ body[data-theme="ink"], .skin-demo[data-tp="ink"] {
     radial-gradient(5px 5px at calc(100% - 5px) 50%, rgba(217,167,106,.42), rgba(217,167,106,0) 75%);
   --sk-btn-edge: rgba(217,167,106,.45);
   --sk-btn-shadow: 0 0 0 1px rgba(217,167,106,.12) inset, 0 2px 6px rgba(0,0,0,.5);
-  --sk-btn-text: #ece9e3; --sk-btn-muted: #9b968c;
-  --sk-primary-paint: linear-gradient(180deg, #e0b378, #b07f3c);
+  --sk-btn-text: #ffffff; --sk-btn-muted: #e8e3da;
+  --sk-primary-paint: linear-gradient(180deg, #8a5a24, #593814);
   --sk-primary-gloss: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 55%);
-  --sk-primary-text: #1b1206; --sk-primary-edge: rgba(255,235,200,.35);
+  --sk-primary-text: #ffffff; --sk-primary-edge: rgba(255,235,200,.55);
   --sk-primary-shadow: 0 4px 14px rgba(180,130,60,.3);
   --sk-bar-paint: linear-gradient(180deg, rgba(16,16,18,.98), rgba(10,10,11,.95));
   --sk-bar-edge: rgba(217,167,106,.3);
@@ -581,10 +581,10 @@ body[data-theme="sunset"], .skin-demo[data-tp="sunset"] {
   --sk-btn-gloss: radial-gradient(120% 100% at 12% -20%, rgba(255,180,120,.45), rgba(255,180,120,0) 58%);
   --sk-btn-edge: rgba(255,170,130,.45);
   --sk-btn-shadow: 0 3px 12px rgba(255,120,90,.2);
-  --sk-btn-text: #ffe9e0; --sk-btn-muted: #c39aa8;
-  --sk-primary-paint: linear-gradient(180deg, #ffb066, #e2703a);
-  --sk-primary-gloss: radial-gradient(120% 100% at 20% -20%, rgba(255,235,200,.6), rgba(255,235,200,0) 60%);
-  --sk-primary-text: #2a1207; --sk-primary-edge: rgba(255,220,180,.5);
+  --sk-btn-text: #ffffff; --sk-btn-muted: #ffe2d8;
+  --sk-primary-paint: linear-gradient(180deg, #b54522, #7a263a);
+  --sk-primary-gloss: radial-gradient(120% 100% at 20% -20%, rgba(255,235,200,.35), rgba(255,235,200,0) 60%);
+  --sk-primary-text: #ffffff; --sk-primary-edge: rgba(255,220,180,.65);
   --sk-primary-shadow: 0 10px 26px rgba(255,140,80,.35);
   --sk-bar-paint: linear-gradient(180deg, rgba(44,20,48,.98), rgba(28,13,32,.95));
   --sk-bar-edge: rgba(255,170,130,.35);
@@ -689,10 +689,10 @@ body[data-theme="oled"], .skin-demo[data-tp="oled"] {
   --sk-btn-paint: none; --sk-btn-tint: #000000; --sk-btn-gloss: none;
   --sk-btn-edge: rgba(255,255,255,.24);
   --sk-btn-shadow: none;
-  --sk-btn-text: #f2f2f2; --sk-btn-muted: #9a9a9a;
-  --sk-primary-paint: none; --sk-primary-tint: #f2f2f2;
-  --sk-primary-gloss: none; --sk-primary-edge: rgba(255,255,255,.4);
-  --sk-primary-text: #111111; --sk-primary-shadow: none;
+  --sk-btn-text: #ffffff; --sk-btn-muted: #e6e6e6;
+  --sk-primary-paint: none; --sk-primary-tint: #1c1c22;
+  --sk-primary-gloss: none; --sk-primary-edge: rgba(255,255,255,.65);
+  --sk-primary-text: #ffffff; --sk-primary-shadow: none;
   --sk-bar-paint: #000000; --sk-bar-edge: rgba(255,255,255,.12); --sk-bar-shadow: none;
   --sk-scene-gloss: none; --sk-glow: none;
   --sk-tap: rgba(255,255,255,.18);
@@ -854,3 +854,77 @@ body[data-theme] button[aria-pressed="true"]:not(.arch-card) {
     0 0 0 2px var(--sk-select-color),
     0 0 18px var(--sk-select-glow);
 }
+
+/* Во всех оформлениях кроме «Лёд», «Материальная» и «Пергамент»
+   шрифты во всех меню, настройках, вкладках, карточках и кнопках — светлые. */
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) {
+  color: var(--text, #f7fbff);
+}
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .screen,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .modal-box,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .settings,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .section-title,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .modal__title,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .game-title,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .prologue__inner,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .prologue__title,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .prologue__hero,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .book-card,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .arch-card,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .save-card,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .scenario-card,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .item-card,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .epilogue__stat,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .input,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) input,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) select,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) textarea {
+  color: var(--text, #f7fbff);
+}
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .btn,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .btn--primary,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .btn--ghost,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .btn--quiet,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .icon-btn,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .action-btn,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .bar-btn,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .bar-btn.is-on,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .tab,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .tab.is-active,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .chip,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .chip.is-on,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .chip__title,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .chip.is-on .chip__sub,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .rules-btn,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .rules-btn.is-on,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .rules-btn__title,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .log-toggle,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .books-filter__chip,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .books-filter__chip.is-on,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .mech-chip,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .ability-btn {
+  color: #ffffff;
+}
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .muted,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .small,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .hint,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .field__label,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .modal__text,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .chip__sub,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .rules-btn__hint,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .action-btn__meta,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .mech-chip__hint,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .arch-card__blurb,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .scenario-card__tagline,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .save-card__meta,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .book-card__tag {
+  color: var(--muted, #dce8f2);
+  opacity: 0.95;
+}
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) .input::placeholder,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) input::placeholder,
+body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parchment"]) textarea::placeholder {
+  color: var(--muted, #dce8f2);
+  opacity: 0.72;
+}
+

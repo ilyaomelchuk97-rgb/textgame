@@ -220,15 +220,23 @@
         // ждём жеста: без него iOS не отдаст датчики
         if (enabled) return;
         const ask = () => {
-          window.removeEventListener('touchend', ask);
-          window.removeEventListener('click', ask);
+          window.removeEventListener('touchend', ask, true);
+          window.removeEventListener('click', ask, true);
           window.DeviceOrientationEvent.requestPermission().then(res => {
             enabled = res === 'granted';
-            if (enabled) bind();
+            if (enabled) {
+              bind();
+              window.dispatchEvent(new CustomEvent('dt:gyro-granted'));
+            }
           }).catch(() => { /* отказ — просто живём без наклона */ });
+          try {
+            if (window.DeviceMotionEvent && typeof window.DeviceMotionEvent.requestPermission === 'function') {
+              window.DeviceMotionEvent.requestPermission().catch(() => {});
+            }
+          } catch (e) {}
         };
-        window.addEventListener('touchend', ask, { once: true });
-        window.addEventListener('click', ask, { once: true });
+        window.addEventListener('touchend', ask, { once: true, capture: true });
+        window.addEventListener('click', ask, { once: true, capture: true });
         return;
       }
       enabled = true;
@@ -402,6 +410,7 @@
       const host = $('#menu-critters');
       if (!host) return;
       this.api = window.DTCritters.mount(host, {
+        forceRun: () => Settings.data.motion !== false,
         // у каждого персонажа своя реплика: кто бы ни попал в кадр
         onTap: (role, info) => {
           Sound.tap();
@@ -1075,15 +1084,36 @@
     if (!screen || !bg || screen.dataset.parallaxBound === '1') return;
     screen.dataset.parallaxBound = '1';
     let queued = false, px = 0, py = 0;
-    let targetX = 0, targetY = 0, curX = 0, curY = 0;
-    let gyroRequested = false;
+    let pointerX = 0, pointerY = 0;
+    let gyroX = 0, gyroY = 0, rotVelX = 0, rotVelY = 0;
+    let curX = 0, curY = 0;
+    let baseGamma = null, baseBeta = null;
+    let hasOrientationEvent = false;
+    let gyroBound = false, gyroPermissionAsked = false;
+
     const reducedMotion = () => {
       try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
       catch (e) { return false; }
     };
+    const screenAngle = () => {
+      try {
+        if (window.screen && window.screen.orientation && typeof window.screen.orientation.angle === 'number') {
+          return window.screen.orientation.angle;
+        }
+        if (typeof window.orientation === 'number') return window.orientation;
+      } catch (e) {}
+      return 0;
+    };
+    const orientAxes = (x, y) => {
+      const a = ((screenAngle() % 360) + 360) % 360;
+      if (a === 90) return [y, -x];
+      if (a === 270) return [-y, x];
+      if (a === 180) return [-x, -y];
+      return [x, y];
+    };
     const applyVars = (x, y) => {
-      const tx = (x / 22) * 5.2;
-      const ty = (-y / 18) * 4.4;
+      const tx = (x / 26) * 6.5;
+      const ty = (-y / 22) * 5.4;
       bg.style.setProperty('--menu-pan-x', (x * 0.35).toFixed(1) + 'px');
       bg.style.setProperty('--menu-pan-y', (y * 0.35).toFixed(1) + 'px');
       bg.style.setProperty('--parallax-x', x.toFixed(2) + 'px');
@@ -1092,8 +1122,12 @@
       bg.style.setProperty('--tilt-y', ty.toFixed(2) + 'deg');
     };
     const reset = () => {
-      targetX = 0;
-      targetY = 0;
+      pointerX = 0;
+      pointerY = 0;
+      gyroX = 0;
+      gyroY = 0;
+      rotVelX = 0;
+      rotVelY = 0;
       bg.style.setProperty('--menu-pan-x', '0px');
       bg.style.setProperty('--menu-pan-y', '0px');
       bg.style.setProperty('--parallax-x', '0px');
@@ -1101,31 +1135,119 @@
       bg.style.setProperty('--tilt-x', '0deg');
       bg.style.setProperty('--tilt-y', '0deg');
     };
-    const requestGyro = () => {
-      if (gyroRequested) return;
-      gyroRequested = true;
+    const onOrientation = ev => {
+      if (!ev || screen.dataset.motion === 'off' || reducedMotion()) return;
+      if (ev.gamma == null && ev.beta == null) return;
+      hasOrientationEvent = true;
+      let g = Number(ev.gamma);
+      let b = Number(ev.beta);
+      if (!Number.isFinite(g) || !Number.isFinite(b)) return;
+      // Когда телефон наклоняют почти вертикально (beta > 90), угол gamma перескакивает знак — сглаживаем
+      if (b > 90) g = -g;
+      else if (b < -90) g = -g;
+
+      if (baseGamma === null || baseBeta === null) {
+        baseGamma = g;
+        baseBeta = b;
+      }
+      let dg = g - baseGamma;
+      let db = b - baseBeta;
+      if (dg > 180) dg -= 360;
+      if (dg < -180) dg += 360;
+      if (db > 180) db -= 360;
+      if (db < -180) db += 360;
+
+      // Если пользователь переложил телефон под новым углом (> 24°), плавно подтягиваем базовый горизонт
+      if (Math.abs(dg) > 24) baseGamma += (dg - Math.sign(dg) * 24) * 0.35;
+      else baseGamma += dg * 0.006;
+      if (Math.abs(db) > 22) baseBeta += (db - Math.sign(db) * 22) * 0.35;
+      else baseBeta += db * 0.006;
+
+      const clampedG = Math.max(-24, Math.min(24, g - baseGamma));
+      const clampedB = Math.max(-22, Math.min(22, b - baseBeta));
+      const [ox, oy] = orientAxes((clampedG / 24) * 32, (clampedB / 22) * 24);
+      gyroX = ox;
+      gyroY = oy;
+    };
+    const onMotion = ev => {
+      if (!ev || screen.dataset.motion === 'off' || reducedMotion()) return;
+      // 1) Прямой сигнал с гироскопа (угловая скорость вращения телефона в град/с)
+      const rot = ev.rotationRate;
+      if (rot && (rot.gamma != null || rot.beta != null || rot.alpha != null)) {
+        const rg = Number(rot.gamma) || 0; // наклон влево-вправо
+        const rb = Number(rot.beta) || 0;  // наклон вперёд-назад
+        const [vx, vy] = orientAxes(rg * 0.18, rb * 0.16);
+        rotVelX = Math.max(-26, Math.min(26, rotVelX * 0.86 + vx * 0.42));
+        rotVelY = Math.max(-22, Math.min(22, rotVelY * 0.86 + vy * 0.42));
+      }
+      // 2) Резервный наклон по вектору гравитации акселерометра, если deviceorientation не приходит
+      if (!hasOrientationEvent && ev.accelerationIncludingGravity) {
+        const ag = ev.accelerationIncludingGravity;
+        if (ag.x != null && ag.y != null) {
+          const gx = Math.max(-7, Math.min(7, -Number(ag.x) || 0));
+          const gy = Math.max(-7, Math.min(7, (Number(ag.y) || 0) - 5.5));
+          const [ox, oy] = orientAxes((gx / 7) * 28, (gy / 7) * 22);
+          gyroX = gyroX * 0.8 + ox * 0.2;
+          gyroY = gyroY * 0.8 + oy * 0.2;
+        }
+      }
+    };
+    const attachGyroListeners = () => {
+      if (gyroBound || typeof window === 'undefined') return;
+      gyroBound = true;
+      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+      window.addEventListener('deviceorientationabsolute', onOrientation, { passive: true });
+      window.addEventListener('devicemotion', onMotion, { passive: true });
+      // Generic Sensor API (Chrome Android) как дополнительный источник гироскопа
       try {
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-          DeviceOrientationEvent.requestPermission().then(state => {
-            if (state === 'granted') window.addEventListener('deviceorientation', onOrientation, { passive: true });
-          }).catch(() => {});
+        if (typeof window.Gyroscope === 'function') {
+          const sensor = new window.Gyroscope({ frequency: 60 });
+          sensor.addEventListener('reading', () => {
+            if (screen.dataset.motion === 'off' || reducedMotion()) return;
+            const [vx, vy] = orientAxes((Number(sensor.y) || 0) * 14, (Number(sensor.x) || 0) * 12);
+            rotVelX = Math.max(-26, Math.min(26, rotVelX * 0.85 + vx * 0.4));
+            rotVelY = Math.max(-22, Math.min(22, rotVelY * 0.85 + vy * 0.4));
+          });
+          sensor.start();
         }
       } catch (e) {}
     };
-    const onOrientation = ev => {
-      if (!ev || screen.dataset.motion === 'off' || reducedMotion()) return;
-      const gamma = Math.max(-28, Math.min(28, Number(ev.gamma) || 0));
-      const beta = Math.max(-28, Math.min(28, (Number(ev.beta) || 45) - 45));
-      targetX = (gamma / 28) * 22;
-      targetY = (beta / 28) * 18;
+    const requestGyroPermission = () => {
+      if (gyroPermissionAsked) return;
+      gyroPermissionAsked = true;
+      try {
+        const needsOrientPerm = typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function';
+        const needsMotionPerm = typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function';
+        if (needsOrientPerm || needsMotionPerm) {
+          const p1 = needsOrientPerm
+            ? DeviceOrientationEvent.requestPermission().catch(() => 'denied')
+            : Promise.resolve('granted');
+          const p2 = needsMotionPerm
+            ? DeviceMotionEvent.requestPermission().catch(() => 'denied')
+            : Promise.resolve('granted');
+          Promise.all([p1, p2]).then(([r1, r2]) => {
+            if (r1 === 'granted' || r2 === 'granted') attachGyroListeners();
+            else gyroPermissionAsked = false;
+          });
+        } else {
+          attachGyroListeners();
+        }
+      } catch (e) {
+        attachGyroListeners();
+      }
     };
-    if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window &&
-        typeof DeviceOrientationEvent.requestPermission !== 'function') {
-      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+    if (typeof window !== 'undefined') {
+      const needsPerm = typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function';
+      if (!needsPerm) attachGyroListeners();
+      window.addEventListener('dt:gyro-granted', attachGyroListeners);
+      document.addEventListener('touchend', requestGyroPermission, { passive: true, capture: true });
+      document.addEventListener('click', requestGyroPermission, { passive: true, capture: true });
     }
     const move = ev => {
       if (!ev) return;
-      requestGyro();
       if (screen.dataset.motion === 'off' || reducedMotion()) { reset(); return; }
       const rect = screen.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -1133,24 +1255,27 @@
       const ny = (ev.clientY - rect.top) / rect.height - .5;
       px = nx * 7;
       py = ny * 6;
-      targetX = nx * 24;
-      targetY = ny * 18;
+      const scale = ev.pointerType === 'touch' ? 0.45 : 1;
+      pointerX = nx * 24 * scale;
+      pointerY = ny * 18 * scale;
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
-        applyVars(targetX, targetY);
+        applyVars(gyroX + rotVelX + pointerX, gyroY + rotVelY + pointerY);
       });
     };
     const tick = now => {
       if (!screen.hidden && screen.dataset.motion !== 'off' && !reducedMotion()) {
         const t = Number(now) || 0;
-        const swayX = Math.sin(t * 0.0011) * 9.5 + Math.cos(t * 0.00065) * 4.5;
-        const swayY = Math.cos(t * 0.00085) * 7.0 + Math.sin(t * 0.0014) * 3.2;
-        const goalX = Math.max(-26, Math.min(26, targetX + swayX));
-        const goalY = Math.max(-20, Math.min(20, targetY + swayY));
-        curX += (goalX - curX) * 0.08;
-        curY += (goalY - curY) * 0.08;
+        rotVelX *= 0.92;
+        rotVelY *= 0.92;
+        const swayX = Math.sin(t * 0.0011) * 7.5 + Math.cos(t * 0.00065) * 3.5;
+        const swayY = Math.cos(t * 0.00085) * 5.5 + Math.sin(t * 0.0014) * 2.5;
+        const goalX = Math.max(-34, Math.min(34, gyroX + rotVelX + pointerX + swayX));
+        const goalY = Math.max(-26, Math.min(26, gyroY + rotVelY + pointerY + swayY));
+        curX += (goalX - curX) * 0.14;
+        curY += (goalY - curY) * 0.14;
         applyVars(curX, curY);
       }
       requestAnimationFrame(tick);
@@ -1158,8 +1283,9 @@
     requestAnimationFrame(tick);
     screen.addEventListener('pointerdown', move, { passive: true });
     screen.addEventListener('pointermove', move, { passive: true });
-    screen.addEventListener('pointerleave', () => { targetX = 0; targetY = 0; }, { passive: true });
-    screen.addEventListener('pointercancel', reset, { passive: true });
+    screen.addEventListener('pointerup', () => { pointerX = 0; pointerY = 0; }, { passive: true });
+    screen.addEventListener('pointerleave', () => { pointerX = 0; pointerY = 0; }, { passive: true });
+    screen.addEventListener('pointercancel', () => { pointerX = 0; pointerY = 0; }, { passive: true });
   }
   function diceTransitionUrl() {
     return (window.DT_ASSETS && window.DT_ASSETS['dice-transition']) || 'assets/dice-transition.png';

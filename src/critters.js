@@ -431,6 +431,7 @@
 
     container.dataset.crittersReady = '1';
     const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const shouldReduce = () => (typeof opts.forceRun === 'function') ? !opts.forceRun() : reduced;
     const timers = [];
     const state = { active: false, reduced, els: {}, container, pair: null };
 
@@ -444,13 +445,19 @@
     };
 
     function parkEl(el, dir) {
-      el.classList.remove('is-running', 'is-hit');
+      if (!el) return;
+      el.classList.remove('is-running', 'is-hit', 'critter--still');
+      el.style.left = '';
+      el.style.right = '';
       el.style.animation = 'none';
       el.style.transform = PARK[dir];
     }
 
     function run(el, dir, duration, delay) {
+      if (!el) return;
       parkEl(el, dir === 'right' ? 'left' : 'right');
+      // Принудительный reflow, чтобы повторный забег в ту же сторону гарантированно перезапускал keyframes
+      void el.offsetWidth;
       el.classList.add('is-running');
       el.style.animation =
         (dir === 'right' ? 'critter-run-right ' : 'critter-run-left ') +
@@ -525,36 +532,42 @@
           sheet.src = url;
         }
       });
-      if (reduced) arrangeStill();
-      else Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));
+      if (shouldReduce()) arrangeStill();
+      else {
+        Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));
+        if (state.active) tick();
+      }
     }
 
     function tick() {
       if (!state.active || !state.pair) return;
+      if (shouldReduce()) { arrangeStill(); return; }
       const [hero, beast] = state.pair;
       const dir = Math.random() < 0.5 ? 'right' : 'left';
       const beastFirst = Math.random() < 0.24;          // иногда первым бежит монстр
       const lead = beastFirst ? beast : hero;
       const chase = beastFirst ? hero : beast;
-      const duration = rnd(3.4, 5.4);
-      const gap = rnd(0.6, 1.3);                         // преследователь держится на хвосте
+      const duration = rnd(3.4, 5.0);
+      const chaseDur = duration * rnd(1.06, 1.18);
+      const gap = rnd(0.55, 1.15);                       // преследователь держится на хвосте
       run(state.els[lead.id], dir, duration, 0);
-      run(state.els[chase.id], dir, duration * rnd(1.08, 1.22), gap);
-      const pause = rnd(0.9, 4.6) * 1000;
-      later(tick, (duration + Math.max(gap, 0.4)) * 1000 + pause);
+      run(state.els[chase.id], dir, chaseDur, gap);
+      const pause = rnd(0.35, 1.1) * 1000;
+      later(tick, ( Math.max(duration, chaseDur + gap) ) * 1000 + pause);
     }
 
     function start() {
-      if (state.active) return;
-      if (reduced) { arrangeStill(); return; }
+      if (shouldReduce()) { arrangeStill(); return; }
+      if (state.active && timers.length > 0) return;
       state.active = true;
+      clearAll();
       tick();
     }
 
     function stop() {
       state.active = false;
       clearAll();
-      if (reduced) { arrangeStill(); return; }
+      if (shouldReduce()) { arrangeStill(); return; }
       Object.keys(state.els).forEach(id => parkEl(state.els[id], 'left'));
     }
 
