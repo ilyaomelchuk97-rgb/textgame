@@ -68,3 +68,26 @@ test('the standalone build and PWA cache include the new online-mode module', ()
   assert.match(build, /online-adventure\\\.js/);
   assert.match(worker, /'\.\/src\/online-adventure\.js'/);
 });
+
+test('open world connects to AI generator for world seed, map biomes/landmarks, world art, and live GM actions, and menu removes ai-status label', () => {
+  const appSource = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
+  const apiSource = fs.readFileSync(path.join(root, 'src', 'api.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  assert.doesNotMatch(html, /id="ai-status"/);
+  assert.doesNotMatch(appSource, /Локальный мастер \(ИИ недоступен\)/);
+  assert.match(serverSource, /fetchMagicStudio/);
+  assert.match(serverSource, /fetchSubnp/);
+  assert.match(serverSource, /hf:z-image-turbo/);
+  assert.match(serverSource, /llm7Chat/);
+  assert.match(serverSource, /kiloChat/);
+  assert.match(apiSource, /llm7:default/);
+  assert.match(apiSource, /subnp:magic/);
+  assert.match(html, /id="online-ai-seed"/);
+  assert.match(html, /id="online-world-art"/);
+  assert.match(html, /id="online-ai-bar"/);
+  assert.match(moduleSource, /function salvageBlueprint\(/);
+  assert.match(moduleSource, /function generateWorldSeedIdea\(/);
+  assert.match(moduleSource, /function renderWorldArt\(/);
+  assert.match(moduleSource, /function askOnlineMasterAction\(/);
+  assert.match(moduleSource, /API\.generateImage\(/);
+});

@@ -254,6 +254,50 @@
   function directProviders() {
     return [
       {
+        name: 'llm7:default',
+        async run(messages) {
+          const t = withTimeout(CONFIG.textTimeoutMs);
+          try {
+            const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                model: 'default', messages, temperature: 0.85, max_tokens: 1800
+              }),
+              signal: t.signal
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const text = data && data.choices && data.choices[0] &&
+              (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+            if (looksLikeJunk(text)) throw new Error('junk');
+            return text;
+          } finally { t.done(); }
+        }
+      },
+      {
+        name: 'llm7:fast',
+        async run(messages) {
+          const t = withTimeout(CONFIG.textTimeoutMs);
+          try {
+            const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                model: 'fast', messages, temperature: 0.85, max_tokens: 1800
+              }),
+              signal: t.signal
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const text = data && data.choices && data.choices[0] &&
+              (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+            if (looksLikeJunk(text)) throw new Error('junk');
+            return text;
+          } finally { t.done(); }
+        }
+      },
+      {
         name: 'pollinations:chat',
         async run(messages) {
           const t = withTimeout(CONFIG.textTimeoutMs);
@@ -264,7 +308,7 @@
               method: 'POST', headers,
               body: JSON.stringify({
                 model: CONFIG.textModel, messages, temperature: 0.9,
-                max_tokens: 520, private: true, referrer: 'dice-tales'
+                max_tokens: 1600, private: true, referrer: 'dice-tales'
               }),
               signal: t.signal
             });
@@ -671,6 +715,63 @@
     }
   }
 
+  async function fetchDirectSubnpUrl(prompt) {
+    const t = withTimeout(6000);
+    try {
+      const res = await fetch('https://subnp.com/api/free/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: String(prompt || 'dark fantasy landscape').slice(0, 360), model: 'magic' }),
+        signal: t.signal
+      });
+      if (!res.ok) return null;
+      const text = await res.text();
+      const m = text.match(/"imageUrl"\s*:\s*"([^"]+)"/);
+      return m && m[1] ? m[1] : null;
+    } catch (err) {
+      return null;
+    } finally { t.done(); }
+  }
+
+  async function fetchDirectZImageUrl(prompt, seed, w, h) {
+    const base = 'https://mrfakename-z-image-turbo.hf.space/gradio_api';
+    const t = withTimeout(6500);
+    try {
+      const r1 = await fetch(base + '/call/generate_image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: [
+            String(prompt || 'dark fantasy landscape').slice(0, 360),
+            Math.max(256, Math.round((h || 256) / 16) * 16),
+            Math.max(256, Math.round((w || 448) / 16) * 16),
+            8,
+            Number(seed) || 42,
+            true
+          ]
+        }),
+        signal: t.signal
+      });
+      if (!r1.ok) return null;
+      const { event_id } = await r1.json();
+      if (!event_id) return null;
+      const r2 = await fetch(base + '/call/generate_image/' + event_id, { signal: t.signal });
+      const sse = await r2.text();
+      let url = (sse.match(/"(https?:\/\/[^"]+?\.(?:webp|png|jpe?g)[^"]*)"/) || [])[1];
+      if (!url) {
+        const m = sse.match(/event:\s*complete\s*\ndata:\s*(\[[\s\S]*?\])\n/);
+        if (m) {
+          const parsed = JSON.parse(m[1]);
+          const item = parsed && (parsed[0]?.image || parsed[0]);
+          url = (item && item.url) || (item && item.path ? base + '/file=' + item.path : '');
+        }
+      }
+      return url || null;
+    } catch (err) {
+      return null;
+    } finally { t.done(); }
+  }
+
   async function generateImage({ prompt, style, aspect = '16:9', seed, width, height, onAttempt, hedgeFirstMs = 0 }) {
     const source = CONFIG.imageSource || 'sana';
     const built = E.buildImageUrl({
@@ -685,24 +786,21 @@
       catch (e) { imageCache.delete(key); }
     }
 
-    // Замеры: серверный прокси с ключом — 3–4 с холодным кэшем и 0 с тёплым.
-    // Прямой pollinations из браузера блокируется (net::ERR_BLOCKED_BY_ORB),
-    // a0.dev отвечает дольше 30 с. Поэтому: сервер, его повтор, и только потом
-    // дальние источники. Случайные стоковые фото убраны совсем — кадр должен
-    // совпадать со сценой, а не быть «какой-то картинкой»; пока кадр рисуется,
-    // игрок видит процедурный фон по тексту сцены.
     const server = await probeBackend();
     const queue = [];
     if (source === 'local') {
       // «локальный фон»: генераторы не дёргаем вовсе, сцена рисует себя сама
       return { ok: false, prompt: built.full, local: true };
     }
-    if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
-    // Без своего сервера (например, страница открыта файлом с GitHub Pages)
-    // картинку просим напрямую у генератора — анонимный адрес из браузера работает.
-    else queue.push({ name: 'pollinations', url: built.pollinations, delay: 0 });
-    // Один запрос на место: генератор бывает занят, а второй запрос на ту же
-    // картинку только съедает время. Повтор случится, когда игрок вернётся сюда.
+    if (server && server.imageProxy) {
+      queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
+      queue.push({ name: 'subnp:magic', resolveUrl: () => fetchDirectSubnpUrl(built.full), delay: 3200 });
+    } else {
+      // Без своего сервера запускаем сверхбыструю гонку напрямую из браузера (< 6 с):
+      queue.push({ name: 'subnp:magic', resolveUrl: () => fetchDirectSubnpUrl(built.full), delay: 0 });
+      queue.push({ name: 'hf:z-image-turbo', resolveUrl: () => fetchDirectZImageUrl(built.full, seed, width || CONFIG.imageWidth, height || CONFIG.imageHeight), delay: 400 });
+      queue.push({ name: 'pollinations', url: built.pollinations, delay: 900 });
+    }
 
     return new Promise(resolve => {
       let settled = false;
@@ -717,23 +815,33 @@
         if (result) imageCache.set(key, result.url);
         resolve(result || { ok: false, prompt: built.full });
       };
-      const launch = cand => {
+      const launch = async cand => {
         if (settled) return;
         if (onAttempt) onAttempt(cand.name);
         const img = new Image();
-        const item = { img, url: cand.url, name: cand.name };
+        const item = { img, url: cand.url || '', name: cand.name };
         started.push(item);
-        img.onload = () => { log('картинка пришла через', cand.name); finish({ ok: true, url: cand.url, source: cand.name, prompt: built.full }); };
+        let targetUrl = cand.url;
+        if (typeof cand.resolveUrl === 'function') {
+          targetUrl = await cand.resolveUrl();
+          if (settled) return;
+          if (!targetUrl) {
+            fails.push(cand.name);
+            if (fails.length >= queue.length) finish(null);
+            return;
+          }
+          item.url = targetUrl;
+        }
+        img.onload = () => { log('картинка пришла через', cand.name); finish({ ok: true, url: targetUrl, source: cand.name, prompt: built.full }); };
         img.onerror = () => {
           fails.push(cand.name);
-          // все попытки отвалились — не держим игрока: сцена уже нарисована сама
-          if (fails.length >= started.length) finish(null);
+          if (fails.length >= queue.length) finish(null);
         };
         img.decoding = 'async';
-        img.src = cand.url;
+        img.src = targetUrl;
       };
       if (!queue.length) { finish(null); return; }
-      queue.forEach((cand, i) => {
+      queue.forEach((cand) => {
         if (!cand.delay) launch(cand);
         else timers.push(setTimeout(() => launch(cand), cand.delay + hedgeFirstMs));
       });

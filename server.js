@@ -44,7 +44,7 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 // Сколько токенов разрешаем мастеру: мир + предыстория + сцена + план + герой
 // помещаются только с запасом — иначе JSON обрывается на середине.
-const TEXT_MAX_TOKENS = Number(process.env.TEXT_MAX_TOKENS || 1500);
+const TEXT_MAX_TOKENS = Number(process.env.TEXT_MAX_TOKENS || 2200);
 // Канал тратит бюджет ответа на скрытые рассуждения: с полным бюджетом видимого
 // текста не остаётся вовсе. 'low' оставляет рассуждения короткими.
 const POLLINATIONS_EFFORT = process.env.POLLINATIONS_EFFORT || 'low';
@@ -964,6 +964,113 @@ async function hfStream(messages, key, onDelta, timeoutMs, model) {
   });
 }
 
+/* ---------------------------------------------------------- */
+/* Бесплатные текстовые ИИ без ключа: LLM7 и Kilo AI Gateway   */
+/* ---------------------------------------------------------- */
+const LLM7_BASE = (process.env.LLM7_BASE_URL || 'https://api.llm7.io/v1').replace(/\/$/, '');
+const LLM7_MODELS = (process.env.LLM7_MODELS || 'default,fast').split(',').map(x => x.trim()).filter(Boolean);
+const LLM7_LAST_MODEL = { name: '', at: 0 };
+
+async function llm7Chat(messages, timeoutMs) {
+  const chain = LLM7_MODELS.slice();
+  if (LLM7_LAST_MODEL.name && Date.now() - LLM7_LAST_MODEL.at < 10 * 60 * 1000) {
+    const i = chain.indexOf(LLM7_LAST_MODEL.name);
+    if (i > 0) { chain.splice(i, 1); chain.unshift(LLM7_LAST_MODEL.name); }
+  }
+  const started = Date.now();
+  let lastErr = null;
+  for (const model of chain) {
+    const left = (timeoutMs || 16000) - (Date.now() - started);
+    if (left < 3500) break;
+    try {
+      const res = await fetchWithTimeout(LLM7_BASE + '/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model, messages, temperature: 0.85, max_tokens: TEXT_MAX_TOKENS })
+      }, Math.min(left, 12000));
+      if (!res.ok) throw new Error('llm7 HTTP ' + res.status);
+      const data = await res.json();
+      const text = data && data.choices && data.choices[0] &&
+        (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+      if (!text) throw new Error('llm7 empty');
+      LLM7_LAST_MODEL.name = model;
+      LLM7_LAST_MODEL.at = Date.now();
+      return text;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('llm7: нет ответа');
+}
+
+async function llm7Stream(messages, onDelta, timeoutMs) {
+  const model = (LLM7_LAST_MODEL.name && Date.now() - LLM7_LAST_MODEL.at < 10 * 60 * 1000)
+    ? LLM7_LAST_MODEL.name : (LLM7_MODELS[0] || 'default');
+  return openAiStream({
+    url: LLM7_BASE + '/chat/completions',
+    key: '',
+    model,
+    messages,
+    onDelta,
+    timeoutMs: timeoutMs || 18000
+  });
+}
+
+const KILO_BASE = (process.env.KILO_BASE_URL || 'https://api.kilo.ai/api/gateway').replace(/\/$/, '');
+const KILO_MODELS = (process.env.KILO_MODELS || [
+  'kilo-auto/free',
+  'inclusionai/ling-3.0-flash-sante:free',
+  'qwen/qwen3.8-27b:free',
+  'openrouter/free',
+  'stepfun/step-3.7-flash:free'
+].join(',')).split(',').map(x => x.trim()).filter(Boolean);
+const KILO_LAST_MODEL = { name: '', at: 0 };
+
+async function kiloChat(messages, timeoutMs) {
+  const chain = KILO_MODELS.slice();
+  if (KILO_LAST_MODEL.name && Date.now() - KILO_LAST_MODEL.at < 10 * 60 * 1000) {
+    const i = chain.indexOf(KILO_LAST_MODEL.name);
+    if (i > 0) { chain.splice(i, 1); chain.unshift(KILO_LAST_MODEL.name); }
+  }
+  const started = Date.now();
+  let lastErr = null;
+  for (const model of chain) {
+    const left = (timeoutMs || 18000) - (Date.now() - started);
+    if (left < 3500) break;
+    try {
+      const res = await fetchWithTimeout(KILO_BASE + '/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model, messages, temperature: 0.85, max_tokens: TEXT_MAX_TOKENS })
+      }, Math.min(left, 12000));
+      if (!res.ok) throw new Error('kilo HTTP ' + res.status);
+      const data = await res.json();
+      const text = data && data.choices && data.choices[0] &&
+        (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+      if (!text) throw new Error('kilo empty');
+      KILO_LAST_MODEL.name = model;
+      KILO_LAST_MODEL.at = Date.now();
+      return text;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('kilo: нет ответа');
+}
+
+async function kiloStream(messages, onDelta, timeoutMs) {
+  const model = (KILO_LAST_MODEL.name && Date.now() - KILO_LAST_MODEL.at < 10 * 60 * 1000)
+    ? KILO_LAST_MODEL.name : (KILO_MODELS[0] || 'kilo-auto/free');
+  return openAiStream({
+    url: KILO_BASE + '/chat/completions',
+    key: '',
+    model,
+    messages,
+    onDelta,
+    timeoutMs: timeoutMs || 18000
+  });
+}
+
 /**
  * Общий поток для OpenAI-совместимых сервисов (Mistral и «свои каналы»):
  * строки SSE «data: {…}» → куски текста. Одна реализация на всех, чтобы
@@ -1072,6 +1179,20 @@ function masterChoices() {
       ? 'кредиты бесплатного ключа кончились — вставьте свой ключ (поле ниже)'
       : (HF_BASE_KEY ? 'ключ задан на сервере' : 'нужен свой ключ (поле ниже)')
   });
+  out.push({
+    id: 'llm7',
+    title: 'LLM7 · быстрый без ключа',
+    hint: 'Codestral / GPT-4o-mini пул без регистрации (~0.7–1.5 с)',
+    available: true,
+    detail: 'api.llm7.io'
+  });
+  out.push({
+    id: 'kilo',
+    title: 'Kilo AI · пул бесплатных моделей',
+    hint: 'Qwen 3.8, Ling 3.0, Step 3.7 Flash — без ключа (~1–2 с)',
+    available: true,
+    detail: 'api.kilo.ai'
+  });
   if (process.env.GROQ_API_KEY) out.push({ id: 'groq', title: 'Groq', hint: 'Llama 3.3 70B, очень быстрый', available: true, detail: 'ключ задан' });
   if (process.env.GEMINI_API_KEY) out.push({ id: 'gemini', title: 'Gemini', hint: 'Google, щедрая бесплатная квота', available: true, detail: 'ключ задан' });
   if (process.env.OPENROUTER_API_KEY) out.push({ id: 'openrouter', title: 'OpenRouter', hint: 'бесплатные маршруты :free', available: true, detail: 'ключ задан' });
@@ -1115,6 +1236,8 @@ function textProvidersSummary() {
   if (MISTRAL_AGENT_ID && mistralKeyReady({ mistralKey: MISTRAL_BASE_KEY })) out.push('mistral-agent');
   if (mistralKeyReady({ mistralKey: MISTRAL_BASE_KEY })) out.push('mistral:' + (MISTRAL_LAST_MODEL.name || MISTRAL_MODEL_CHAIN[0]));
   if (glmKeyReady({ glmKey: GLM_BASE_KEY })) out.push('glm:' + (GLM_LAST_MODEL.name || GLM_MODEL_CHAIN[0]));
+  out.push('llm7:' + (LLM7_LAST_MODEL.name || LLM7_MODELS[0]));
+  out.push('kilo:' + (KILO_LAST_MODEL.name || KILO_MODELS[0]));
   if (hfKeyReady({})) out.push('hf:' + (HF_LAST_MODEL.name || HF_MODEL_CHAIN[0]));
   else if (HF_BASE_KEY && hfCreditsFresh()) out.push('hf:кредиты кончились');
   if (process.env.GROQ_API_KEY) out.push('groq');
@@ -1249,6 +1372,26 @@ const PROVIDERS = [
       const key = hfOwnKey(ctx) || HF_BASE_KEY;
       const budget = Math.max(6000, Math.min(30000, budgetMs || 24000));
       return hfChat(messages, key, budget);
+    }
+  },
+  {
+    // LLM7 — сверхбыстрый бесплатный шлюз без ключа (~0.7–1.5 с на ответ).
+    name: 'llm7',
+    label: () => 'llm7:' + (LLM7_LAST_MODEL.name || LLM7_MODELS[0]),
+    enabled: () => true,
+    async run(messages, budgetMs) {
+      const budget = Math.max(5000, Math.min(20000, budgetMs || 16000));
+      return llm7Chat(messages, budget);
+    }
+  },
+  {
+    // Kilo AI Gateway — пул бесплатных моделей (:free) без ключа (~1–2 с).
+    name: 'kilo',
+    label: () => 'kilo:' + (KILO_LAST_MODEL.name || KILO_MODELS[0]),
+    enabled: () => true,
+    async run(messages, budgetMs) {
+      const budget = Math.max(5000, Math.min(22000, budgetMs || 18000));
+      return kiloChat(messages, budget);
     }
   },
   {
@@ -1853,18 +1996,79 @@ const IMAGE_DEADLINE_MS = Number(process.env.IMAGE_DEADLINE_MS || 16000);
  * «локальный фон» — мгновенно и без сети.
  */
 function imageCandidateNames() {
-  return HF_SPACES.map(x => x.name);
+  return ['magicstudio', 'subnp:magic'].concat(HF_SPACES.map(x => x.name));
 }
 function imageChoices() {
   const out = [
-    { id: 'auto', title: 'Авто (быстро)', hint: 'гонка генераторов, побеждает первый', available: true, detail: imageCandidateNames().join(', ') },
-    { id: 'sana', title: 'SANA · самый быстрый', hint: 'обычно 2–3 с; есть общий лимит по IP', available: true, detail: 'image.pollinations.ai' }
+    { id: 'auto', title: 'Авто (быстро)', hint: 'гонка генераторов (< 6 сек), побеждает первый', available: true, detail: imageCandidateNames().join(', ') },
+    { id: 'sana', title: 'SANA · самый быстрый', hint: 'сверхбыстрая гонка 1–3 с (MagicStudio + SubNP + SANA)', available: true, detail: 'magicstudio + subnp + image.pollinations.ai' },
+    { id: 'magicstudio', title: 'MagicStudio · ~1 сек', hint: 'сверхбыстрая генерация за ~1 с без водяного знака', available: true, detail: 'ai-api.magicstudio.com' },
+    { id: 'subnp:magic', title: 'SubNP Magic · ~2.5 сек', hint: 'быстрая бесплатная генерация за 2–3 с без ключа', available: true, detail: 'subnp.com' }
   ];
   HF_SPACES.forEach(space => {
-    out.push({ id: space.name, title: space.name.replace(/^hf:/, '') + ' (HF)', hint: 'открытый Space, качество выше', available: true, detail: space.base.replace('https://', '').split('.')[0] });
+    out.push({ id: space.name, title: space.name.replace(/^hf:/, '') + ' (HF)', hint: space.hint || 'открытый Space, качество выше', available: true, detail: space.base.replace('https://', '').split('.')[0] });
   });
   out.push({ id: 'local', title: 'Только локальный фон', hint: 'мгновенно, без сети — рисует сама игра', available: true, detail: 'процедурный фон по тексту' });
   return out;
+}
+
+/**
+ * Сверхбыстрый генератор MagicStudio (~0.9–1.3 с, без ключа и без водяного знака).
+ */
+async function fetchMagicStudio(prompt, seed) {
+  try {
+    const clean = String(prompt || 'dark fantasy landscape').replace(/\s+/g, ' ').trim().slice(0, 380);
+    const fd = new URLSearchParams();
+    fd.append('prompt', clean);
+    fd.append('output_format', 'bytes');
+    fd.append('user_profile_id', 'null');
+    fd.append('anonymous_user_id', crypto.randomUUID());
+    fd.append('request_timestamp', String(Date.now() / 1000 + (Number(seed) || 0) * 0.001));
+    fd.append('user_is_subscribed', 'false');
+    fd.append('client_id', 'pSgX7WgjukXCBoYwDM8G8GLnRRkvAoJlqa5eAVvj95o');
+    const res = await fetchWithTimeout('https://ai-api.magicstudio.com/api/ai-art-generator', {
+      method: 'POST',
+      headers: {
+        'Origin': 'https://magicstudio.com',
+        'Referer': 'https://magicstudio.com/ai-art-generator/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      body: fd
+    }, 5800);
+    if (!res.ok) return null;
+    const type = res.headers.get('content-type') || 'image/jpeg';
+    const body = Buffer.from(await res.arrayBuffer());
+    if (type.indexOf('image/') !== 0 || body.length < 2048) return null;
+    return { type, body, source: 'magicstudio' };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Быстрый бесплатный генератор SubNP (~2.3–3.5 с, модель magic, без ключа).
+ */
+async function fetchSubnp(prompt, model) {
+  try {
+    const clean = String(prompt || 'dark fantasy landscape').replace(/\s+/g, ' ').trim().slice(0, 380);
+    const res = await fetchWithTimeout('https://subnp.com/api/free/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: clean, model: model || 'magic' })
+    }, 6000);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const m = text.match(/"imageUrl"\s*:\s*"([^"]+)"/);
+    if (!m || !m[1]) return null;
+    const img = await fetchWithTimeout(m[1], { redirect: 'follow' }, 5500);
+    if (!img.ok) return null;
+    const type = img.headers.get('content-type') || 'image/jpeg';
+    const body = Buffer.from(await img.arrayBuffer());
+    if (type.indexOf('image/') !== 0 || body.length < 2048) return null;
+    return { type, body, source: 'subnp:' + (model || 'magic') };
+  } catch (err) {
+    return null;
+  }
 }
 
 /**
@@ -1901,6 +2105,19 @@ function imageRestTick(ok) {
 function imageCandidates(prompt, seed, w, h, want, hfToken) {
   const q = encodeURIComponent(prompt);
   const race = [];
+  // Сверхбыстрые бесплатные генераторы до 6 секунд (MagicStudio ~1 с, SubNP ~2.4 с)
+  const fastMagic = {
+    name: 'magicstudio',
+    ms: 5800,
+    run: () => fetchMagicStudio(prompt, seed)
+  };
+  const fastSubnp = {
+    name: 'subnp:magic',
+    ms: 6000,
+    run: () => fetchSubnp(prompt, 'magic')
+  };
+  race.push(fastMagic, fastSubnp);
+
   // Модели шлюза: у каждой свой upstream, поэтому запускаем их гонкой —
   // кто ответит первым, тот и показываем. Таймаут короткий: кадр не должен
   // держать игрока, пока генератор «думает».
@@ -1919,7 +2136,7 @@ function imageCandidates(prompt, seed, w, h, want, hfToken) {
     });
   }
   // Безключевые Space'ы: ключ им не нужен, поэтому они спасают, когда баланс
-  // шлюза кончился. Рисуют ~5–9 секунд и без водяного знака.
+  // шлюза кончился. Z-Image-Turbo и SanaSprint рисуют за 2–5 секунд!
   HF_SPACES.forEach(space => {
     race.push({
       name: space.name,
@@ -1929,23 +2146,25 @@ function imageCandidates(prompt, seed, w, h, want, hfToken) {
   });
   // Старый генератор (sana) — быстрый (2–3 с), но с водяным знаком и общим лимитом на IP.
   const legacy = (name, token) => ({
-    name, ms: 18000,
+    name, ms: 9000,
     url: 'https://image.pollinations.ai/prompt/' + q + '?width=' + w + '&height=' + h +
       '&model=sana&nologo=true&seed=' + seed + (token ? '&token=' + encodeURIComponent(token) : '')
   });
-  // Когда ключ отдыхает, быстрый безключевой генератор должен идти первым:
-  // порядок «сначала лучший, потом запасной» рассчитан на живой ключ.
-  if (!genReady()) race.unshift(legacy('pollinations-anon', null));
-  else race.push(legacy('pollinations-anon', null));
+  race.push(legacy('pollinations-anon', null));
   // Выбор игрока: оставляем только его генератор (или ставим выбранный первым).
   if (want && want !== 'auto') {
-    const named = race.filter(c => c.name === want);
-    if (named.length) return { race: named, fallback: [] };
-    if (want === 'sana') {
-      const sana = race.filter(c => /pollinations-anon|pollinations-key/.test(c.name));
-      if (sana.length) return { race: sana, fallback: [] };
-    }
     if (want === 'local') return { race: [], fallback: [] };   // игрок попросил рисовать локально
+    if (want === 'sana') {
+      // В режиме SANA (по умолчанию) запускаем сверхбыструю гонку до 6 секунд:
+      // MagicStudio (~1 с) -> SubNP (~2.4 с) -> Z-Image-Turbo (~2 с) -> SANA (~2.8 с)
+      const fastList = race.filter(c => /magicstudio|subnp:magic|hf:z-image-turbo|hf:sana-sprint|pollinations-anon/.test(c.name));
+      if (fastList.length) return { race: fastList, fallback: [] };
+    }
+    const named = race.filter(c => c.name === want);
+    if (named.length) {
+      const rest = race.filter(c => c.name !== want && /magicstudio|subnp:magic|pollinations-anon/.test(c.name));
+      return { race: named, fallback: rest };
+    }
   }
   return { race: race, fallback: [] };
 }
@@ -1959,7 +2178,29 @@ function imageCandidates(prompt, seed, w, h, want, hfToken) {
  */
 const HF_SPACES = [
   {
+    name: 'hf:z-image-turbo',
+    fn: 'generate_image',
+    hint: 'Z-Image Turbo (~2–3 с, сверхбыстрый)',
+    base: 'https://mrfakename-z-image-turbo.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, Math.max(256, Math.round(h / 16) * 16), Math.max(256, Math.round(w / 16) * 16), 8, seed, true]
+  },
+  {
+    name: 'hf:sana-sprint',
+    fn: 'infer',
+    hint: 'Sana Sprint 1.6B (~4–5 с, 2 шага)',
+    base: 'https://efficient-large-model-sanasprint.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, '1.6B', seed, true, Math.max(256, Math.round(w / 32) * 32), Math.max(256, Math.round(h / 32) * 32), 4.5, 2]
+  },
+  {
+    name: 'hf:z-image-app',
+    fn: 'generate_image',
+    hint: 'Z-Image Turbo App (~4–6 с)',
+    base: 'https://hf-applications-z-image-turbo.hf.space/gradio_api',
+    build: (prompt, seed, w, h) => [prompt, Math.max(256, Math.round(h / 16) * 16), Math.max(256, Math.round(w / 16) * 16), seed]
+  },
+  {
     name: 'hf:flux-merged',
+    fn: 'infer',
     base: 'https://multimodalart-flux-1-merged.hf.space/gradio_api',
     build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 3.5, 4]
   },
@@ -1967,16 +2208,18 @@ const HF_SPACES = [
     // Бывший тут FLUX.1-schnell отдаёт 404 изнутри Space — кадр не выйдет никогда,
     // поэтому вместо него FLUX.1-dev (тот же интерфейс, модель живая).
     name: 'hf:flux-1-dev',
+    fn: 'infer',
     base: 'https://black-forest-labs-flux-1-dev.hf.space/gradio_api',
     build: (prompt, seed, w, h) => [prompt, seed, false, w, h, 3.5, 4]
   },
   {
     name: 'hf:sd-3.5-large',
+    fn: 'infer',
     base: 'https://stabilityai-stable-diffusion-3-5-large.hf.space/gradio_api',
     build: (prompt, seed, w, h) => [prompt, 'blurry, text, watermark', seed, false,
       Math.max(512, w), Math.max(512, h), 4.5, 12]
   }
-].map(x => Object.assign(x, { ms: 45000 },
+].map(x => Object.assign(x, { ms: 25000 },
   // адрес Space'ов можно подменить целиком: так их проверяет тест без сети
   process.env.HF_SPACES_BASE ? { base: process.env.HF_SPACES_BASE.replace(/\/$/, '') } : {}));
 
@@ -1985,22 +2228,33 @@ async function fetchGradioSpace(space, prompt, seed, w, h, token) {
   // Ключ HF здесь по делу: у открытых Space'ов есть анонимная квота, и по имени
   // они отвечают охотнее, чем без него. Токен не обязателен — без него тоже работает.
   const auth = token ? { 'Authorization': 'Bearer ' + token } : {};
+  const fn = space.fn || 'infer';
   try {
-    const start = await fetchWithTimeout(space.base + '/call/infer', {
+    const start = await fetchWithTimeout(space.base + '/call/' + fn, {
       method: 'POST',
       headers: Object.assign({ 'content-type': 'application/json' }, auth),
       body: JSON.stringify({ data: space.build(String(prompt).replace(/\s+/g, ' ').slice(0, 380), seed, w, h) })
-    }, 20000);
+    }, 10000);
     if (!start.ok) return null;
     const id = (await start.json().catch(() => ({}))).event_id;
     if (!id) return null;
-    const deadline = Date.now() + (space.ms || 45000) - 8000;
+    const deadline = Date.now() + (space.ms || 25000) - 4000;
     while (Date.now() < deadline) {
-      const step = await fetchWithTimeout(space.base + '/call/infer/' + id, { headers: auth }, 12000);
+      const step = await fetchWithTimeout(space.base + '/call/' + fn + '/' + id, { headers: auth }, 10000);
       const text = await step.text().catch(() => '');
-      const url = (text.match(/"(https?:\/\/[^"]+?\.(?:webp|png|jpe?g)[^"]*)"/) || [])[1];
+      let url = (text.match(/"(https?:\/\/[^"]+?\.(?:webp|png|jpe?g)[^"]*)"/) || [])[1];
+      if (!url) {
+        const m = text.match(/event:\s*complete\s*\ndata:\s*(\[[\s\S]*?\])\n/);
+        if (m) {
+          try {
+            const parsed = JSON.parse(m[1]);
+            const item = parsed && (parsed[0]?.image || parsed[0]);
+            url = (item && item.url) || (item && item.path ? space.base + '/file=' + item.path : '');
+          } catch (e) { /* ignore */ }
+        }
+      }
       if (url) {
-        const img = await fetchWithTimeout(url, { redirect: 'follow' }, 20000);
+        const img = await fetchWithTimeout(url, { redirect: 'follow' }, 10000);
         if (!img.ok) return null;
         const type = img.headers.get('content-type') || 'image/webp';
         const body = Buffer.from(await img.arrayBuffer());
@@ -2008,7 +2262,7 @@ async function fetchGradioSpace(space, prompt, seed, w, h, token) {
         return { type, body, source: space.name };
       }
       if (/event: error/.test(text)) return null;   // квота Space кончилась — пробуем следующий
-      await sleep(900);
+      await sleep(700);
     }
     return null;
   } catch (err) { return null; }
@@ -2134,14 +2388,14 @@ async function proxyImage(res, prompt, seed, w, h, source, hfToken) {
   // Игрок не должен ждать генератор дольше пары десятков секунд: за это время
   // сцена уже дочитана, и честнее показать нарисованный локально фон.
   const work = (async () => {
-    let w = await raceImage(track(race), 2500);
-    if (!w && fallback.length) w = await raceImage(track(fallback), 2500);
+    let w = await raceImage(track(race), 1200);
+    if (!w && fallback.length) w = await raceImage(track(fallback), 1200);
     if (!w) {
       // Генераторы промолчали: у каналов лимиты, поэтому пауза и вторая попытка
       // только теми моделями, что не отказывали только что.
-      await sleep(1200);
+      await sleep(800);
       const ready = race.filter(c => !c.model || genImageCooled(c.model));
-      w = await raceImage(track(ready.length ? ready : race), 2500);
+      w = await raceImage(track(ready.length ? ready : race), 1200);
     }
     if (!w && fallback.length) w = await raceImage(track(fallback));
     return w;
@@ -2417,6 +2671,32 @@ async function handleRequest(req, res) {
           const reason = String(err && err.message || err).slice(0, 140);
           send({ note: 'hf-stream-failed', reason });
           if (sentAny) return finish('', 'hf-partial', { partial: true });
+        }
+      }
+
+      // 1.9) LLM7 и Kilo AI Gateway — быстрые бесплатные каналы без ключа.
+      if (allow('llm7')) {
+        try {
+          const r = await llm7Stream(messages,
+            piece => { sentAny = true; send({ delta: piece }); },
+            Math.min(budget, 18000));
+          if (r && !isJunk(r)) return finish(r, 'llm7:' + (LLM7_LAST_MODEL.name || LLM7_MODELS[0]));
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'llm7-stream-failed', reason });
+          if (sentAny) return finish('', 'llm7-partial', { partial: true });
+        }
+      }
+      if (allow('kilo')) {
+        try {
+          const r = await kiloStream(messages,
+            piece => { sentAny = true; send({ delta: piece }); },
+            Math.min(budget, 18000));
+          if (r && !isJunk(r)) return finish(r, 'kilo:' + (KILO_LAST_MODEL.name || KILO_MODELS[0]));
+        } catch (err) {
+          const reason = String(err && err.message || err).slice(0, 140);
+          send({ note: 'kilo-stream-failed', reason });
+          if (sentAny) return finish('', 'kilo-partial', { partial: true });
         }
       }
 

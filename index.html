@@ -30,6 +30,7 @@
         <div class="menu-bg__specular" aria-hidden="true"></div>
       </div>
       <div class="menu-veil"></div>
+      <div class="menu-version" id="menu-version" aria-label="Версия игры">v23.1.0</div>
       <div class="menu-inner">
         <div class="menu-head">
           <div class="menu-dice"><img class="dice-icon" alt="" aria-hidden="true"></div>
@@ -53,7 +54,6 @@
         <div class="menu-foot">
           <button class="icon-btn" type="button" id="sound-toggle" data-act="toggle-sound" aria-label="Звук">🔊</button>
           <button class="icon-btn" type="button" data-act="settings" aria-label="Настройки">⚙️</button>
-          <span class="ai-status" id="ai-status">ИИ: проверяем связь…</span>
         </div>
       </div>
     </section>
@@ -87,7 +87,10 @@
             <span class="field__label">Имя героя</span>
             <input class="input" id="online-hero-name" type="text" maxlength="24" placeholder="Например: Эйра" autocomplete="off">
           </label>
-          <button class="btn btn--primary online-start" type="button" id="online-start">🌍 Создать мир и героя</button>
+          <div class="online-setup-actions">
+            <button class="btn btn--ghost btn--sm" type="button" id="online-ai-seed">🎲 Придумать идею мира (ИИ)</button>
+            <button class="btn btn--primary online-start" type="button" id="online-start">🌍 Создать мир и героя</button>
+          </div>
           <section class="online-hero-picker online-card" id="online-hero-picker" hidden aria-labelledby="online-hero-picker-title">
             <h3 id="online-hero-picker-title">Выбери героя, которого предложил мастер</h3>
             <p class="muted small">ИИ подбирает варианты под этот мир. Выбранный класс, вид и происхождение определяют характеристики и запас здоровья.</p>
@@ -117,6 +120,13 @@
             <div class="online-hud__health"><span id="online-hp-label"></span><div class="online-hp-track"><i id="online-hp-fill"></i></div></div>
             <div class="online-hud__world"><span id="online-world-title-play"></span><small id="online-world-subtitle"></small></div>
           </div>
+          <div class="online-world-art online-card" id="online-world-art">
+            <img class="online-world-art__img" id="online-world-art-img" alt="Иллюстрация мира">
+            <div class="online-world-art__overlay">
+              <span class="online-world-art__badge" id="online-world-art-badge">ИИ-мир</span>
+              <button class="btn btn--ghost btn--sm" type="button" id="online-world-art-refresh">🎨 Обновить вид</button>
+            </div>
+          </div>
           <div class="online-quest-head online-card" id="online-current-quest"></div>
           <div class="online-columns">
             <div class="online-exploration">
@@ -131,6 +141,17 @@
                   <button type="button" data-online-move="1,0" aria-label="Идти вправо">▶</button>
                 </div>
                 <p class="online-map-hint">Ходи кнопками или стрелками клавиатуры. Вода и горы непроходимы.</p>
+              </div>
+              <div class="online-ai-bar online-card" id="online-ai-bar">
+                <div class="online-section-title">ИИ-мастер открытого мира</div>
+                <div class="online-ai-bar__row">
+                  <input class="input input--slim" id="online-ai-input" type="text" maxlength="160" placeholder="Что делает герой в этом месте? (или нажми кнопку ниже)" autocomplete="off">
+                  <button class="btn btn--primary btn--sm" type="button" id="online-ai-send">✨ Спросить ИИ</button>
+                </div>
+                <div class="online-event-actions">
+                  <button class="btn btn--ghost btn--sm" type="button" id="online-ai-look">🔎 Осмотреться (ИИ)</button>
+                  <button class="btn btn--ghost btn--sm" type="button" id="online-ai-event">🎲 Событие мира (ИИ)</button>
+                </div>
               </div>
               <div class="online-event online-card" id="online-event" hidden></div>
               <div class="online-battle online-card" id="online-battle" hidden></div>
@@ -278,6 +299,14 @@
           </div>
         </label>
 
+        <div class="field" id="section-gender">
+          <span class="field__label">Пол персонажа</span>
+          <div class="chips" id="hero-gender-list">
+            <button class="chip is-active" type="button" data-hero-gender="female">♀ Женщина</button>
+            <button class="chip" type="button" data-hero-gender="male">♂ Мужчина</button>
+          </div>
+        </div>
+
         <div class="hint hint--profile" id="hero-profile-note" hidden>
           <span class="hint__text" id="hero-profile-text"></span>
           <button class="link-btn" type="button" id="hero-reroll" data-act="reroll-hero">🎲 Другой набор</button>
@@ -313,7 +342,7 @@
       <!-- Шапка кампании: портрет, имя и профессия героя, название мира и состояние -->
       <header class="game-topbar">
         <div class="game-topbar__identity">
-          <span class="game-avatar" id="game-avatar" aria-hidden="true" hidden></span>
+          <span class="game-avatar" id="game-avatar" role="button" tabindex="0" data-act="open-hero-portrait" aria-label="Открыть портрет персонажа и переодеть" hidden></span>
           <div class="game-topbar__text">
             <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
             <div class="game-hero-line" id="game-hero-line" hidden></div>
@@ -551,6 +580,40 @@
     <button class="npc-portrait-viewer__close" id="npc-portrait-close" type="button" aria-label="Закрыть портрет">✕</button>
     <div class="npc-portrait-viewer__title" id="npc-portrait-title"></div>
     <img class="npc-portrait-viewer__image" id="npc-portrait-image" alt="">
+  </div>
+
+  <!-- Полноэкранный просмотр портрета героя + гардероб (переодевание) -->
+  <div class="hero-portrait-viewer" id="hero-portrait-viewer" hidden role="dialog" aria-modal="true" aria-labelledby="hero-portrait-title">
+    <div class="hero-portrait-viewer__card">
+      <button class="npc-portrait-viewer__close" id="hero-portrait-close" type="button" aria-label="Закрыть портрет персонажа">✕</button>
+      <div class="hero-portrait-viewer__title" id="hero-portrait-title">Портрет персонажа</div>
+      <div class="hero-portrait-viewer__sub" id="hero-portrait-sub"></div>
+      <div class="hero-portrait-viewer__stage" id="hero-portrait-stage">
+        <img class="hero-portrait-viewer__image" id="hero-portrait-image" alt="Портрет персонажа">
+        <div class="hero-portrait-viewer__placeholder" id="hero-portrait-placeholder" hidden>✦</div>
+      </div>
+      <div class="hero-wardrobe" id="hero-wardrobe">
+        <div class="hero-wardrobe__head">👗 Гардероб — переодеть персонажа</div>
+        <div class="hero-wardrobe__gender" id="hero-wardrobe-gender"></div>
+        <div class="hero-wardrobe__chips" id="hero-wardrobe-chips"></div>
+        <div class="hero-wardrobe__custom">
+          <input class="input input--slim" id="hero-outfit-input" type="text" maxlength="80" placeholder="Свой наряд (например: вечернее шёлковое платье, боевые латы)…">
+          <button class="btn btn--primary btn--sm" type="button" id="hero-outfit-apply">👕 Переодеть</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Иллюстрация постельной сцены: появляется на экране, висит 7 секунд и пропадает -->
+  <div class="intimate-scene-popup" id="intimate-scene-popup" hidden role="status" aria-live="polite">
+    <div class="intimate-scene-popup__card">
+      <div class="intimate-scene-popup__badge">💋 Постельная сцена · 7 сек</div>
+      <div class="intimate-scene-popup__frame">
+        <img class="intimate-scene-popup__image" id="intimate-scene-image" alt="Иллюстрация постельной сцены">
+      </div>
+      <div class="intimate-scene-popup__caption" id="intimate-scene-caption">Важная проблема решена через близость</div>
+      <div class="intimate-scene-popup__bar"><span class="intimate-scene-popup__progress" id="intimate-scene-progress"></span></div>
+    </div>
   </div>
 
   <div class="toasts" id="toasts"></div>

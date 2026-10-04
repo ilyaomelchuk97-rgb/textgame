@@ -1882,7 +1882,9 @@
       h('span', { text: s.goal })
     ]));
     if (!State.draft.name) State.draft.name = randomName();
+    if (!State.draft.gender) State.draft.gender = E.heroGender({ name: State.draft.name });
     $('#hero-name').value = State.draft.name;
+    renderHeroGenderPicker();
     applyProfileToForm();
     renderClassList();
     renderRaceList();
@@ -2056,6 +2058,22 @@
       ' Доступно раз в ' + E.ABILITY_COOLDOWN + ' хода. Бросок: d20 + характеристика против сложности, 20 — крит, 1 — провал.';
   }
 
+  function renderHeroGenderPicker() {
+    const host = $('#hero-gender-list');
+    if (!host) return;
+    const gender = State.draft.gender || 'female';
+    host.querySelectorAll('[data-hero-gender]').forEach(btn => {
+      const active = btn.dataset.heroGender === gender;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.onclick = () => {
+        State.draft.gender = btn.dataset.heroGender;
+        renderHeroGenderPicker();
+        Sound.tap();
+      };
+    });
+  }
+
   /* ---------------------------------------------------------- */
   /* Старт игры                                                 */
   /* ---------------------------------------------------------- */
@@ -2069,6 +2087,7 @@
     const game = E.createGame({
       scenarioId: base.id,
       heroName: d.name,
+      heroGender: d.gender || E.heroGender({ name: d.name }),
       classId: d.classId,
       raceId: d.raceId,
       originId: d.originId,
@@ -2187,6 +2206,7 @@
     renderGameTop();
     renderIntro(game.intro);
     renderSceneText(game.scene ? game.scene.text : '');
+    if (game.scene && game.scene.options) E.ensureIntimateOption(game, game.scene);
     const savedOptions = game.scene && game.scene.options;
     renderActions(savedOptions, !(savedOptions && savedOptions.length));
     paintBackdrop(game.scene && game.scene.imagePrompt, game.scene && game.scene.text);
@@ -2695,6 +2715,7 @@
       return;
     }
     options.forEach(opt => {
+      const isIntimate = !!(E.isIntimateOption && E.isIntimateOption(opt));
       const stat = E.statById(opt.stat);
       const mod = g.hero.stats[opt.stat] || 0;
       const diff = E.difficultyById(opt.difficulty);
@@ -2707,7 +2728,7 @@
       // одна строка вместо трёх: сложность и шанс в одном чипе — кнопки ниже, тексту больше места
       const meta = [
         h('span', { class: 'tag tag--pair', style: '--c:' + diff.color, title: 'сложность и шанс успеха' }, [
-          h('span', { text: diff.label }),
+          h('span', { text: isIntimate ? 'Самый лёгкий' : diff.label }),
           h('span', { class: 'tag__sep', text: '·' }),
           h('span', { class: 'tag__chance', text: chance + '%' }),
           advantage ? h('span', { class: 'tag__adv', title: 'преимущество: два d20, берём лучший', text: '↑' }) : null
@@ -2719,7 +2740,7 @@
         })
       ];
       const btn = h('button', {
-        class: 'action-btn' + (plan.plan ? ' action-btn--social' : ''), type: 'button',
+        class: 'action-btn' + (plan.plan ? ' action-btn--social' : '') + (isIntimate ? ' action-btn--intimate' : ''), type: 'button',
         'aria-label': opt.text + '. ' + diff.label + ', шанс ' + chance + ' процентов'
           + (plan.plan ? '. Знакомый: ' + plan.plan.name : ''),
         onclick: () => {
@@ -4205,15 +4226,17 @@
     const imageUrl = url || '';
     State.portrait = imageUrl;
     const el = $('#game-avatar');
-    if (!el) return;
-    el.classList.remove('is-loading');
-    el.hidden = false;
-    el.title = State.game && State.game.hero
-      ? [State.game.hero.name, State.game.hero.className, State.game.hero.originName].filter(Boolean).join(' · ')
-      : 'Портрет героя';
-    el.classList.toggle('is-placeholder', !imageUrl);
-    el.style.backgroundImage = imageUrl ? 'url("' + imageUrl + '")' : '';
-    el.textContent = imageUrl ? '' : ((State.game && State.game.hero && State.game.hero.icon) || '✦');
+    if (el) {
+      el.classList.remove('is-loading');
+      el.hidden = false;
+      el.title = State.game && State.game.hero
+        ? [State.game.hero.name, State.game.hero.className, State.game.hero.outfit || State.game.hero.originName, 'нажми, чтобы открыть портрет и переодеть'].filter(Boolean).join(' · ')
+        : 'Портрет героя — нажми для просмотра и переодевания';
+      el.classList.toggle('is-placeholder', !imageUrl);
+      el.style.backgroundImage = imageUrl ? 'url("' + imageUrl + '")' : '';
+      el.textContent = imageUrl ? '' : ((State.game && State.game.hero && State.game.hero.icon) || '✦');
+    }
+    syncHeroPortraitViewerImage(imageUrl);
   }
 
   /* ---------------------------------------------------------- */
@@ -4333,6 +4356,14 @@
    * Одна функция на кнопку и на бросок — иначе подпись «шанс 62%» разойдётся с делом.
    */
   function actionPlan(g, opt) {
+    if (E.isIntimateOption && E.isIntimateOption(opt)) {
+      return {
+        plan: null,
+        base: 5,
+        dc: 5,
+        advantage: true
+      };
+    }
     let plan = null;
     try { plan = E.socialPlan(g, opt.text); } catch (e) { plan = null; }
     const base = opt.dc || E.difficultyById(opt.difficulty).dc;
@@ -4371,9 +4402,15 @@
     if (g.hero.advantage) extra.push('Герой применил умение и бросал с преимуществом.');
     if (buff) extra.push('К броску добавлен бонус умения +' + buff + '.');
     if (ap.plan) {
-      extra.push('Это действие про знакомого ' + ap.plan.name + ': ' + ap.plan.note
+      const apForms = ap.plan.forms || (E.npcForms ? E.npcForms(ap.plan.npc, ap.plan.name) : null);
+      const whoAcc = apForms
+        ? ((apForms.isFemale ? 'знакомую ' : 'знакомого ') + apForms.name.acc)
+        : ('знакомого ' + ap.plan.name);
+      extra.push('Это действие про ' + whoAcc + ': ' + ap.plan.note
         + '. Сложность ' + ap.base + ' стала ' + ap.dc + '.');
-      if (ap.plan.advantage && !g.hero.advantage) extra.push('Преимущество дало знание о нём.');
+      if (ap.plan.advantage && !g.hero.advantage) {
+        extra.push('Преимущество дало знание ' + (apForms ? apForms.pronoun.pre : 'о нём') + '.');
+      }
     }
     setActionsLoading('Мастер описывает последствия…');
     State.earlyImageDone = false;
@@ -4450,6 +4487,7 @@
     // память кампании: мастер помнит место, людей, нити и прошлые зачины
     E.rememberTurn(g, turn, action);
     E.campaignSeals(g);
+    if (E.ensureIntimateOption) E.ensureIntimateOption(g, turn);
     const place = String(turn.place || E.memoryOf(g).place || turn.chapter || g.chapter || '').trim();
     const prevPlace = (g.scene && g.scene.place) || '';
     // место то же, если мастер назвал его теми же словами или пересказал иначе —
@@ -4532,6 +4570,9 @@
     // У реплики есть собеседник: показываем его портрет, пол и фразу отдельно от рассказа.
     renderSceneNpc(npcEl, g, turn, said);
     renderActions(turn.options, false);
+    if ((action && E.isIntimateOption && E.isIntimateOption(action)) || (turn && turn.intimate)) {
+      showIntimateSceneIllustration(g, turn, action);
+    }
 
     // В книге ИИ не участвует — про недоступного мастера там говорить нечего.
     const offlineTalk = turn.offline && !State.book && !turn.silent;
@@ -4936,6 +4977,259 @@
     return svg;
   }
 
+  let heroPortraitViewerGame = null;
+  let heroPortraitCloseTimer = null;
+  let intimatePopupTimer = null;
+  let intimateReqSeq = 0;
+
+  function syncHeroPortraitViewerImage(url) {
+    const viewer = $('#hero-portrait-viewer');
+    const img = $('#hero-portrait-image');
+    const ph = $('#hero-portrait-placeholder');
+    const stage = $('#hero-portrait-stage');
+    if (!viewer || !img || !ph || !stage) return;
+    stage.classList.toggle('is-loading', !!State.portraitLoading);
+    if (url) {
+      img.src = url;
+      img.hidden = false;
+      ph.hidden = true;
+    } else {
+      img.removeAttribute('src');
+      img.hidden = true;
+      ph.hidden = false;
+      const g = heroPortraitViewerGame || State.game;
+      ph.textContent = (g && g.hero && g.hero.icon) || '✦';
+    }
+  }
+
+  function openHeroPortraitViewer(customGame) {
+    const g = customGame || State.game;
+    if (!g || !g.hero) {
+      toast('Сначала начните приключение, чтобы открыть портрет героя', { kind: 'info' });
+      return;
+    }
+    heroPortraitViewerGame = g;
+    const viewer = $('#hero-portrait-viewer');
+    const title = $('#hero-portrait-title');
+    const sub = $('#hero-portrait-sub');
+    const chipsHost = $('#hero-wardrobe-chips');
+    const genderHost = $('#hero-wardrobe-gender');
+    const input = $('#hero-outfit-input');
+    const applyBtn = $('#hero-outfit-apply');
+    if (!viewer || !title || !sub || !chipsHost) return;
+    clearTimeout(heroPortraitCloseTimer);
+    const hh = g.hero;
+    const gender = E.heroGender ? E.heroGender(hh) : (hh.gender || 'female');
+    hh.gender = gender;
+    const genderLabel = gender === 'female' ? '♀ Героиня' : '♂ Герой';
+    title.textContent = (hh.icon || '🧝') + ' ' + (hh.name || 'Герой') + ' · ' + (hh.className || 'Искатель');
+    sub.textContent = [genderLabel, hh.raceName, 'Наряд: ' + (hh.outfit || 'Походный наряд')].filter(Boolean).join(' · ');
+    const currentUrl = (g === State.game ? State.portrait : '') || hh.portrait || '';
+    syncHeroPortraitViewerImage(currentUrl);
+    if (!currentUrl && g === State.game) refreshPortrait(true);
+
+    if (genderHost) {
+      clear(genderHost);
+      [
+        { id: 'female', label: '♀ Женщина' },
+        { id: 'male', label: '♂ Мужчина' }
+      ].forEach(item => {
+        const active = (hh.gender || gender) === item.id;
+        genderHost.appendChild(h('button', {
+          class: 'chip chip--sm' + (active ? ' is-active' : ''),
+          type: 'button',
+          text: item.label,
+          onclick: () => {
+            hh.gender = item.id;
+            if (g === State.game && g.scene && E.ensureIntimateOption) {
+              E.ensureIntimateOption(g, g.scene);
+              renderActions(g.scene.options, false);
+              autosave();
+            }
+            openHeroPortraitViewer(g);
+            if (g === State.game) refreshPortrait(true);
+          }
+        }));
+      });
+    }
+
+    clear(chipsHost);
+    const outfits = E.HERO_OUTFITS || [];
+    outfits.forEach(preset => {
+      const active = (hh.outfitId || 'default') === preset.id;
+      chipsHost.appendChild(h('button', {
+        class: 'chip chip--sm hero-wardrobe__chip' + (active ? ' is-active' : ''),
+        type: 'button',
+        text: preset.icon + ' ' + preset.label,
+        onclick: () => applyHeroOutfitAndRedraw(g, preset)
+      }));
+    });
+
+    if (input) {
+      input.value = hh.outfit && hh.outfit !== 'Походный наряд' ? hh.outfit : '';
+    }
+    if (applyBtn) {
+      applyBtn.onclick = () => {
+        const customText = input && input.value.trim();
+        if (customText) {
+          applyHeroOutfitAndRedraw(g, { id: 'custom', label: customText, prompt: customText });
+        } else {
+          const currentPreset = outfits.find(o => o.id === hh.outfitId) || outfits[0];
+          applyHeroOutfitAndRedraw(g, currentPreset);
+        }
+      };
+    }
+
+    viewer.hidden = false;
+    requestAnimationFrame(() => viewer.classList.add('is-open'));
+  }
+
+  async function applyHeroOutfitAndRedraw(g, spec) {
+    if (!g || !g.hero) return;
+    const dressed = E.dressHero ? E.dressHero(g.hero, spec) : { id: 'custom', label: String(spec.label || spec), prompt: String(spec.prompt || spec) };
+    const sub = $('#hero-portrait-sub');
+    const gender = E.heroGender ? E.heroGender(g.hero) : (g.hero.gender || 'female');
+    if (sub) {
+      sub.textContent = [gender === 'female' ? '♀ Героиня' : '♂ Герой', g.hero.raceName, 'Наряд: ' + dressed.label].filter(Boolean).join(' · ');
+    }
+    const chipsHost = $('#hero-wardrobe-chips');
+    if (chipsHost) {
+      Array.from(chipsHost.querySelectorAll('.hero-wardrobe__chip')).forEach((btn, idx) => {
+        const preset = (E.HERO_OUTFITS || [])[idx];
+        btn.classList.toggle('is-active', !!(preset && preset.id === g.hero.outfitId));
+      });
+    }
+    const stage = $('#hero-portrait-stage');
+    if (stage) stage.classList.add('is-loading');
+    toast('👗 Персонаж переодет: ' + dressed.label + '. Обновляем портрет…', { kind: 'good', timeout: 2600 });
+    if (g === State.game) {
+      autosave();
+      await refreshPortrait(true);
+      syncHeroPortraitViewerImage(State.portrait || g.hero.portrait || '');
+    } else {
+      g.hero.portraitSeed = freshPortraitSeed();
+      try {
+        const res = await API.generateImage({
+          prompt: E.portraitPrompt(g),
+          style: E.styleOf(g).imageStyle,
+          aspect: '1:1',
+          width: 384,
+          height: 384,
+          seed: g.hero.portraitSeed
+        });
+        if (res && res.ok && res.url) {
+          g.hero.portrait = res.url;
+          syncHeroPortraitViewerImage(res.url);
+        }
+      } catch (e) { /* не критично */ }
+      if (stage) stage.classList.remove('is-loading');
+    }
+  }
+
+  function closeHeroPortraitViewer() {
+    const viewer = $('#hero-portrait-viewer');
+    if (!viewer || viewer.hidden) return;
+    viewer.classList.remove('is-open');
+    heroPortraitCloseTimer = setTimeout(() => { viewer.hidden = true; }, 210);
+  }
+
+  function fallbackIntimateSvgDataUri(titleText) {
+    const safe = String(titleText || 'Постельная сцена').replace(/[<>&"']/g, '');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#1b0917"/>
+          <stop offset="50%" stop-color="#3d122d"/>
+          <stop offset="100%" stop-color="#140710"/>
+        </linearGradient>
+        <radialGradient id="glow" cx="50%" cy="48%" r="55%">
+          <stop offset="0%" stop-color="#ff9a76" stop-opacity="0.58"/>
+          <stop offset="55%" stop-color="#d6457a" stop-opacity="0.24"/>
+          <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="640" height="360" fill="url(#bg)"/>
+      <rect width="640" height="360" fill="url(#glow)"/>
+      <path d="M0,275 Q180,235 340,268 T640,255 L640,360 L0,360 Z" fill="#290b1f" opacity="0.88"/>
+      <path d="M0,305 Q220,265 410,295 T640,285 L640,360 L0,360 Z" fill="#471333" opacity="0.78"/>
+      <circle cx="290" cy="158" r="34" fill="#ffb899" opacity="0.38"/>
+      <circle cx="345" cy="166" r="32" fill="#ff94b2" opacity="0.38"/>
+      <path d="M235,280 C250,205 315,195 335,268 Z" fill="#180611" opacity="0.86"/>
+      <path d="M300,282 C318,210 385,208 408,278 Z" fill="#23091a" opacity="0.86"/>
+      <circle cx="116" cy="224" r="6" fill="#ffd27d"/>
+      <ellipse cx="116" cy="212" rx="5" ry="11" fill="#ffae52"/>
+      <rect x="111" y="224" width="10" height="44" rx="3" fill="#e8d0b3"/>
+      <circle cx="524" cy="224" r="6" fill="#ffd27d"/>
+      <ellipse cx="524" cy="212" rx="5" ry="11" fill="#ffae52"/>
+      <rect x="519" y="224" width="10" height="44" rx="3" fill="#e8d0b3"/>
+      <text x="320" y="54" text-anchor="middle" fill="#ffd7e4" font-family="Georgia,serif" font-size="22" font-weight="bold">💋 ${safe}</text>
+    </svg>`;
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
+
+  function hideIntimateSceneIllustration() {
+    clearTimeout(intimatePopupTimer);
+    intimatePopupTimer = null;
+    const popup = $('#intimate-scene-popup');
+    if (!popup) return;
+    popup.classList.remove('is-open');
+    popup.hidden = true;
+  }
+
+  async function showIntimateSceneIllustration(game, turn, action) {
+    const popup = $('#intimate-scene-popup');
+    const img = $('#intimate-scene-image');
+    const caption = $('#intimate-scene-caption');
+    const progress = $('#intimate-scene-progress');
+    if (!popup || !img) return;
+    clearTimeout(intimatePopupTimer);
+    const seq = ++intimateReqSeq;
+    const durationMs = (E && E.INTIMATE_ILLUSTRATION_MS) || 7000;
+    const info = E.hasImportantMaleProblem ? E.hasImportantMaleProblem(game, turn) : { npcName: '' };
+    const hForms = E.heroForms ? E.heroForms(game && game.hero) : { isFemale: true, noun: { nom: 'девушка' } };
+    const pGender = (action && action.partnerGender) || (info && info.partnerGender) || (hForms.isFemale ? 'male' : 'female');
+    const pName = (action && action.partnerName) || (info && info.npcName) || '';
+    const pForms = E.npcForms ? E.npcForms(pGender, pName) : { name: { ins: pName || 'партнёром' }, noun: { ins: 'партнёром' }, icon: '💋' };
+    const withWho = pName ? ('с ' + pForms.name.ins + ' (' + pForms.icon + ' ' + pForms.noun.nom + ')') : ('с ' + pForms.noun.ins);
+    const label = 'Постельная сцена ' + withWho + ' — важная проблема решена через близость';
+    if (caption) caption.textContent = label;
+    img.src = fallbackIntimateSvgDataUri('Близость ' + (pName ? 'с ' + pForms.name.ins : 'с ' + pForms.noun.ins));
+    popup.hidden = false;
+    requestAnimationFrame(() => popup.classList.add('is-open'));
+    if (progress) {
+      progress.style.transition = 'none';
+      progress.style.transform = 'scaleX(1)';
+      requestAnimationFrame(() => {
+        progress.style.transition = 'transform ' + durationMs + 'ms linear';
+        progress.style.transform = 'scaleX(0)';
+      });
+    }
+    // Иллюстрация висит на экране ровно 7 секунд (7000 мс) и автоматически пропадает
+    intimatePopupTimer = setTimeout(() => {
+      hideIntimateSceneIllustration();
+    }, durationMs);
+
+    try {
+      const prompt = E.intimateScenePrompt
+        ? E.intimateScenePrompt(game, turn, action)
+        : 'romantic passionate candlelit bedroom scene between a woman and a man, silk sheets, warm golden glow, cinematic art';
+      const res = await API.generateImage({
+        prompt,
+        style: game ? E.styleOf(game).imageStyle : 'cinematic digital painting',
+        aspect: '16:9',
+        width: 512,
+        height: 288,
+        seed: freshPortraitSeed()
+      });
+      if (seq === intimateReqSeq && res && res.ok && res.url && !popup.hidden) {
+        img.src = res.url;
+      }
+    } catch (e) { /* остаётся атмосферная иллюстрация */ }
+  }
+
+  window.DT_openHeroPortraitViewer = openHeroPortraitViewer;
+  window.DT_showIntimateSceneIllustration = showIntimateSceneIllustration;
+
   function openHeroSheet() {
     const g = State.game;
     if (!g) return;
@@ -4948,7 +5242,11 @@
     ]);
     const portraitFrame = h('div', {
       class: 'hero-sheet__portrait-frame' + (portraitUrl ? '' : ' is-empty') + (State.portraitLoading ? ' is-loading' : ''),
-      'aria-label': portraitUrl ? 'Портрет героя' : 'Портрет героя появится здесь'
+      role: 'button',
+      tabindex: '0',
+      title: 'Нажмите, чтобы открыть портрет и переодеть персонажа',
+      'aria-label': portraitUrl ? 'Портрет героя — нажмите для просмотра и переодевания' : 'Портрет героя появится здесь — нажмите, чтобы переодеть',
+      onclick: () => { closeModal(); openHeroPortraitViewer(g); }
     }, [portraitUrl
       ? h('img', { class: 'hero-sheet__portrait', src: portraitUrl, alt: 'Портрет героя' })
       : h('span', { class: 'hero-sheet__portrait-placeholder', text: hh.icon || '✦', 'aria-hidden': 'true' })
@@ -4958,6 +5256,7 @@
       h('div', { class: 'hero-sheet__tags' }, [
         h('span', { class: 'tag tag--stat', text: hh.raceIcon + ' ' + hh.raceName }),
         h('span', { class: 'tag', text: hh.originIcon + ' ' + hh.originName }),
+        h('span', { class: 'tag', text: '👗 ' + (hh.outfit || 'Походный наряд') }),
         h('span', { class: 'tag tag--chance', text: hh.ability.icon + ' ' + hh.ability.name + (hh.ability.ready ? ' готово' : ' (через ' + hh.ability.cooldown + ')') })
       ]),
       h('div', { class: 'section-title', text: 'Диаграмма характеристик' }),
@@ -4985,6 +5284,8 @@
     openModal({
       title: 'Герой', icon: '🧝', content, cancelLabel: 'Закрыть',
       actions: [
+        { label: '👗 Портрет и переодеть', kind: 'primary',
+          onClick: () => { closeModal(); openHeroPortraitViewer(g); } },
         { label: portraitUrl ? 'Новый портрет' : 'Нарисовать портрет', kind: 'ghost',
           onClick: () => { closeModal(); refreshPortrait(true); toast('Мастер рисует портрет…', { timeout: 2200 }); } },
         { label: 'Скачать сохранение', kind: 'ghost', onClick: () => exportGame(g) }
@@ -5623,8 +5924,10 @@
 
   function npcGenderInfo(npc) {
     const gender = E.npcGender(npc);
-    return gender === 'female' ? { id: 'female', icon: '♀', label: 'Женщина' }
-      : { id: 'male', icon: '♂', label: 'Мужчина' };
+    const forms = E.npcForms ? E.npcForms(npc) : null;
+    return gender === 'female'
+      ? { id: 'female', icon: '♀', label: 'Девушка', fullLabel: 'Девушка / Женщина', forms }
+      : { id: 'male', icon: '♂', label: 'Мужчина', fullLabel: 'Мужчина', forms };
   }
 
   let npcPortraitReturnFocus = null;
@@ -5662,13 +5965,14 @@
   function paintNpcPortrait(avatar, npc, url) {
     if (!avatar) return;
     const available = !!url;
+    const forms = E.npcForms ? E.npcForms(npc) : { name: { gen: npc && npc.name || '' } };
     clear(avatar);
     avatar.classList.toggle('is-empty', !available);
-    avatar.setAttribute('aria-label', available ? 'Открыть портрет ' + npc.name : 'Портрет ' + npc.name + ' ещё не готов');
+    avatar.setAttribute('aria-label', available ? 'Открыть портрет ' + forms.name.gen : 'Портрет ' + forms.name.gen + ' ещё не готов');
     avatar.classList.remove('is-loading');
     if (avatar.tagName === 'BUTTON') {
       avatar.disabled = !available;
-      avatar.title = available ? 'Открыть портрет на весь экран' : 'Портрет создаётся';
+      avatar.title = available ? 'Открыть портрет ' + forms.name.gen + ' на весь экран' : 'Портрет создаётся';
       avatar.onclick = available ? () => openNpcPortraitViewer(url, npc, avatar) : null;
     }
     if (available) {
@@ -5682,8 +5986,11 @@
 
   function renderSceneNpc(host, game, turn, said) {
     const object = turn && (turn.npcObject || (turn.npc && typeof turn.npc === 'object' ? turn.npc : null));
+    const detected = (!object && !(turn && turn.npc) && !(said && said.name) && E.detectSceneNpc)
+      ? E.detectSceneNpc(game, turn)
+      : null;
     const name = String((said && said.name) || (object && object.name) ||
-      (turn && typeof turn.npc === 'string' ? turn.npc : '')).trim();
+      (turn && typeof turn.npc === 'string' ? turn.npc : '') || (detected && detected.name) || '').trim();
     if (!host || !name) {
       if (host) { host.hidden = true; clear(host); delete host.dataset.npc; delete host.dataset.say; delete host.dataset.gender; }
       return null;
@@ -5691,13 +5998,25 @@
 
     const memory = E.memoryOf(game);
     const record = memory.npcs.find(n => String(n.name || '').toLowerCase() === name.toLowerCase()) ||
-      Object.assign({ name, portrait: '', role: '', description: '', gender: E.npcGender(object || { name }) }, object || {});
+      Object.assign({
+        name,
+        portrait: '',
+        role: (detected && detected.role) || '',
+        description: '',
+        gender: (detected && detected.gender) || E.npcGender(object || { name, role: (turn && turn.scene) || '' })
+      }, object || {});
     const gender = npcGenderInfo(record);
+    const forms = gender.forms || (E.npcForms ? E.npcForms(record, name) : null);
     const line = String((said && said.line) || '').trim();
-    const role = String(record.role || (object && object.role) || '').trim();
+    const role = String(record.role || (object && object.role) || (detected && detected.role) || '').trim();
+    const addressHint = forms
+      ? (forms.isFemale
+        ? ('Обращение к девушке: к ' + forms.name.dat + ' · с ' + forms.name.ins)
+        : ('Обращение к мужчине: к ' + forms.name.dat + ' · с ' + forms.name.ins))
+      : '';
     const avatar = h('button', {
       class: 'npc-gallery__portrait scene-npc__portrait', type: 'button', disabled: !record.portrait,
-      'aria-label': record.portrait ? 'Открыть портрет ' + name : 'Портрет ' + name + ' создаётся'
+      'aria-label': record.portrait ? 'Открыть портрет ' + (forms ? forms.name.gen : name) : 'Портрет ' + (forms ? forms.name.gen : name) + ' создаётся'
     });
     paintNpcPortrait(avatar, record, record.portrait || '');
 
@@ -5713,7 +6032,8 @@
         h('span', { class: 'scene-npc__gender', text: gender.icon + ' ' + gender.label })
       ]),
       line ? h('div', { class: 'scene-npc__line', text: '«' + line + '»' })
-        : (role ? h('div', { class: 'scene-npc__line', text: role }) : null)
+        : (role ? h('div', { class: 'scene-npc__line', text: role + (addressHint ? ' · ' + addressHint : '') })
+          : (addressHint ? h('div', { class: 'scene-npc__line', text: addressHint }) : null))
     ]));
 
     // Реплика — разговор: создаём для собеседника сохранённый портрет в фоне.
@@ -7288,6 +7608,7 @@
           loadSceneImage(State.game && State.game.scene && State.game.scene.imagePrompt, null, false);
           break;
         case 'open-hero': openHeroSheet(); break;
+        case 'open-hero-portrait': openHeroPortraitViewer(); break;
         case 'random-name':
           $('#hero-name').value = randomName();
           State.draft.name = $('#hero-name').value;
@@ -7344,6 +7665,17 @@
     $('#npc-portrait-viewer').addEventListener('click', ev => {
       if (ev.target.id === 'npc-portrait-viewer') closeNpcPortraitViewer();
     });
+    if ($('#hero-portrait-close')) {
+      $('#hero-portrait-close').addEventListener('click', closeHeroPortraitViewer);
+    }
+    if ($('#hero-portrait-viewer')) {
+      $('#hero-portrait-viewer').addEventListener('click', ev => {
+        if (ev.target.id === 'hero-portrait-viewer') closeHeroPortraitViewer();
+      });
+    }
+    if ($('#intimate-scene-popup')) {
+      $('#intimate-scene-popup').addEventListener('click', hideIntimateSceneIllustration);
+    }
     $('#log-toggle').addEventListener('click', () => {
       const wrap = $('#log-wrap');
       wrap.hidden = !wrap.hidden;
@@ -7508,25 +7840,7 @@
     refreshMenu();
     show('menu');
 
-    const status = $('#ai-status');
-    status.textContent = 'ИИ: проверяем связь…';
-    (async () => {
-      const backend = await API.probeBackend(true);
-      let online = false;
-      if (backend) {
-        const keyed = (backend.textProviders || []).filter(p => p !== 'pollinations-anon');
-        online = true;
-        status.textContent = keyed.length ? 'ИИ-мастер: ' + keyed[0] : 'ИИ-мастер: бесплатный канал';
-      } else {
-        const res = await API.askGameMaster([{ role: 'user', content: 'Ответь одним словом: готов' }]);
-        online = !!res.ok;
-        status.textContent = online ? 'ИИ-мастер на связи' : 'Локальный мастер (ИИ недоступен)';
-      }
-      status.dataset.state = online ? 'ok' : 'off';
-    })().catch(() => {
-      status.textContent = 'Локальный мастер (ИИ недоступен)';
-      status.dataset.state = 'off';
-    });
+    API.probeBackend(true).catch(() => {});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

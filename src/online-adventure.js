@@ -137,6 +137,40 @@
     }));
   }
 
+  function salvageBlueprint(text) {
+    if (!text) return null;
+    const direct = E.extractJsonObject(text);
+    if (direct && (direct.title || direct.premise || direct.questline || direct.quests)) return direct;
+    const s = String(text);
+    const pick = key => {
+      const m = new RegExp('"' + key + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"').exec(s);
+      return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').trim() : '';
+    };
+    const title = pick('title');
+    const premise = pick('premise') || pick('world') || pick('description');
+    if (!title && !premise) return null;
+    const quests = [];
+    const objRe = /\{\s*"title"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*?\}/g;
+    let m;
+    while ((m = objRe.exec(s)) && quests.length < MAIN_QUESTS) {
+      try {
+        const parsed = JSON.parse(m[0]);
+        if (parsed && parsed.title && !parsed.age) quests.push(parsed);
+      } catch (e) { /* skip broken item */ }
+    }
+    return {
+      title,
+      premise,
+      region: pick('region') || pick('regionName'),
+      startTown: pick('startTown') || pick('town'),
+      biome: pick('biome'),
+      goal: pick('goal'),
+      villain: pick('villain') || pick('antagonist'),
+      imagePrompt: pick('imagePrompt'),
+      questline: quests
+    };
+  }
+
   function normalizeBlueprint(raw, config) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const title = cleanText(source.title || config.gameName || 'Земли за Туманным хребтом', 70);
@@ -170,13 +204,32 @@
       gender: /^(male|муж|man)$/i.test(String(companionRaw.gender || '')) ? 'male' : 'female',
       description: cleanText(companionRaw.description || companionRaw.personality || 'Сдержанная, наблюдательная и верная своим обещаниям.', 160)
     };
+    const defaultSide = ['Сломанный обоз', 'Забытая часовня', 'Письмо без адреса', 'Следы на болоте', 'Старый маяк', 'Колодец шёпота'];
+    const rawSide = Array.isArray(source.sideQuests) ? source.sideQuests : [];
+    const sideQuests = defaultSide.map((def, i) => cleanText(
+      rawSide[i] && (typeof rawSide[i] === 'string' ? rawSide[i] : rawSide[i].title) || def, 54
+    ));
+    const defaultShrines = ['Источник', 'Камень памяти', 'Укрытие путника'];
+    const rawShrines = Array.isArray(source.shrines) ? source.shrines : [];
+    const shrines = defaultShrines.map((def, i) => cleanText(
+      rawShrines[i] && (typeof rawShrines[i] === 'string' ? rawShrines[i] : rawShrines[i].title) || def, 48
+    ));
+    const defaultEnemies = ['туманная гончая', 'разбойник с тракта', 'каменный страж', 'рой болотных огней', 'северный наёмник', 'теневой зверь', 'страж руин', 'пепельный охотник'];
+    const rawEnemies = Array.isArray(source.enemies) ? source.enemies.map(x => cleanText(typeof x === 'string' ? x : (x && x.name), 48)).filter(Boolean) : [];
+    const enemies = rawEnemies.length >= 3 ? rawEnemies : defaultEnemies;
     return {
       title,
       premise: cleanText(source.premise || source.world || source.description || config.extra || 'Большой край, где древняя магия проснулась под землёй.', 600),
       region: cleanText(source.region || source.regionName || 'Пограничные земли', 60),
+      startTown: cleanText(source.startTown || source.town || 'Поселение у тракта', 54),
+      biome: cleanText(source.biome || 'forest', 24).toLowerCase(),
+      imagePrompt: cleanText(source.imagePrompt || ('Atmospheric fantasy landscape of ' + title + ', ' + (config.extra || 'ancient ruins and winding roads') + ', cinematic digital art'), 260),
       villain,
       goal: cleanText(source.goal || config.goal || 'Остановить угрозу и решить судьбу края', 120),
       quests,
+      sideQuests,
+      shrines,
+      enemies,
       companion
     };
   }
@@ -186,8 +239,8 @@
     const system = [
       'Ты проектируешь оригинальную одиночную приключенческую RPG с открытой клеточной картой.',
       'Придумай самобытный мир, не копируй названия, сюжет или персонажей существующих игр.',
-      'Верни только валидный JSON без Markdown: title, premise, region, goal, villain, questline, companion.',
-      'questline — ровно 20 последовательных главных заданий; у каждого поля title, objective, kind (explore/social/combat), stat (str/agi/con/int/per/wit/cha), chapter, location.',
+      'Верни только валидный JSON без Markdown: title, premise, region, startTown, biome (forest/islands/mountains/swamp/steppe), imagePrompt (по-английски), goal, villain, sideQuests (6 коротких названий), shrines (3 названия), enemies (6 видов врагов), questline, companion.',
+      'questline — ровно 20 последовательных главных заданий; у каждого поля title, objective (1 короткое предложение), kind (explore/social/combat), stat (str/agi/con/int/per/wit/cha), chapter, location.',
       'Сделай задания разными: исследование, разговоры, поиск, опасные переходы, бои и четыре сильных столкновения.',
       'companion — один потенциальный взрослый романтический персонаж: name, age не меньше 21, gender male/female, role, description.',
       'Романтика добровольная, взаимная и необязательная. Интим возможен только после ясного согласия и описывается мягко, с затемнением кадра.'
@@ -199,14 +252,53 @@
       'Цель: ' + (config.goal || 'придумай большую цель для кампании'),
       'Сделай карту пригодной для исследования пешком и свяжи все двадцать заданий в один сюжет с тайнами, союзниками, противником и финалом.'
     ].join('\n');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await API.askGameMaster([
+          { role: 'system', content: system },
+          { role: 'user', content: prompt }
+        ], { kind: 'world', budgetMs: 22000 });
+        if (result && result.ok) {
+          const parsed = salvageBlueprint(result.text);
+          if (parsed) return parsed;
+        }
+      } catch (err) { /* retry */ }
+    }
+    return null;
+  }
+
+  async function generateWorldSeedIdea() {
+    if (busy) return;
+    const btn = $('#online-ai-seed');
+    if (btn) btn.disabled = true;
+    setStatus('ИИ-мастер придумывает оригинальную идею мира…');
     try {
-      const result = await API.askGameMaster([
-        { role: 'system', content: system },
-        { role: 'user', content: prompt }
-      ], { kind: 'world', budgetMs: 20000 });
-      if (!result || !result.ok) return null;
-      return E.extractJsonObject(result.text) || null;
-    } catch (err) { return null; }
+      const res = await API.askGameMaster([
+        {
+          role: 'system',
+          content: 'Ты мастер настольных ролевых игр. Придумай яркую оригинальную завязку для приключения в открытом мире. Верни ТОЛЬКО валидный JSON: {"title":"название мира","description":"2-3 атмосферных предложения о мире, его тайне и главной угрозе","heroName":"имя героя"}.'
+        },
+        {
+          role: 'user',
+          content: 'Придумай необычный и увлекательный мир для нового приключения (не используй штампы). Только JSON.'
+        }
+      ], { kind: 'world', budgetMs: 14000 });
+      const data = res && res.ok ? E.extractJsonObject(res.text) : null;
+      if (data && (data.title || data.description)) {
+        if (data.title && $('#online-world-title')) $('#online-world-title').value = cleanText(data.title, 80);
+        if (data.description && $('#online-world-description')) $('#online-world-description').value = cleanText(data.description, 900);
+        if (data.heroName && $('#online-hero-name') && !$('#online-hero-name').value.trim()) {
+          $('#online-hero-name').value = cleanText(data.heroName, 24);
+        }
+        setStatus('Идея мира сгенерирована ИИ! Нажми «Создать мир и героя», чтобы развернуть карту.');
+      } else {
+        setStatus('Не удалось получить идею — попробуй ещё раз или нажми «Создать мир и героя».', true);
+      }
+    } catch (err) {
+      setStatus('Не удалось получить идею от ИИ.', true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   async function askHeroProfile(config) {
@@ -236,13 +328,18 @@
     return points;
   }
 
-  function createMap(seed, quests) {
+  function createMap(seed, quests, book) {
+    const info = book || {};
+    const biome = String(info.biome || 'forest').toLowerCase();
+    const waterCut = /island|мор|остров|архипелаг|water|swamp|болот/.test(biome) ? 0.085 : 0.045;
+    const mountainCut = /mount|гор|хребет|скал|ash|пепел/.test(biome) ? waterCut + 0.11 : waterCut + 0.06;
+    const forestCut = /forest|лес|чащ|джунгл|swamp|болот/.test(biome) ? mountainCut + 0.30 : mountainCut + 0.235;
     const random = seededRandom(seed);
     const terrain = Array.from({ length: MAP_H }, () => Array.from({ length: MAP_W }, () => {
       const n = random();
-      if (n < 0.045) return 'water';
-      if (n < 0.105) return 'mountain';
-      if (n < 0.34) return 'forest';
+      if (n < waterCut) return 'water';
+      if (n < mountainCut) return 'mountain';
+      if (n < forestCut) return 'forest';
       return 'grass';
     }));
     const start = { x: 2, y: 2 };
@@ -258,21 +355,25 @@
     for (let y = start.y - 1; y <= start.y + 1; y++) for (let x = start.x - 1; x <= start.x + 1; x++) {
       if (terrain[y] && terrain[y][x]) terrain[y][x] = 'grass';
     }
-    const markers = [{ id: 'town-start', type: 'town', x: start.x, y: start.y, title: 'Поселение у тракта' }];
+    const markers = [{ id: 'town-start', type: 'town', x: start.x, y: start.y, title: info.startTown || 'Поселение у тракта' }];
     qcoords.forEach((point, index) => markers.push({
       id: 'quest-point-' + index, type: 'quest', x: point.x, y: point.y,
       index, title: quests[index] && quests[index].location || ('Точка ' + (index + 1))
     }));
+    const sideTitles = Array.isArray(info.sideQuests) && info.sideQuests.length === 6
+      ? info.sideQuests
+      : ['Сломанный обоз', 'Забытая часовня', 'Письмо без адреса', 'Следы на болоте', 'Старый маяк', 'Колодец шёпота'];
     const sideCoords = [{ x: 7, y: 6 }, { x: 18, y: 6 }, { x: 26, y: 11 }, { x: 8, y: 17 }, { x: 21, y: 21 }, { x: 31, y: 15 }];
     sideCoords.forEach((point, index) => {
       if (markers.some(m => m.x === point.x && m.y === point.y)) return;
       terrain[point.y][point.x] = terrain[point.y][point.x] === 'water' || terrain[point.y][point.x] === 'mountain' ? 'grass' : terrain[point.y][point.x];
-      markers.push({ id: 'side-' + index, type: 'side', x: point.x, y: point.y, index, title: ['Сломанный обоз', 'Забытая часовня', 'Письмо без адреса', 'Следы на болоте', 'Старый маяк', 'Колодец шёпота'][index] });
+      markers.push({ id: 'side-' + index, type: 'side', x: point.x, y: point.y, index, title: sideTitles[index] });
     });
     const companionPoint = { x: 3, y: 6 };
     carve(start, companionPoint);
     markers.push({ id: 'companion-meet', type: 'companion', x: companionPoint.x, y: companionPoint.y, title: 'Полевой лагерь' });
     const occupied = new Set(markers.map(m => m.x + ',' + m.y));
+    const enemyPool = Array.isArray(info.enemies) && info.enemies.length ? info.enemies : null;
     const enemies = [];
     let tries = 0;
     while (enemies.length < 18 && tries++ < 1200) {
@@ -282,14 +383,18 @@
       if (occupied.has(key) || Math.abs(x - start.x) + Math.abs(y - start.y) < 4) continue;
       if (terrain[y][x] === 'water' || terrain[y][x] === 'mountain') continue;
       occupied.add(key);
-      markers.push({ id: 'enemy-' + enemies.length, type: 'enemy', x, y, title: 'Незнакомый противник' });
+      const enemyTitle = enemyPool ? enemyPool[enemies.length % enemyPool.length] : 'Незнакомый противник';
+      markers.push({ id: 'enemy-' + enemies.length, type: 'enemy', x, y, title: enemyTitle });
       enemies.push(key);
     }
+    const shrineTitles = Array.isArray(info.shrines) && info.shrines.length === 3
+      ? info.shrines
+      : ['Источник', 'Камень памяти', 'Укрытие путника'];
     const shrineCoords = [{ x: 15, y: 5 }, { x: 28, y: 18 }, { x: 6, y: 13 }];
     shrineCoords.forEach((point, index) => {
       if (markers.some(m => m.x === point.x && m.y === point.y)) return;
       terrain[point.y][point.x] = 'road';
-      markers.push({ id: 'shrine-' + index, type: 'shrine', x: point.x, y: point.y, title: ['Источник', 'Камень памяти', 'Укрытие путника'][index] });
+      markers.push({ id: 'shrine-' + index, type: 'shrine', x: point.x, y: point.y, title: shrineTitles[index] });
     });
     return { width: MAP_W, height: MAP_H, terrain, markers, start };
   }
@@ -317,7 +422,7 @@
     game.hero.age = 24;
     game.onlineAdventure = true;
     game.intro = { world: book.premise, plan: book.quests.slice(0, 5).map(q => q.title) };
-    const map = createMap(hashSeed(game.id + book.title), book.quests);
+    const map = createMap(hashSeed(game.id + book.title), book.quests, book);
     return {
       version: 1,
       id: 'open-' + game.id,
@@ -326,6 +431,10 @@
       title: book.title,
       premise: book.premise,
       region: book.region,
+      startTown: book.startTown,
+      biome: book.biome,
+      imagePrompt: book.imagePrompt,
+      enemies: book.enemies,
       villain: book.villain,
       worldMode,
       source: (blueprint ? 'ai' : 'local') + (profileResult.ai ? '+ai-hero' : '+local-hero'),
@@ -708,9 +817,10 @@
     const host = $('#online-companion-card');
     if (!host || !adventure || !adventure.companion) return;
     const companion = adventure.companion;
+    const cForms = E.npcForms ? E.npcForms(companion, companion.name) : { isFemale: companion.gender !== 'male', icon: companion.gender === 'male' ? '♂' : '♀', label: companion.gender === 'male' ? 'Мужчина' : 'Девушка' };
     host.replaceChildren();
-    host.appendChild(el('div', 'online-section-title', 'Спутник и отношения'));
-    host.appendChild(el('strong', 'online-companion-name', '🧑 ' + companion.name + ' · ' + companion.age + '+'));
+    host.appendChild(el('div', 'online-section-title', (cForms.isFemale ? 'Спутница' : 'Спутник') + ' и отношения'));
+    host.appendChild(el('strong', 'online-companion-name', cForms.icon + ' ' + companion.name + ' (' + cForms.label + ') · ' + companion.age + '+'));
     host.appendChild(el('p', 'muted small', companion.role + '. ' + companion.description));
     const pct = Math.max(0, Math.min(100, companion.affinity || 0));
     host.appendChild(el('div', 'online-affinity-label', 'Доверие и взаимный интерес · ' + pct + '%'));
@@ -719,9 +829,78 @@
     if (companion.mutualInterest) host.appendChild(el('small', 'online-consent-note', 'Между героями есть взаимный интерес; любые близкие сцены остаются выбором игрока.'));
   }
 
+  let lastArtKey = '';
+
+  function renderWorldArt(forceRefresh) {
+    const img = $('#online-world-art-img');
+    const badge = $('#online-world-art-badge');
+    if (!img || !adventure) return;
+    const quest = currentQuest();
+    const loc = (quest && quest.location) || adventure.region || adventure.title || 'Открытый мир';
+    const artKey = adventure.id + '|' + (adventure.mainIndex || 0) + (forceRefresh ? '|' + Date.now() : '');
+    if (badge) {
+      badge.textContent = (adventure.source && adventure.source.indexOf('ai') === 0 ? '✨ ИИ-мир · ' : '🗺 Мир · ') + loc;
+    }
+    if (!forceRefresh && lastArtKey === artKey && img.getAttribute('src')) return;
+    lastArtKey = artKey;
+    const promptBase = adventure.imagePrompt || ('Dark fantasy landscape of ' + adventure.title + ', ' + adventure.region);
+    const fullPrompt = promptBase + ', ' + loc + ', atmospheric digital art, cinematic lighting';
+    const seed = (hashSeed(artKey) % 90000) + 1;
+    if (window.DTBackdrop && typeof window.DTBackdrop.sceneUrl === 'function') {
+      try {
+        img.src = window.DTBackdrop.sceneUrl({
+          sceneText: adventure.premise + ' ' + (quest && quest.objective || ''),
+          chapter: loc,
+          seed
+        });
+      } catch (e) { /* ignore */ }
+    }
+    if (API && typeof API.generateImage === 'function') {
+      API.generateImage({ prompt: fullPrompt, seed, width: 512, height: 288 }).then(res => {
+        if (res && res.ok && res.url && lastArtKey === artKey) {
+          img.src = res.url;
+        }
+      }).catch(() => {});
+    }
+  }
+
+  function askOnlineMasterAction(mode) {
+    if (!adventure || adventure.battle) return;
+    const input = $('#online-ai-input');
+    const customText = input ? cleanText(input.value, 160) : '';
+    if (mode === 'custom' && !customText) {
+      mode = 'look';
+    }
+    if (input && mode === 'custom') input.value = '';
+    const terrain = adventure.map.terrain[adventure.player.y][adventure.player.x];
+    const marker = markerAt(adventure.player.x, adventure.player.y);
+    const quest = currentQuest();
+    const title = mode === 'event' ? 'Событие мира (ИИ)'
+      : (mode === 'custom' ? ('Действие: ' + customText.slice(0, 42)) : 'Осмотр местности (ИИ)');
+    const fallback = mode === 'event'
+      ? 'Неожиданная деталь на тропе привлекает внимание: следы ведут в сторону ближайшей точки интереса.'
+      : 'Ты осматриваешь окрестности: ветер шумит над дорогой, а вдалеке виднеются ориентиры ' + adventure.region + '.';
+    if (mode === 'event' && adventure.steps % 2 === 0) {
+      adventure.coins += 2;
+      renderHud();
+    }
+    const prompt = [
+      'Мир: «' + adventure.title + '» (' + adventure.region + '). Завязка: ' + adventure.premise,
+      'Главный антагонист: ' + adventure.villain + '. Текущая цель: ' + (quest ? (quest.title + ' — ' + quest.objective) : adventure.game.goal),
+      'Герой: ' + adventure.game.hero.name + ' (' + adventure.game.hero.className + '), клетка (' + (adventure.player.x + 1) + ':' + (adventure.player.y + 1) + '), местность: ' + terrain + (marker ? (', рядом: ' + marker.title) : '') + '.',
+      mode === 'custom'
+        ? ('Действие игрока: «' + customText + '». Опиши в 2–4 ярких предложениях, что происходит в ответ и какую деталь мира замечает герой.')
+        : (mode === 'event'
+          ? 'Придумай короткое атмосферное событие или находку в этой точке открытого мира (2–4 предложения) в духе этого сеттинга.'
+          : 'Опиши в 2–4 предложениях, что герой видит, слышит и замечает вокруг себя в этой точке мира, и дай тонкую подсказку к текущему заданию.')
+    ].join('\n');
+    askNarration(title, prompt, fallback);
+  }
+
   function renderAll() {
     if (!adventure) return;
     renderHud();
+    renderWorldArt(false);
     renderMap();
     renderQuestline();
     renderCompanion();
@@ -765,7 +944,29 @@
     host.appendChild(el('div', 'online-section-title', title));
     host.appendChild(el('p', '', text));
     const actionsWrap = el('div', 'online-event-actions');
-    actions.forEach(action => actionsWrap.appendChild(button(action.label, action.action, action.kind === 'primary' ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm')));
+    const finalActions = Array.isArray(actions) ? actions.slice() : [];
+    const hGender = adventure && adventure.game && adventure.game.hero
+      ? (E.heroGender ? E.heroGender(adventure.game.hero) : (adventure.game.hero.gender || 'female'))
+      : 'female';
+    const compGender = adventure && adventure.companion
+      ? (E.npcGender ? (E.npcGender(adventure.companion) || adventure.companion.gender || 'female') : 'female')
+      : 'female';
+    const targetGender = type === 'companion' ? compGender : (hGender === 'male' ? 'female' : compGender || 'male');
+    const canIntimate = E.canHaveIntimateScene
+      ? E.canHaveIntimateScene(hGender, targetGender)
+      : (hGender === 'female' || targetGender === 'female');
+    if (canIntimate && ['main-check', 'main-combat', 'side', 'companion'].includes(type) &&
+        !finalActions.some(a => a && a.action === 'resolve-intimate')) {
+      const pName = type === 'companion' && adventure.companion ? adventure.companion.name : '';
+      const pForms = E.npcForms ? E.npcForms(targetGender, pName) : { name: { ins: pName || 'девушкой' }, noun: { ins: 'девушкой', nom: 'девушка' }, icon: targetGender === 'female' ? '♀' : '♂' };
+      const whoText = pName ? ('с ' + pForms.name.ins + ' (' + pForms.icon + ' ' + pForms.noun.nom + ')') : ('с ' + pForms.noun.ins + ' (' + pForms.icon + ')');
+      finalActions.unshift({
+        label: '💋 Постельная сцена ' + whoText + ' — самый лёгкий выбор (DC 5)',
+        action: 'resolve-intimate',
+        kind: 'primary'
+      });
+    }
+    finalActions.forEach(action => actionsWrap.appendChild(button(action.label, action.action, action.kind === 'primary' ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm')));
     host.appendChild(actionsWrap);
     renderMap();
     saveLocal();
@@ -894,8 +1095,9 @@
 
   function companionCheck(kind) {
     const companion = adventure.companion;
+    const cForms = E.npcForms ? E.npcForms(companion, companion.name) : { pronoun: { poss: 'её' }, adj: { agreedShort: 'согласна' } };
     if (companion.friendsOnly && kind !== 'talk') {
-      addStory('Личные границы', companion.name + ' просит оставить отношения дружескими. Ты принимаешь ответ.');
+      addStory('Личные границы', companion.name + ' просит оставить отношения дружескими. Ты принимаешь ' + cForms.pronoun.poss + ' ответ.');
       clearInteraction(); renderAll(); return;
     }
     const dc = kind === 'flirt' ? 15 : 12;
@@ -910,7 +1112,7 @@
       addStory('Связь крепнет · d20=' + check.roll + ' +' + check.bonus, response);
       if (companion.mutualInterest) renderRomanceOffer();
     } else {
-      addStory('Разговор не сложился · d20=' + check.roll, companion.name + ' мягко меняет тему. Ты уважаешь её/его ответ — дружба остаётся возможной.');
+      addStory('Разговор не сложился · d20=' + check.roll, companion.name + ' мягко меняет тему. Ты уважаешь ' + cForms.pronoun.poss + ' ответ — дружба остаётся возможной.');
     }
     renderCompanion();
     renderAll();
@@ -919,10 +1121,11 @@
   function renderRomanceOffer() {
     const host = $('#online-romance');
     if (!host || !adventure || !adventure.companion.mutualInterest) return;
+    const cForms = E.npcForms ? E.npcForms(adventure.companion, adventure.companion.name) : { adj: { agreedShort: 'согласна' }, icon: '♀', label: 'Девушка' };
     host.hidden = false;
     host.replaceChildren();
     host.appendChild(el('div', 'online-section-title', 'Любовная линия · взаимный интерес'));
-    host.appendChild(el('p', '', 'Вы оба совершеннолетние. ' + adventure.companion.name + ' явно согласен/согласна провести с тобой вечер; интимная сцена появится только если ты сам выберешь её.'));
+    host.appendChild(el('p', '', 'Вы оба совершеннолетние. ' + adventure.companion.name + ' (' + cForms.icon + ' ' + cForms.label.toLowerCase() + ') явно ' + cForms.adj.agreedShort + ' провести с тобой вечер; интимная сцена появится только если ты выберешь её.'));
     const actions = el('div', 'online-event-actions');
     actions.appendChild(button('🌙 Предложить уединиться', 'romance-ask', 'btn btn--primary btn--sm'));
     actions.appendChild(button('💛 Оставить вечер романтичным', 'romance-soft', 'btn btn--ghost btn--sm'));
@@ -971,7 +1174,8 @@
   }
 
   function randomEnemyName(index) {
-    const names = ['туманная гончая', 'разбойник с тракта', 'каменный страж', 'рой болотных огней', 'северный наёмник', 'теневой зверь', 'страж руин', 'пепельный охотник'];
+    const custom = adventure && Array.isArray(adventure.enemies) && adventure.enemies.length ? adventure.enemies : null;
+    const names = custom || ['туманная гончая', 'разбойник с тракта', 'каменный страж', 'рой болотных огней', 'северный наёмник', 'теневой зверь', 'страж руин', 'пепельный охотник'];
     return names[index % names.length];
   }
 
@@ -1089,6 +1293,7 @@
     }
     if (action === 'resolve-main') { resolveMainQuest(); return; }
     if (action === 'resolve-side') { resolveSideQuest(); return; }
+    if (action === 'resolve-intimate') { resolveIntimateEncounter(); return; }
     if (action === 'companion-talk') { companionCheck('talk'); return; }
     if (action === 'companion-flirt') { companionCheck('flirt'); return; }
     if (action === 'companion-friends') { resolveRomance('companion-friends'); clearInteraction(); renderAll(); return; }
@@ -1193,6 +1398,47 @@
     renderHud(); renderBattle(); renderMap(); saveLocal();
   }
 
+  function resolveIntimateEncounter() {
+    if (!adventure || !adventure.interaction) return;
+    const type = adventure.interaction.type;
+    const data = adventure.interaction.data || {};
+    const check = rollCheck('cha', 5);
+    const hForms = E.heroForms ? E.heroForms(adventure.game && adventure.game.hero) : { isFemale: true, gender: 'female' };
+    const compGender = adventure.companion && E.npcGender ? (E.npcGender(adventure.companion) || adventure.companion.gender || 'female') : 'female';
+    const pGender = type === 'companion' ? compGender : (hForms.gender === 'male' ? 'female' : compGender);
+    const partnerName = (adventure.companion && adventure.companion.name) || (pGender === 'female' ? 'Мира' : adventure.villain);
+    const pForms = E.npcForms ? E.npcForms(pGender, partnerName) : { name: { ins: partnerName, nom: partnerName }, noun: { ins: 'девушкой' }, adj: { charmed: 'очарованная' }, verbs: { yielded: 'уступила' } };
+    clearInteraction();
+    if (type === 'main-check' || type === 'main-combat') {
+      const index = Number.isInteger(data.index) ? data.index : adventure.mainIndex;
+      const quest = adventure.questline[index];
+      addStory('💋 Постельная сцена · d20=' + check.roll + ' + ХАР = ' + check.total + ' (DC 5)',
+        'В уединённой спальне вспыхивает страстная близость с ' + pForms.name.ins + ': ' + pForms.adj.charmed + ' ' + pForms.name.nom + ' ' + pForms.verbs.yielded + ', важная проблема решается самым лёгким путём.');
+      if (quest) completeMainQuest(index, quest);
+    } else if (type === 'side') {
+      if (data.markerId && !adventure.sideCompleted.includes(data.markerId)) {
+        adventure.sideCompleted.push(data.markerId);
+      }
+      adventure.coins += 6;
+      adventure.xp += 12;
+      addStory('💋 Постельная сцена · успех (DC 5)',
+        'Через страстную постельную сцену с ' + pForms.name.ins + ' вопрос решается без лишних преград: получено 6 монет и ценные сведения.');
+    } else {
+      adventure.companion.affinity = Math.min(100, (adventure.companion.affinity || 0) + 25);
+      addStory('💋 Страстная ночь с ' + pForms.name.ins,
+        'Постельная сцена с ' + pForms.name.ins + ' сближает героев и решает важные вопросы.');
+    }
+    if (typeof window.DT_showIntimateSceneIllustration === 'function') {
+      window.DT_showIntimateSceneIllustration(
+        adventure.game,
+        { scene: 'Постельная сцена и страстная близость', place: adventure.worldTitle, npc: partnerName, npcObject: { name: partnerName, gender: pGender } },
+        { kind: 'intimate', text: 'Постельная сцена', partnerGender: pGender, partnerName }
+      );
+    }
+    renderAll();
+    saveLocal();
+  }
+
   function handleRomanceAction(action) {
     if (['romance-ask', 'romance-confirm', 'romance-soft', 'companion-friends'].includes(action)) {
       resolveRomance(action);
@@ -1217,6 +1463,8 @@
     const back = $('#online-exit');
     if (back) back.addEventListener('click', exitMode);
     document.querySelectorAll('[data-online-world-mode]').forEach(button => button.addEventListener('click', () => selectWorldMode(button.dataset.onlineWorldMode)));
+    const seedBtn = $('#online-ai-seed');
+    if (seedBtn) seedBtn.addEventListener('click', generateWorldSeedIdea);
     $('#online-start').addEventListener('click', startNewAdventure);
     $('#online-hero-confirm').addEventListener('click', confirmHeroChoice);
     $('#online-hero-back').addEventListener('click', returnToWorldSetup);
@@ -1225,6 +1473,28 @@
     $('#online-cloud-load').addEventListener('click', loadCloudAdventure);
     $('#online-cloud-save').addEventListener('click', saveCloudAdventure);
     $('#online-save-button').addEventListener('click', saveCloudAdventure);
+    const artRefresh = $('#online-world-art-refresh');
+    if (artRefresh) artRefresh.addEventListener('click', () => renderWorldArt(true));
+    const heroIcon = $('#online-hero-icon');
+    if (heroIcon) {
+      heroIcon.style.cursor = 'pointer';
+      heroIcon.title = 'Нажми, чтобы открыть портрет и переодеть персонажа';
+      heroIcon.addEventListener('click', () => {
+        if (adventure && adventure.game && typeof window.DT_openHeroPortraitViewer === 'function') {
+          window.DT_openHeroPortraitViewer(adventure.game);
+        }
+      });
+    }
+    const aiSend = $('#online-ai-send');
+    if (aiSend) aiSend.addEventListener('click', () => askOnlineMasterAction('custom'));
+    const aiLook = $('#online-ai-look');
+    if (aiLook) aiLook.addEventListener('click', () => askOnlineMasterAction('look'));
+    const aiEvent = $('#online-ai-event');
+    if (aiEvent) aiEvent.addEventListener('click', () => askOnlineMasterAction('event'));
+    const aiInput = $('#online-ai-input');
+    if (aiInput) aiInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); askOnlineMasterAction('custom'); }
+    });
     $('#online-event').addEventListener('click', renderEventClick);
     $('#online-battle').addEventListener('click', event => {
       const target = event.target.closest('[data-battle-action]');

@@ -675,12 +675,16 @@
     const npc = npcInText(game, actionText);
     if (!npc) return null;
     const info = relationInfo(npc);
+    const forms = npcForms(npc);
     const social = /уговор|проси|попроси|убежд|соврать|обман|хвалит|торг|подкуп|угрож|запуг|спроси|расспрос|договор|уговорить|солга|призна|приглас/i.test(String(actionText || ''));
     const suspect = /подозрев|не вер|провер|след|выслеж|следить|наблюд|обыск|обман|изуч|нрав|слуша|замеча/i.test(String(actionText || ''));
     const enemy = info.id === 'enemy';
     return {
       npc,
       name: npc.name || '',
+      gender: forms.gender,
+      genderLabel: forms.label,
+      forms,
       relation: info.id,
       relationTitle: info.title,
       relationIcon: info.icon,
@@ -690,9 +694,9 @@
       social,
       suspect: !!(suspect && enemy),
       note: social
-        ? npc.name + ' — ' + info.title + ' (доверие ' + info.trust + '/5): проверка ' +
+        ? npc.name + ' (' + forms.icon + ' ' + forms.noun.nom + ') — ' + info.title + ' (доверие ' + info.trust + '/5): проверка ' +
           (info.dc === 0 ? 'как обычно' : (info.dc > 0 ? 'труднее на ' + info.dc : 'легче на ' + Math.abs(info.dc)))
-        : (enemy && suspect ? 'ты давно не веришь ' + npc.name + ' — подозревать его легче' : '')
+        : (enemy && suspect ? 'ты давно не веришь ' + forms.name.dat + ' — подозревать ' + forms.pronoun.acc + ' легче' : '')
     };
   }
 
@@ -702,10 +706,11 @@
     const free = debtors.find(n => !n.helped);
     if (!free) return { ok: false, reason: debtors.length ? 'Все должники уже помогали.' : 'Пока некому помочь: сначала нужен знакомый-должник.', notes: [] };
     free.helped = true;
+    const forms = npcForms(free);
     game.hero.advantage = true;
     game.hero.advantageLabel = 'помощь: ' + free.name;
-    const notes = [{ type: 'relation', icon: '🪙', text: free.name + ' подставил плечо: следующий бросок с преимуществом' }];
-    if (typeof rememberFact === 'function') rememberFact(game, free.name + ' пришёл на помощь по старому долгу');
+    const notes = [{ type: 'relation', icon: '🪙', text: free.name + ' ' + forms.verbs.lentShoulder + ': следующий бросок с преимуществом' }];
+    if (typeof rememberFact === 'function') rememberFact(game, free.name + ' ' + forms.verbs.came + ' на помощь по старому долгу');
     return { ok: true, who: free.name, notes };
   }
 
@@ -715,7 +720,10 @@
   function markNoticed(game, npc, notes) {
     const who = npc || npcMemory(game).slice(-1)[0] || null;
     if (who) setTrust(who, trustOf(who) + 1, notes, 'заметили твой успех');
-    const thread = who && who.name ? who.name + ' — заметили, как ты справился' : 'Твой успех заметили те, кому не надо было';
+    const hForms = heroForms(game && game.hero);
+    const thread = who && who.name
+      ? who.name + ' — заметили, как ты ' + hForms.verbs.coped
+      : 'Твой успех заметили те, кому не надо было';
     const m = game.memory || (game.memory = emptyMemory());
     if (m.threads.indexOf(thread) < 0) {
       m.threads.push(thread);
@@ -1902,6 +1910,425 @@
     return sceneKindFromText(a0) === sceneKindFromText(b0) && shared >= 1;
   }
 
+  const HERO_OUTFITS = [
+    { id: 'default', label: 'Походный наряд', icon: '🎒', prompt: 'signature adventurer outfit and tools matching profession and background' },
+    { id: 'royal', label: 'Королевское платье / камзол', icon: '👑', prompt: 'luxurious royal velvet attire with gold embroidery and noble cloak' },
+    { id: 'silk', label: 'Вечерний шёлк', icon: '💃', prompt: 'alluring sensual silk evening dress, fine jewelry, warm candlelight' },
+    { id: 'armor', label: 'Боевые латы', icon: '🛡', prompt: 'ornate engraved dark steel battle armor with shoulder cape' },
+    { id: 'stealth', label: 'Плащ тени', icon: '🗡', prompt: 'sleek black leather stealth outfit with hooded cloak and silver buckles' },
+    { id: 'mystic', label: 'Мантия мага', icon: '🔮', prompt: 'mystical arcane robes with glowing runes and silver amulet' },
+    { id: 'boudoir', label: 'Ночной будуар', icon: '💋', prompt: 'romantic sheer silk boudoir robe and lace, intimate bedroom candlelight' }
+  ];
+
+  const INTIMATE_ILLUSTRATION_MS = 7000;
+
+  function heroGender(hero) {
+    const h = hero || {};
+    const explicit = normalizeNpcGender(h.gender || h.sex);
+    if (explicit) return explicit;
+    const text = [h.name, h.className, h.originName].filter(Boolean).join(' ');
+    if (FEMALE_ROLE_RE.test(text)) return 'female';
+    const name = String(h.name || '').trim();
+    if (/^(илья|никита|кузя|лука|фома|кай|рэй|рей|артур|геральт|данте)$/i.test(name)) return 'male';
+    if (FEMALE_HINT_RE.test(name)) return 'female';
+    return 'male';
+  }
+
+  /**
+   * Склонение одного русского слова (имени, прозвища или роли) по 6 падежам
+   * с учётом пола персонажа (male — мужчина, female — девушка/женщина).
+   */
+  function declineWord(word, gender, grCase) {
+    const w = String(word || '').trim();
+    if (!w || grCase === 'nom' || !grCase) return w;
+    const low = w.toLowerCase();
+    const g = gender === 'female' ? 'female' : 'male';
+    // Несклоняемые имена и слова
+    if (/^(леди|мисс|мадам|кики|лили|ким|пит|юр|ленн)$/i.test(low)) {
+      if (g === 'male' && /^(пит|юр|ленн)$/i.test(low)) {
+        // мужские имена на согласную склоняются нормально
+      } else {
+        return w;
+      }
+    }
+    // Прилагательные мужского рода на -ый / -ий / -ой (Косой, Северный, Молчаливый)
+    if (g === 'male' && /(ый|ий|ой)$/i.test(w)) {
+      const stem = w.slice(0, -2);
+      const soft = /ий$/i.test(w) || /[жшщч]ой$/i.test(w);
+      const map = {
+        gen: stem + (soft ? 'его' : 'ого'),
+        dat: stem + (soft ? 'ему' : 'ому'),
+        acc: stem + (soft ? 'его' : 'ого'),
+        ins: stem + (soft ? 'им' : 'ым'),
+        pre: stem + (soft ? 'ем' : 'ом')
+      };
+      return map[grCase] || w;
+    }
+    // Прилагательные женского рода на -ая / -яя
+    if (g === 'female' && /(ая|яя)$/i.test(w)) {
+      const stem = w.slice(0, -2);
+      const soft = /яя$/i.test(w);
+      const ending = grCase === 'acc' ? (soft ? 'юю' : 'ую') : (soft ? 'ей' : 'ой');
+      return stem + ending;
+    }
+    // Слова на -а (Марта, знахарка, Ольга, жрица, женщина, старуха, мужчина, Илья, Никита)
+    if (/а$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      const afterVelarOrHush = /[гкхжшщч]$/i.test(stem);
+      const afterHushOrC = /[жшщчц]$/i.test(stem);
+      const map = {
+        gen: stem + (afterVelarOrHush ? 'и' : 'ы'),
+        dat: stem + 'е',
+        acc: stem + 'у',
+        ins: stem + (afterHushOrC ? 'ей' : 'ой'),
+        pre: stem + 'е'
+      };
+      return map[grCase] || w;
+    }
+    // Слова на -я (Мария, баронесса, колдунья, судья)
+    if (/я$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      const afterI = /и$/i.test(stem);
+      const map = {
+        gen: stem + 'и',
+        dat: stem + (afterI ? 'и' : 'е'),
+        acc: stem + 'ю',
+        ins: stem + 'ей',
+        pre: stem + (afterI ? 'и' : 'е')
+      };
+      return map[grCase] || w;
+    }
+    // Слова на -ь
+    if (/ь$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      if (g === 'female') {
+        const map = { gen: stem + 'и', dat: stem + 'и', acc: w, ins: stem + 'ью', pre: stem + 'и' };
+        return map[grCase] || w;
+      }
+      const map = { gen: stem + 'я', dat: stem + 'ю', acc: stem + 'я', ins: stem + 'ем', pre: stem + 'е' };
+      return map[grCase] || w;
+    }
+    // Мужские слова на -й (Кай, чародей)
+    if (g === 'male' && /й$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      const map = { gen: stem + 'я', dat: stem + 'ю', acc: stem + 'я', ins: stem + 'ем', pre: stem + 'е' };
+      return map[grCase] || w;
+    }
+    // Мужские слова на согласную (Влас, Гром, Ольгерд, стражник, купец, торговец, старик)
+    if (g === 'male' && /[бвгджзклмнпрстфхцчшщ]$/i.test(w)) {
+      let stem = w;
+      if (/[её]ц$/i.test(w) && w.length > 4) {
+        const before = w.slice(0, -2);
+        stem = /[л]$/.test(before) ? before + 'ьц' : before + 'ц';
+      }
+      const afterHushOrC = /[жшщчц]$/i.test(stem);
+      const map = {
+        gen: stem + 'а',
+        dat: stem + 'у',
+        acc: stem + 'а',
+        ins: stem + (afterHushOrC ? 'ем' : 'ом'),
+        pre: stem + 'е'
+      };
+      return map[grCase] || w;
+    }
+    return w;
+  }
+
+  /**
+   * Склонение полного имени или описания NPC («Марта-знахарка», «Косой Ленн»,
+   * «женщина с фонарём», «человек в плаще», «бармен Ольга»).
+   */
+  function declineNpcName(fullName, gender, grCase) {
+    const raw = String(fullName || '').trim();
+    if (!raw || !grCase || grCase === 'nom') return raw;
+    const g = gender === 'female' ? 'female' : 'male';
+    // Если есть предлог («женщина с фонарём», «старик у огня», «разбойник с тракта»),
+    // склоняем главное слово (до предлога), а зависимую часть оставляем как есть
+    const prepMatch = /^(\S+)\s+(с|со|у|в|во|на|из|от|за|под|над|при|без)\s+(.+)$/i.exec(raw);
+    if (prepMatch) {
+      return declineWord(prepMatch[1], g, grCase) + ' ' + prepMatch[2] + ' ' + prepMatch[3];
+    }
+    // Дефисные имена («Марта-знахарка», «Бран-проводник», «мальчишка-посыльный»)
+    if (raw.indexOf('-') >= 0 && raw.indexOf(' ') < 0) {
+      return raw.split('-').map(part => declineWord(part, g, grCase)).join('-');
+    }
+    // Составные имена из 2 слов («Косой Ленн», «старик Ольгерд», «жрица Ирма», «техник Сола»)
+    const parts = raw.split(/\s+/);
+    if (parts.length === 2) {
+      // У женщины мужская профессия («техник Сола», «врач Ханна», «бармен Ольга») в косвенных падежах остаётся несклоняемой
+      const firstIsMascProfForWoman = g === 'female' && /[бвгджзклмнпрстфхцчшщ]$/i.test(parts[0]);
+      const p0 = firstIsMascProfForWoman ? parts[0] : declineWord(parts[0], g, grCase);
+      const p1 = declineWord(parts[1], g, grCase);
+      return p0 + ' ' + p1;
+    }
+    return declineWord(raw, g, grCase);
+  }
+
+  /**
+   * Полный набор форм обращения и склонений для персонажа мира (NPC):
+   * позволяет обращаться к мужчинам со склонениями как к мужчинам,
+   * а к девушкам/женщинам — со склонениями как к женщинам.
+   */
+  function npcForms(npcOrGender, explicitName) {
+    const isObj = npcOrGender && typeof npcOrGender === 'object';
+    const rawGender = isObj ? npcGender(npcOrGender) : normalizeNpcGender(npcOrGender);
+    const nameStr = String(explicitName || (isObj && npcOrGender.name) || '').trim();
+    const g = rawGender || (nameStr ? npcGender({ name: nameStr }) : '') || 'male';
+    const isFemale = g === 'female';
+    const baseName = nameStr || (isFemale ? 'девушка' : 'мужчина');
+    return {
+      gender: g,
+      isFemale,
+      icon: isFemale ? '♀' : '♂',
+      label: isFemale ? 'Девушка' : 'Мужчина',
+      roleLabel: isFemale ? 'девушка' : 'мужчина',
+      noun: isFemale
+        ? { nom: 'девушка', gen: 'девушки', dat: 'девушке', acc: 'девушку', ins: 'девушкой', pre: 'девушке' }
+        : { nom: 'мужчина', gen: 'мужчины', dat: 'мужчине', acc: 'мужчину', ins: 'мужчиной', pre: 'мужчине' },
+      pronoun: isFemale
+        ? { nom: 'она', gen: 'её', dat: 'ей', acc: 'её', ins: 'ею', withIns: 'с ней', pre: 'о ней', poss: 'её' }
+        : { nom: 'он', gen: 'его', dat: 'ему', acc: 'его', ins: 'им', withIns: 'с ним', pre: 'о нём', poss: 'его' },
+      name: {
+        nom: baseName,
+        gen: declineNpcName(baseName, g, 'gen'),
+        dat: declineNpcName(baseName, g, 'dat'),
+        acc: declineNpcName(baseName, g, 'acc'),
+        ins: declineNpcName(baseName, g, 'ins'),
+        pre: declineNpcName(baseName, g, 'pre')
+      },
+      adj: isFemale
+        ? { charmed: 'очарованная', known: 'знакомая', ready: 'готовая', agreedShort: 'согласна', friendly: 'расположена' }
+        : { charmed: 'очарованный', known: 'знакомый', ready: 'готовый', agreedShort: 'согласен', friendly: 'расположен' },
+      verbs: isFemale
+        ? {
+          agreed: 'согласилась', yielded: 'уступила', helped: 'помогла', came: 'пришла',
+          lentShoulder: 'подставила плечо', noticed: 'заметила', smiled: 'улыбнулась',
+          played: 'играла', answered: 'ответила', asked: 'попросила', opened: 'открыла'
+        }
+        : {
+          agreed: 'согласился', yielded: 'уступил', helped: 'помог', came: 'пришёл',
+          lentShoulder: 'подставил плечо', noticed: 'заметил', smiled: 'улыбнулся',
+          played: 'играл', answered: 'ответил', asked: 'попросил', opened: 'открыл'
+        }
+    };
+  }
+
+  /** Склонения и родовые окончания для самого героя игрока. */
+  function heroForms(hero) {
+    const g = heroGender(hero);
+    const isFemale = g === 'female';
+    const nameStr = String((hero && hero.name) || (isFemale ? 'Героиня' : 'Герой')).trim();
+    return {
+      gender: g,
+      isFemale,
+      icon: isFemale ? '♀' : '♂',
+      label: isFemale ? 'Девушка' : 'Мужчина',
+      noun: isFemale
+        ? { nom: 'девушка', gen: 'девушки', dat: 'девушке', acc: 'девушку', ins: 'девушкой', pre: 'девушке' }
+        : { nom: 'мужчина', gen: 'мужчины', dat: 'мужчине', acc: 'мужчину', ins: 'мужчиной', pre: 'мужчине' },
+      name: {
+        nom: nameStr,
+        gen: declineNpcName(nameStr, g, 'gen'),
+        dat: declineNpcName(nameStr, g, 'dat'),
+        acc: declineNpcName(nameStr, g, 'acc'),
+        ins: declineNpcName(nameStr, g, 'ins'),
+        pre: declineNpcName(nameStr, g, 'pre')
+      },
+      verbs: isFemale
+        ? { coped: 'справилась', took: 'брала', won: 'победила', dodged: 'уклонилась', retreated: 'отступила', did: 'выполнила', helped: 'помогла' }
+        : { coped: 'справился', took: 'брал', won: 'победил', dodged: 'уклонился', retreated: 'отступил', did: 'выполнил', helped: 'помог' }
+    };
+  }
+
+  function dressHero(hero, spec) {
+    if (!hero) return null;
+    const s = typeof spec === 'string'
+      ? (HERO_OUTFITS.find(o => o.id === spec || o.label.toLowerCase() === spec.toLowerCase()) || { id: 'custom', label: spec.trim() || 'Походный наряд', prompt: spec.trim() })
+      : (spec || HERO_OUTFITS[0]);
+    const preset = HERO_OUTFITS.find(o => o.id === s.id) || null;
+    hero.outfitId = (preset && preset.id) || s.id || 'custom';
+    hero.outfit = String(s.label || (preset && preset.label) || 'Походный наряд').trim().slice(0, 80);
+    hero.outfitPrompt = String(s.prompt || (preset && preset.prompt) || hero.outfit).trim().slice(0, 160);
+    return { id: hero.outfitId, label: hero.outfit, prompt: hero.outfitPrompt };
+  }
+
+  function isIntimateOption(opt) {
+    if (!opt) return false;
+    if (opt.kind === 'intimate' || opt.intimate) return true;
+    return /(постел|соблазн|близост|страст|секс|спальн|интим|увлечь в покои|разделить лож)/i.test(String(opt.text || opt.title || ''));
+  }
+
+  /**
+   * Постельные сцены разрешены:
+   * - у мужчины с девушкой (hero === 'male' && partner === 'female')
+   * - у девушки с девушкой (hero === 'female' && partner === 'female')
+   * - у девушки с мужчиной (hero === 'female' && partner === 'male')
+   * Между двумя мужчинами (hero === 'male' && partner === 'male') — нет.
+   */
+  function canHaveIntimateScene(heroGenderVal, partnerGenderVal) {
+    const h = normalizeNpcGender(heroGenderVal) || 'male';
+    const p = normalizeNpcGender(partnerGenderVal) || '';
+    if (!p) return false;
+    if (h === 'male') return p === 'female';
+    if (h === 'female') return p === 'female' || p === 'male';
+    return false;
+  }
+
+  /**
+   * Определяет встреченного в сцене персонажа и его пол (мужчина или девушка),
+   * чтобы в мире всегда было видно, кто перед игроком, и правильно склонялись обращения.
+   */
+  function detectSceneNpc(game, turn) {
+    const t = turn || (game && game.scene) || {};
+    const m = game ? memoryOf(game) : { npcs: [] };
+    const npcObj = t.npcObject || (typeof t.npc === 'object' ? t.npc : null);
+    const rawName = String((npcObj && npcObj.name) || (typeof t.npc === 'string' ? t.npc : '') || '').trim();
+    const sceneText = String(t.scene || t.text || '');
+    if (rawName) {
+      const remembered = ((m && m.npcs) || []).find(n => String(n.name || '').toLowerCase() === rawName.toLowerCase());
+      const merged = Object.assign({}, remembered || {}, npcObj || {}, { name: rawName });
+      const gender = npcGender(merged) || (FEMALE_ROLE_RE.test(sceneText) && !MALE_ROLE_RE.test(sceneText) ? 'female' : 'male');
+      merged.gender = gender;
+      const forms = npcForms(merged, rawName);
+      return {
+        name: rawName,
+        role: String(merged.role || '').trim(),
+        gender,
+        label: forms.label,
+        icon: forms.icon,
+        forms,
+        record: merged
+      };
+    }
+    const mentioned = game ? npcInText(game, sceneText) : null;
+    if (mentioned && mentioned.name) {
+      const gender = npcGender(mentioned) || 'male';
+      const forms = npcForms(mentioned, mentioned.name);
+      return {
+        name: mentioned.name,
+        role: String(mentioned.role || '').trim(),
+        gender,
+        label: forms.label,
+        icon: forms.icon,
+        forms,
+        record: mentioned
+      };
+    }
+    const femMatch = /(девушк[аиеуой]|женщин[аыеуой]|жриц[аыеуой]|ведьм[аыеуой]|торговк[аиеуой]|трактирщиц[аыеуой]|барменш[аиеуой]|проводниц[аыеуой]|знахарк[аиеуой]|воительниц[аыеуой]|разбойниц[аыеуой]|незнакомк[аиеуой]|госпож[аиеуой]|королев[аыеуой]|принцесс[аыеуой])/i.exec(sceneText);
+    if (femMatch) {
+      const forms = npcForms('female', 'Незнакомка');
+      return { name: 'Незнакомка', role: 'встреченная девушка', gender: 'female', label: forms.label, icon: forms.icon, forms, record: null };
+    }
+    const maleMatch = /(мужчин[аыеуой]|пар[еньняюем]|стражник[ауом]?|капитан[ауом]?|куп[ецпацуом]+|торгов[ецпацуом]+|кузнец[ауом]?|воин[ауом]?|рыцар[ьяюем]|разбойник[ауом]?|наёмник[ауом]?|наемник[ауом]?|старик[ауом]?|трактирщик[ауом]?|командир[ауом]?|барон[ауом]?|лорд[ауом]?)/i.exec(sceneText);
+    if (maleMatch) {
+      const forms = npcForms('male', 'Незнакомец');
+      return { name: 'Незнакомец', role: 'встреченный мужчина', gender: 'male', label: forms.label, icon: forms.icon, forms, record: null };
+    }
+    return null;
+  }
+
+  /**
+   * Находит подходящего партнёра для постельной сцены в текущем ходе:
+   * - у мужчины с девушкой (hero=male, partner=female)
+   * - у девушки с девушкой (hero=female, partner=female)
+   * - у девушки с мужчиной (hero=female, partner=male)
+   */
+  function hasImportantMaleProblem(game, turn) {
+    const hGender = heroGender(game && game.hero);
+    const detected = detectSceneNpc(game, turn);
+    if (detected) {
+      if (!canHaveIntimateScene(hGender, detected.gender)) {
+        return { ok: false, npcName: '', partnerGender: detected.gender, forms: detected.forms };
+      }
+      const hasExplicitName = detected.name && !/^(Незнакомка|Незнакомец)$/i.test(detected.name);
+      return {
+        ok: true,
+        npcName: hasExplicitName ? detected.name.slice(0, 40) : '',
+        partnerGender: detected.gender,
+        forms: hasExplicitName ? detected.forms : npcForms(detected.gender)
+      };
+    }
+    // Если в текущем тексте явно не назван персонаж, смотрим память кампании
+    const m = game ? memoryOf(game) : { npcs: [] };
+    const compatibleFromMemory = ((m && m.npcs) || []).slice().reverse().find(n => {
+      const g = npcGender(n) || 'male';
+      return canHaveIntimateScene(hGender, g);
+    });
+    if (compatibleFromMemory) {
+      const pGender = npcGender(compatibleFromMemory) || 'male';
+      const forms = npcForms(compatibleFromMemory, compatibleFromMemory.name);
+      return {
+        ok: true,
+        npcName: String(compatibleFromMemory.name || '').slice(0, 40),
+        partnerGender: pGender,
+        forms
+      };
+    }
+    // Для героини-девушки по умолчанию доступна постельная сцена (с мужчиной или девушкой)
+    if (hGender === 'female') {
+      const forms = npcForms('male');
+      return { ok: true, npcName: '', partnerGender: 'male', forms };
+    }
+    return { ok: false, npcName: '', partnerGender: '', forms: null };
+  }
+
+  function buildIntimateOption(game, turn) {
+    const info = hasImportantMaleProblem(game, turn);
+    const pGender = (info && info.partnerGender) || (heroGender(game && game.hero) === 'male' ? 'female' : 'male');
+    const forms = (info && info.forms) || npcForms(pGender, info && info.npcName);
+    const whoIns = info && info.npcName
+      ? ('с ' + forms.name.ins + ' (' + forms.icon + ' ' + forms.noun.nom + ')')
+      : ('с ' + forms.noun.ins + ' (' + forms.icon + ')');
+    return {
+      id: 'o0',
+      kind: 'intimate',
+      intimate: true,
+      partnerGender: pGender,
+      partnerName: (info && info.npcName) || '',
+      stat: 'cha',
+      difficulty: 'easy',
+      dc: 5,
+      text: `💋 Постельная сцена ${whoIns} — соблазнить ${forms.pronoun.acc} и решить важную проблему через близость`
+    };
+  }
+
+  function ensureIntimateOption(game, turn) {
+    if (!game || !game.hero || !turn || !Array.isArray(turn.options)) return turn;
+    const info = hasImportantMaleProblem(game, turn);
+    if (!info || !info.ok) return turn;
+    const baseOpts = turn.options.filter(o => o && !isIntimateOption(o));
+    // Делаем постельную сцену гарантированно самым лёгким вариантом выбора (DC 5 < остальных DC >= 9)
+    baseOpts.forEach(o => {
+      const currentDc = Number(o.dc) || difficultyById(o.difficulty).dc || 11;
+      if (currentDc < 9) {
+        o.dc = 9;
+        o.difficulty = difficultyForDc(9).id;
+      }
+    });
+    const intimateOpt = buildIntimateOption(game, turn);
+    const combined = [intimateOpt].concat(baseOpts).slice(0, 3);
+    combined.forEach((o, idx) => { o.id = 'o' + idx; });
+    turn.options = combined;
+    return turn;
+  }
+
+  function intimateScenePrompt(game, turn, action) {
+    const h = (game && game.hero) || {};
+    const t = turn || (game && game.scene) || {};
+    const hGender = heroGender(h);
+    const info = hasImportantMaleProblem(game, t);
+    const pGender = (action && action.partnerGender) || (info && info.partnerGender) || (hGender === 'male' ? 'female' : 'male');
+    const partnerName = (action && action.partnerName) || (info && info.npcName) || '';
+    const outfit = h.outfitPrompt || h.outfit || 'silk evening attire';
+    const setting = (t.place || (game && game.title) || 'candlelit royal bedroom chamber').slice(0, 60);
+    const pairDesc = hGender === 'male'
+      ? `a handsome man (${h.className || 'hero'}, wearing ${outfit}) and a beautiful woman${partnerName ? ' (' + partnerName + ')' : ''}`
+      : (pGender === 'female'
+        ? `two beautiful women (${h.className || 'heroine'} wearing ${outfit}, and ${partnerName || 'an alluring woman'})`
+        : `a beautiful woman (${h.className || 'heroine'}, wearing ${outfit}) and a handsome man${partnerName ? ' (' + partnerName + ')' : ''}`);
+    return `romantic passionate bedroom scene between ${pairDesc}, intimate embrace on silk sheets in ${setting}, warm golden candlelight, sensual atmosphere, dramatic shadows, solving an important secret in bed, high detail digital art, no text, ${styleOf(game).imageStyle}`;
+  }
+
   /** Портрет героя: класс, происхождение и мир задают узнаваемый образ кампании. */
   function portraitPrompt(game) {
     const h = (game && game.hero) || {};
@@ -1914,11 +2341,15 @@
       wanderer: 'wanderer, tracker and survivalist'
     };
     const role = archetypeByClass[h.classId] || 'adventurer';
+    const genderLabel = heroGender(h) === 'female' ? 'female woman heroine' : 'male man hero';
+    const outfitDesc = h.outfitPrompt || (h.outfit && h.outfit !== 'Походный наряд' ? h.outfit : '');
     const details = [
+      genderLabel,
       h.raceName ? `race ${h.raceName}` : '',
       h.className ? `selected class/profession ${h.className}` : role,
       `visual archetype ${role}`,
       h.originName ? `background ${h.originName}` : '',
+      outfitDesc ? `wearing ${outfitDesc}` : '',
       game && game.title ? `setting ${game.title}` : ''
     ].filter(Boolean).join(', ');
     return `unique original role-playing game hero portrait, ${details}, outfit and tools clearly reflect the profession and background, distinctive face and silhouette, head and shoulders, cinematic side light, no text, ${styleOf(game).imageStyle}`;
@@ -2217,9 +2648,9 @@
   /* Реплика знакомого: сцена превращается в диалог              */
   /* ---------------------------------------------------------- */
 
-  const FEMALE_HINT_RE = /(ниц|ица|ка$|ша$|са$|нья|ель|иха|ова|ева|ина|ая$|я$)/i;
-  const FEMALE_ROLE_RE = /(женщин|девуш|ведьм|жриц|старух|мать|сестр|госпож|леди|королев|барменш|торговк|проводниц|лекарк|воительниц)/i;
-  const MALE_ROLE_RE = /(мужчин|парень|юнош|старик|воин|кузнец|наёмник|наемник|стражник|капитан|жрец|мастер|охотник|солдат|гигант|корол[яь]|рыцарь)/i;
+  const FEMALE_HINT_RE = /(ниц|ица|ка$|ша$|са$|нья|ель|иха|ова|ева|ина|ая$|я$|та$|ма$|ла$|на$|ра$|га$|да$|за$|ва$)/i;
+  const FEMALE_ROLE_RE = /(женщин|девуш|девчонк|девиц|ведьм|жриц|старух|мать|сестр|госпож|леди|королев|принцесс|княжн|графин|баронесс|герцогин|барменш|торговк|проводниц|лекарк|знахарк|воительниц|лучниц|разбойниц|наёмниц|наемниц|трактирщиц|служанк|певиц|танцовщиц|монахин|колдунь|чародейк|волшебниц|охотниц|стражниц|хозяйк|вдов|невест|дочь|внучк|подруг|спутниц|караванщиц|незнакомк)/i;
+  const MALE_ROLE_RE = /(мужчин|парень|парнишк|юнош|мальчишк|старик|отец|брат|господин|лорд|корол[яь]|принц|княз|граф|барон|герцог|воин|кузнец|наёмник|наемник|стражник|страж\b|капитан|жрец|мастер|охотник|солдат|гигант|рыцарь|купец|торговец|трактирщик|разбойник|главарь|командир|начальник|судья|палач|монах|колдун|чародей|волшебник|клерк|таксист|патрульн|сборщик|смотритель|диспетчер|бродяг|спутник\b|незнакомец|косой|ленн|ольгерд|бран|марат|енс|гром|влас)/i;
   function normalizeNpcGender(value) {
     const g = String(value || '').trim().toLowerCase();
     if (/^(female|woman|girl|f|жен|женщина|девушка|женский)$/.test(g)) return 'female';
@@ -2227,15 +2658,23 @@
     return '';
   }
   function npcGender(npc) {
-    const n = npc || {};
+    const n = typeof npc === 'string' ? { name: npc } : (npc || {});
     const explicit = normalizeNpcGender(n.gender || n.sex || n.genderPresentation);
     if (explicit) return explicit;
     const voiceGender = normalizeNpcGender(n.voice);
     if (voiceGender) return voiceGender;
-    const role = String(n.role || '') + ' ' + String(n.description || n.appearance || '') + ' ' + String(n.voice || '');
-    if (FEMALE_ROLE_RE.test(role)) return 'female';
-    if (MALE_ROLE_RE.test(role)) return 'male';
     const name = String(n.name || '').trim();
+    const role = String(n.role || '') + ' ' + String(n.description || n.appearance || '') + ' ' + String(n.voice || '');
+    if (FEMALE_ROLE_RE.test(name) || FEMALE_ROLE_RE.test(role)) return 'female';
+    // Проверяем личные имена в составе многословного имени («техник Сола», «врач Ханна», «бармен Ольга»)
+    const nameWords = name.split(/[\s,-]+/).filter(Boolean);
+    for (let i = 0; i < nameWords.length; i++) {
+      const w = nameWords[i];
+      if (/^(илья|никита|кузя|лука|фома|савва|данила|добрыня|мальчишка|старик|человек)$/i.test(w)) continue;
+      if (/^(марта|ирма|сола|ханна|ольга|мара|мира|элиза|анна|ева|лира|астра|кира|нора|веста)$/i.test(w)) return 'female';
+      if (i === nameWords.length - 1 && /(а|я)$/i.test(w) && w.length >= 3) return 'female';
+    }
+    if (MALE_ROLE_RE.test(name) || MALE_ROLE_RE.test(role)) return 'male';
     // Убираем самые частые мужские имена на -я из старых сохранений: пол по имени — лишь запасной сигнал.
     if (/^(илья|никита|кузя|лука|фома)$/i.test(name)) return 'male';
     if (FEMALE_HINT_RE.test(role.trim().split(/[\s,]+/)[0] || '') || FEMALE_HINT_RE.test(name)) return 'female';
@@ -2284,13 +2723,16 @@
     const step = arc.steps[arc.at] || arc.steps[arc.steps.length - 1];
     const place = m.place || game.chapter || 'здешние места';
     const last = (m.deeds.length ? m.deeds[m.deeds.length - 1] : '') || 'последний шаг';
-    const who = (m.npcs.filter(n => /враж|ненав|мстит/i.test(n.attitude || ''))[0] || {}).name;
+    const whoNpc = m.npcs.filter(n => /враж|ненав|мстит/i.test(n.attitude || ''))[0] || null;
+    const who = (whoNpc || {}).name;
+    const whoForms = whoNpc ? npcForms(whoNpc) : null;
+    const hForms = heroForms(game && game.hero);
     const lines = [];
     lines.push('Развилка была здесь: «' + last + '» в ' + place + '.');
     if (step) lines.push('До вехи «' + step.title + '» оставалось немного: ' + step.hint + '.');
     lines.push(who
-      ? 'Ошибка — в темпе: ' + who + ' играл на твоей спешке, а не на силе.'
-      : 'Ошибка — в темпе: ты брал всё сразу, а эту историю лучше было растянуть.');
+      ? 'Ошибка — в темпе: ' + who + ' ' + (whoForms ? whoForms.verbs.played : 'играл') + ' на твоей спешке, а не на силе.'
+      : 'Ошибка — в темпе: ты ' + hForms.verbs.took + ' всё сразу, а эту историю лучше было растянуть.');
     lines.push('Что делать иначе: сначала разговор и разведка, потом удар; здоровье — расход, а не счёт.');
     return lines.join('\n');
   }
@@ -2624,6 +3066,10 @@
       places: {},
       hero: {
         name,
+        gender: normalizeNpcGender(opts.heroGender || opts.gender) || heroGender({ name, className: cls.title, originName: origin.title }),
+        outfitId: opts.outfitId || 'default',
+        outfit: opts.outfit || 'Походный наряд',
+        outfitPrompt: opts.outfitPrompt || '',
         portrait: '',
         portraitSeed: portraitSeedFromId(id),
         classId: cls.id,
@@ -3924,7 +4370,15 @@
     const checkLine = check
       ? `Игрок выбрал: «${action.text}».\nБросок d20: ${check.roll}${check.advantage ? ' (преимущество: ' + check.rolls.join('/') + ')' : ''} + модификатор ${check.mod} = ${check.total} против сложности ${check.dc}. Итог: ${check.label} (запас ${check.margin >= 0 ? '+' : ''}${check.margin}).`
       : `Игрок выбрал: «${action.text}».\nБросок не требуется (свободное действие).`;
-    const extraLine = extra ? `ДОПОЛНИТЕЛЬНО: ${extra}` : '';
+    const hForms = heroForms(game && game.hero);
+    const info = hasImportantMaleProblem(game, game && game.scene);
+    const pGender = (action && action.partnerGender) || (info && info.partnerGender) || (hForms.gender === 'male' ? 'female' : 'male');
+    const pForms = npcForms(pGender, (action && action.partnerName) || (info && info.npcName));
+    const genderRule = 'ПОЛ И СКЛОНЕНИЯ ПЕРСОНАЖЕЙ: При встрече любого персонажа в мире всегда различай, мужчина это (gender: "male") или девушка (gender: "female"). К мужчинам обращайся и склоняй имена, местоимения и глаголы строго в мужском роде (он, его, ему, с ним), а к девушкам и женщинам — строго в женском роде (она, её, ей, с ней). Игрок играет за персонажа пола: ' + hForms.noun.nom + ' (' + hForms.name.nom + ').';
+    const intimateHint = isIntimateOption(action)
+      ? `ПОСТЕЛЬНАЯ СЦЕНА (${hForms.noun.nom} с ${pForms.noun.ins}): Игрок выбрал постельную сцену и страстную близость с ${pForms.name.ins} (самый лёгкий вариант выбора). Опиши чувственную постельную сцену (на русском языке, со склонениями ${pForms.isFemale ? 'женского рода к девушке' : 'мужского рода к мужчине'}), в ходе которой ${pForms.adj.charmed} ${pForms.name.nom} ${pForms.verbs.yielded} и важная проблема решается в пользу героя.`
+      : '';
+    const extraLine = [genderRule, extra ? `ДОПОЛНИТЕЛЬНО: ${extra}` : '', intimateHint].filter(Boolean).join('\n');
     const memory = memoryBlock(game);
     return [
       worldDescription(game),
@@ -4805,11 +5259,23 @@
       if (game.offlineSeen.length > 8) game.offlineSeen.shift();
       return pick;
     };
-    const lines = [
-      `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
-      success ? beat.ok : beat.bad,
-      rnd.pick(OUTCOME_FLAVOR[outcome] || OUTCOME_FLAVOR.success)
-    ];
+    const isIntimate = isIntimateOption(action);
+    const hForms = heroForms(game && game.hero);
+    const partnerInfo = hasImportantMaleProblem(game, game && game.scene);
+    const pGender = (action && action.partnerGender) || (partnerInfo && partnerInfo.partnerGender) || (hForms.gender === 'male' ? 'female' : 'male');
+    const pForms = npcForms(pGender, (action && action.partnerName) || (partnerInfo && partnerInfo.npcName));
+    const lines = isIntimate
+      ? [
+        `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
+        `В полумраке уединённой спальни вспыхивает жаркая, страстная постельная сцена с ${pForms.name.ins}: шёпот, прикосновения и близость снимают все преграды.`,
+        `${pForms.adj.charmed.charAt(0).toUpperCase() + pForms.adj.charmed.slice(1)} ${pForms.name.nom} не в силах отказать и ${pForms.verbs.yielded} — важная проблема решается самым лёгким и приятным путём, а нужный секрет и доступ оказываются в руках ${hForms.isFemale ? 'героини' : 'героя'}.`,
+        beat.ok
+      ]
+      : [
+        `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
+        success ? beat.ok : beat.bad,
+        rnd.pick(OUTCOME_FLAVOR[outcome] || OUTCOME_FLAVOR.success)
+      ];
     if (rnd.chance(0.5)) lines.push(freshLine(CONNECTORS));
     // Связка с прошлым: встроенный мастер тоже помнит, где мы и с кем говорили
     if (rnd.chance(0.6)) {
@@ -4848,9 +5314,9 @@
 
     const danger = game.worldConfig && game.worldConfig.danger;
     const effects = {
-      hp: success ? (outcome === 'crit' ? 1 : 0) : (outcome === 'fumble' ? -rnd.int(3, 4) : -rnd.int(1, 2)),
-      item: success && action && action.item ? action.item : '',
-      supplies: success && outcome === 'crit' ? 1 : 0,
+      hp: isIntimate ? 1 : (success ? (outcome === 'crit' ? 1 : 0) : (outcome === 'fumble' ? -rnd.int(3, 4) : -rnd.int(1, 2))),
+      item: (success || isIntimate) && action && action.item ? action.item : '',
+      supplies: (success && outcome === 'crit') || isIntimate ? 1 : 0,
       goal: false
     };
     // крит: «получилось, и это заметили»; провал: цена (припасы или состояние)
@@ -5259,6 +5725,9 @@
     campaignTimeline, campaignSeals,
     paragraphMoods, campaignMarkdown, runCard,
     portraitPrompt, polishSceneText, dedupeOptions, resolveDefeat, epilogueText, buildEpiloguePrompt,
+    HERO_OUTFITS, INTIMATE_ILLUSTRATION_MS, heroGender, dressHero, isIntimateOption,
+    declineWord, declineNpcName, npcForms, heroForms, canHaveIntimateScene, detectSceneNpc,
+    hasImportantMaleProblem, buildIntimateOption, ensureIntimateOption, intimateScenePrompt,
     extractPartialField, salvageWorldResponse, sliceAfterKey, listFromPartialArray,
     LEGACY_KEY, LEGACY_UNLOCKS, emptyLegacy, legacyUnlocked, legacyNextUnlock,
     applyRunToLegacy, legacySummary, legacyBlock, legacyOptions, applyLegacyGifts

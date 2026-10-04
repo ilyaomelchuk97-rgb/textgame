@@ -317,6 +317,24 @@ button { font-family: inherit; }
     radial-gradient(85% 60% at 50% 32%, rgba(10, 20, 24, 0.05), rgba(5, 9, 11, 0.72) 72%),
     linear-gradient(180deg, rgba(5, 9, 11, 0.5), rgba(5, 9, 11, 0.3) 38%, rgba(5, 9, 11, 0.93));
 }
+.menu-version {
+  position: absolute;
+  top: calc(12px + var(--safe-top));
+  right: 16px;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(8, 14, 18, 0.54);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+  user-select: none;
+}
 .menu-inner {
   position: relative;
   z-index: 2;
@@ -797,7 +815,7 @@ body.dice-transition-active #app { pointer-events: none; }
     radial-gradient(120% 60% at 50% 0%, var(--wash), transparent 70%),
     var(--bg);
 }
-.scene-text__body { font-size: calc(15px * var(--scale-text, 1)); line-height: 1.48; }
+.scene-text__body { font-size: calc(13px * var(--scale-text, 1)); line-height: 1.44; }
 /*
    Текст длиннее панели — нижняя строка мягко тает, а не обрывается по буквам:
    видно, что дальше есть продолжение, и палец сам тянется прокрутить.
@@ -1260,7 +1278,7 @@ body[data-theme="material"] .toast--bad, body[data-theme="ice"] .toast--bad { co
   .action-btn { min-height: 42px; padding: 7px 10px; }
   .action-btn__text { font-size: calc(13px * var(--scale-text, 1)); }
   .actions { gap: 5px; }
-  .scene-text__body { font-size: calc(14.5px * var(--scale-text, 1)); }
+  .scene-text__body { font-size: calc(12.5px * var(--scale-text, 1)); }
 }
 @media (max-width: 360px) {
   /* очень узкие экраны: варианты держим в две строки, текст сцены чуть мельче */
@@ -1268,7 +1286,7 @@ body[data-theme="material"] .toast--bad, body[data-theme="ice"] .toast--bad { co
   .action-btn__meta { max-width: 46%; }
   .tag { font-size: 9.5px; padding: 1px 4px; }
   .tag--stat { display: none; }          /* на узком экране хватает «сложность · шанс» */
-  .scene-text__body { font-size: 14px; }
+  .scene-text__body { font-size: 12px; }
   .ability-btn__desc { font-size: 11px; }
 }
 @media (max-width: 340px) {
@@ -1854,7 +1872,7 @@ body[data-theme="material"] .toast--bad, body[data-theme="ice"] .toast--bad { co
 }
 
 /* --- текст сцены: читаемость и «живой» курсор потока --- */
-.scene-text__body { max-width: 62ch; line-height: 1.58; }
+.scene-text__body { max-width: 62ch; line-height: 1.44; }
 .scene-text__body.is-streaming::after {
   content: '▍'; margin-left: 2px; opacity: 0.75;
   animation: caretBlink 1s steps(2, start) infinite;
@@ -3271,12 +3289,18 @@ body.hand-one .panel { padding-bottom: 4px; }
 
 /* Небольшая «страница истории» отделяет повествование от кнопок, сохраняя контраст. */
 .panel {
+  flex: 0 0 clamp(168px, 28vh, 248px);
+  height: clamp(168px, 28vh, 248px);
+  max-height: clamp(168px, 28vh, 248px);
+  min-height: 154px;
   border-top: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 12%, var(--line, transparent));
   background-image: linear-gradient(180deg, color-mix(in srgb, var(--panel-2, #17211f) 34%, transparent), transparent 62%);
 }
 #scene-text .scene-text__body {
   max-width: 62ch;
-  padding: 12px 14px;
+  padding: 9px 12px;
+  font-size: calc(13px * var(--scale-text, 1));
+  line-height: 1.44;
   border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 17%, var(--line, transparent));
   border-left: 3px solid color-mix(in srgb, var(--accent, #9fe6d0) 70%, transparent);
   border-radius: 5px 15px 15px 5px;
@@ -3288,12 +3312,14 @@ body.hand-one .panel { padding-bottom: 4px; }
 
 @media (max-height: 680px) {
   .scene-media { flex-basis: clamp(148px, 25vh, 194px); min-height: 142px; }
+  .panel { flex-basis: clamp(148px, 25vh, 194px); height: clamp(148px, 25vh, 194px); max-height: clamp(148px, 25vh, 194px); min-height: 142px; }
   .game-avatar { width: 44px; height: 44px; flex-basis: 44px; }
 }
 @media (max-width: 360px) {
   .game-topbar__identity { gap: 8px; }
   .game-avatar { width: 44px; height: 44px; flex-basis: 44px; }
   .scene-media { flex-basis: clamp(158px, 27vh, 214px); }
+  .panel { flex-basis: clamp(158px, 27vh, 214px); height: clamp(158px, 27vh, 214px); max-height: clamp(158px, 27vh, 214px); }
   .scene-media__caption { left: 11px; right: 11px; bottom: 10px; }
 }
 
@@ -3442,13 +3468,14 @@ body.text-s .action-btn, .book-card__actions .btn {
 @media (max-height: 680px) {
   .game-topbar { min-height: 84px; padding-top: calc(var(--safe-top) + 7px); padding-bottom: 8px; }
   .scene-media { flex-basis: clamp(112px, calc(32.15vh - 71px), 148px); min-height: 112px; }
+  .panel { flex-basis: clamp(112px, calc(32.15vh - 71px), 148px); height: clamp(112px, calc(32.15vh - 71px), 148px); max-height: clamp(112px, calc(32.15vh - 71px), 148px); min-height: 112px; }
 }
 @media (max-height: 460px) and (orientation: landscape) {
   .game-topbar { min-height: 64px; padding-top: calc(var(--safe-top) + 4px); padding-bottom: 6px; }
   .game-topbar .game-avatar { width: 36px; height: 36px; flex-basis: 36px; }
   .game-tools { min-height: 48px; padding-top: 2px; padding-bottom: 2px; }
   .scene-media { flex-basis: clamp(54px, 16vh, 72px); min-height: 54px; }
-  .panel { min-height: 44px; padding: 7px 10px; }
+  .panel { flex-basis: clamp(54px, 16vh, 72px); height: clamp(54px, 16vh, 72px); max-height: clamp(54px, 16vh, 72px); min-height: 54px; padding: 7px 10px; }
   .actions { gap: 3px; padding: 4px 8px calc(4px + var(--safe-bottom)); }
 }
 
@@ -3476,7 +3503,44 @@ body.text-s .action-btn, .book-card__actions .btn {
 .online-intro { margin-bottom: 14px; }
 .online-world-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
 .online-world-modes .tab { min-height: 48px; white-space: normal; line-height: 1.2; }
-.online-start { width: 100%; min-height: 52px; margin: 8px 0 10px; }
+.online-setup-actions { display: grid; gap: 8px; margin: 8px 0 10px; }
+.online-start { width: 100%; min-height: 52px; margin: 0; }
+.online-world-art {
+  position: relative;
+  margin-top: 10px;
+  padding: 0;
+  overflow: hidden;
+  min-height: 128px;
+  max-height: 186px;
+}
+.online-world-art__img {
+  display: block;
+  width: 100%;
+  height: 158px;
+  object-fit: cover;
+  background: #0d1518;
+}
+.online-world-art__overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, transparent, rgba(5, 10, 14, 0.82));
+}
+.online-world-art__badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+.online-ai-bar { display: grid; gap: 8px; }
+.online-ai-bar__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+@media (max-width: 420px) {
+  .online-ai-bar__row { grid-template-columns: 1fr; }
+}
 .online-status { min-height: 24px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .online-status.is-error { color: var(--danger, #d94949); }
 .online-cloud-load, .online-resume {
@@ -3634,6 +3698,204 @@ body.text-s .action-btn, .book-card__actions .btn {
 @media (max-width: 390px) {
   .online-hero-actions > * { flex: 1 1 100% !important; }
 }
+
+/* ------------------------------------------------------------
+ * Просмотр портрета персонажа + гардероб (переодевание)
+ * и 7-секундная иллюстрация постельной сцены
+ * ------------------------------------------------------------ */
+.game-avatar[role="button"],
+.hero-sheet__portrait-frame[role="button"] {
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.game-avatar[role="button"]:hover,
+.hero-sheet__portrait-frame[role="button"]:hover {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 2px var(--accent, #9fe6d0), 0 8px 20px rgba(0, 0, 0, .4);
+}
+.hero-portrait-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(5, 8, 12, .86);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  transition: opacity .2s ease;
+  overflow-y: auto;
+}
+.hero-portrait-viewer[hidden] { display: none; }
+.hero-portrait-viewer.is-open { opacity: 1; }
+.hero-portrait-viewer__card {
+  position: relative;
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 18px 16px 16px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent, #9fe6d0) 32%, var(--line, rgba(255,255,255,.14)));
+  background: var(--panel, #131c1a);
+  color: var(--text, #fff);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, .65);
+}
+.hero-portrait-viewer__title {
+  padding-right: 40px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text, #fff);
+}
+.hero-portrait-viewer__sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted, #b8c4c2);
+}
+.hero-portrait-viewer__stage {
+  position: relative;
+  width: min(260px, 72vw);
+  aspect-ratio: 1 / 1;
+  margin: 12px auto;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 2px solid color-mix(in srgb, var(--accent, #9fe6d0) 45%, transparent);
+  background: var(--panel-2, #1b2624);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
+}
+.hero-portrait-viewer__stage.is-loading::after {
+  content: "Мастер переодевает героя…";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(8, 12, 16, .66);
+  backdrop-filter: blur(4px);
+}
+.hero-portrait-viewer__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.hero-portrait-viewer__placeholder {
+  font-size: 56px;
+}
+.hero-wardrobe {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line, rgba(255,255,255,.1));
+}
+.hero-wardrobe__head {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.hero-wardrobe__gender {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.hero-wardrobe__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.hero-wardrobe__custom {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hero-wardrobe__custom .input {
+  flex: 1 1 auto;
+}
+
+.action-btn--intimate {
+  border-color: color-mix(in srgb, #ff7eb3 55%, var(--line, transparent)) !important;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, #ff6b9d 18%, var(--card, #182220)),
+    color-mix(in srgb, #c94b7c 10%, var(--panel-2, #141d1b))) !important;
+}
+
+.intimate-scene-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(12, 4, 10, .82);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.intimate-scene-popup[hidden] { display: none; }
+.intimate-scene-popup.is-open { opacity: 1; }
+.intimate-scene-popup__card {
+  width: min(460px, 96vw);
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 138, 180, .48);
+  background: linear-gradient(160deg, #240c1c 0%, #140710 100%);
+  color: #ffeef5;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .75);
+  text-align: center;
+}
+.intimate-scene-popup__badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 110, 165, .22);
+  border: 1px solid rgba(255, 150, 190, .4);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ffc2da;
+}
+.intimate-scene-popup__frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1a0813;
+  border: 1px solid rgba(255, 150, 190, .28);
+}
+.intimate-scene-popup__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.intimate-scene-popup__caption {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #ffe6f0;
+}
+.intimate-scene-popup__bar {
+  margin-top: 10px;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .14);
+}
+.intimate-scene-popup__progress {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #ff7eb3, #ffb88c);
+}
+
 
 /* ============================================================
  * Скины тем: не только цвет, но и материал интерфейса.
@@ -4582,6 +4844,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
         <div class="menu-bg__specular" aria-hidden="true"></div>
       </div>
       <div class="menu-veil"></div>
+      <div class="menu-version" id="menu-version" aria-label="Версия игры">v23.1.0</div>
       <div class="menu-inner">
         <div class="menu-head">
           <div class="menu-dice"><img class="dice-icon" alt="" aria-hidden="true"></div>
@@ -4605,7 +4868,6 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
         <div class="menu-foot">
           <button class="icon-btn" type="button" id="sound-toggle" data-act="toggle-sound" aria-label="Звук">🔊</button>
           <button class="icon-btn" type="button" data-act="settings" aria-label="Настройки">⚙️</button>
-          <span class="ai-status" id="ai-status">ИИ: проверяем связь…</span>
         </div>
       </div>
     </section>
@@ -4639,7 +4901,10 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
             <span class="field__label">Имя героя</span>
             <input class="input" id="online-hero-name" type="text" maxlength="24" placeholder="Например: Эйра" autocomplete="off">
           </label>
-          <button class="btn btn--primary online-start" type="button" id="online-start">🌍 Создать мир и героя</button>
+          <div class="online-setup-actions">
+            <button class="btn btn--ghost btn--sm" type="button" id="online-ai-seed">🎲 Придумать идею мира (ИИ)</button>
+            <button class="btn btn--primary online-start" type="button" id="online-start">🌍 Создать мир и героя</button>
+          </div>
           <section class="online-hero-picker online-card" id="online-hero-picker" hidden aria-labelledby="online-hero-picker-title">
             <h3 id="online-hero-picker-title">Выбери героя, которого предложил мастер</h3>
             <p class="muted small">ИИ подбирает варианты под этот мир. Выбранный класс, вид и происхождение определяют характеристики и запас здоровья.</p>
@@ -4669,6 +4934,13 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
             <div class="online-hud__health"><span id="online-hp-label"></span><div class="online-hp-track"><i id="online-hp-fill"></i></div></div>
             <div class="online-hud__world"><span id="online-world-title-play"></span><small id="online-world-subtitle"></small></div>
           </div>
+          <div class="online-world-art online-card" id="online-world-art">
+            <img class="online-world-art__img" id="online-world-art-img" alt="Иллюстрация мира">
+            <div class="online-world-art__overlay">
+              <span class="online-world-art__badge" id="online-world-art-badge">ИИ-мир</span>
+              <button class="btn btn--ghost btn--sm" type="button" id="online-world-art-refresh">🎨 Обновить вид</button>
+            </div>
+          </div>
           <div class="online-quest-head online-card" id="online-current-quest"></div>
           <div class="online-columns">
             <div class="online-exploration">
@@ -4683,6 +4955,17 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
                   <button type="button" data-online-move="1,0" aria-label="Идти вправо">▶</button>
                 </div>
                 <p class="online-map-hint">Ходи кнопками или стрелками клавиатуры. Вода и горы непроходимы.</p>
+              </div>
+              <div class="online-ai-bar online-card" id="online-ai-bar">
+                <div class="online-section-title">ИИ-мастер открытого мира</div>
+                <div class="online-ai-bar__row">
+                  <input class="input input--slim" id="online-ai-input" type="text" maxlength="160" placeholder="Что делает герой в этом месте? (или нажми кнопку ниже)" autocomplete="off">
+                  <button class="btn btn--primary btn--sm" type="button" id="online-ai-send">✨ Спросить ИИ</button>
+                </div>
+                <div class="online-event-actions">
+                  <button class="btn btn--ghost btn--sm" type="button" id="online-ai-look">🔎 Осмотреться (ИИ)</button>
+                  <button class="btn btn--ghost btn--sm" type="button" id="online-ai-event">🎲 Событие мира (ИИ)</button>
+                </div>
               </div>
               <div class="online-event online-card" id="online-event" hidden></div>
               <div class="online-battle online-card" id="online-battle" hidden></div>
@@ -4830,6 +5113,14 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
           </div>
         </label>
 
+        <div class="field" id="section-gender">
+          <span class="field__label">Пол персонажа</span>
+          <div class="chips" id="hero-gender-list">
+            <button class="chip is-active" type="button" data-hero-gender="female">♀ Женщина</button>
+            <button class="chip" type="button" data-hero-gender="male">♂ Мужчина</button>
+          </div>
+        </div>
+
         <div class="hint hint--profile" id="hero-profile-note" hidden>
           <span class="hint__text" id="hero-profile-text"></span>
           <button class="link-btn" type="button" id="hero-reroll" data-act="reroll-hero">🎲 Другой набор</button>
@@ -4865,7 +5156,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       <!-- Шапка кампании: портрет, имя и профессия героя, название мира и состояние -->
       <header class="game-topbar">
         <div class="game-topbar__identity">
-          <span class="game-avatar" id="game-avatar" aria-hidden="true" hidden></span>
+          <span class="game-avatar" id="game-avatar" role="button" tabindex="0" data-act="open-hero-portrait" aria-label="Открыть портрет персонажа и переодеть" hidden></span>
           <div class="game-topbar__text">
             <button class="game-title" type="button" id="game-title" data-act="open-hero">Игра</button>
             <div class="game-hero-line" id="game-hero-line" hidden></div>
@@ -5103,6 +5394,40 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     <button class="npc-portrait-viewer__close" id="npc-portrait-close" type="button" aria-label="Закрыть портрет">✕</button>
     <div class="npc-portrait-viewer__title" id="npc-portrait-title"></div>
     <img class="npc-portrait-viewer__image" id="npc-portrait-image" alt="">
+  </div>
+
+  <!-- Полноэкранный просмотр портрета героя + гардероб (переодевание) -->
+  <div class="hero-portrait-viewer" id="hero-portrait-viewer" hidden role="dialog" aria-modal="true" aria-labelledby="hero-portrait-title">
+    <div class="hero-portrait-viewer__card">
+      <button class="npc-portrait-viewer__close" id="hero-portrait-close" type="button" aria-label="Закрыть портрет персонажа">✕</button>
+      <div class="hero-portrait-viewer__title" id="hero-portrait-title">Портрет персонажа</div>
+      <div class="hero-portrait-viewer__sub" id="hero-portrait-sub"></div>
+      <div class="hero-portrait-viewer__stage" id="hero-portrait-stage">
+        <img class="hero-portrait-viewer__image" id="hero-portrait-image" alt="Портрет персонажа">
+        <div class="hero-portrait-viewer__placeholder" id="hero-portrait-placeholder" hidden>✦</div>
+      </div>
+      <div class="hero-wardrobe" id="hero-wardrobe">
+        <div class="hero-wardrobe__head">👗 Гардероб — переодеть персонажа</div>
+        <div class="hero-wardrobe__gender" id="hero-wardrobe-gender"></div>
+        <div class="hero-wardrobe__chips" id="hero-wardrobe-chips"></div>
+        <div class="hero-wardrobe__custom">
+          <input class="input input--slim" id="hero-outfit-input" type="text" maxlength="80" placeholder="Свой наряд (например: вечернее шёлковое платье, боевые латы)…">
+          <button class="btn btn--primary btn--sm" type="button" id="hero-outfit-apply">👕 Переодеть</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Иллюстрация постельной сцены: появляется на экране, висит 7 секунд и пропадает -->
+  <div class="intimate-scene-popup" id="intimate-scene-popup" hidden role="status" aria-live="polite">
+    <div class="intimate-scene-popup__card">
+      <div class="intimate-scene-popup__badge">💋 Постельная сцена · 7 сек</div>
+      <div class="intimate-scene-popup__frame">
+        <img class="intimate-scene-popup__image" id="intimate-scene-image" alt="Иллюстрация постельной сцены">
+      </div>
+      <div class="intimate-scene-popup__caption" id="intimate-scene-caption">Важная проблема решена через близость</div>
+      <div class="intimate-scene-popup__bar"><span class="intimate-scene-popup__progress" id="intimate-scene-progress"></span></div>
+    </div>
   </div>
 
   <div class="toasts" id="toasts"></div>
@@ -7806,12 +8131,16 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const npc = npcInText(game, actionText);
     if (!npc) return null;
     const info = relationInfo(npc);
+    const forms = npcForms(npc);
     const social = /уговор|проси|попроси|убежд|соврать|обман|хвалит|торг|подкуп|угрож|запуг|спроси|расспрос|договор|уговорить|солга|призна|приглас/i.test(String(actionText || ''));
     const suspect = /подозрев|не вер|провер|след|выслеж|следить|наблюд|обыск|обман|изуч|нрав|слуша|замеча/i.test(String(actionText || ''));
     const enemy = info.id === 'enemy';
     return {
       npc,
       name: npc.name || '',
+      gender: forms.gender,
+      genderLabel: forms.label,
+      forms,
       relation: info.id,
       relationTitle: info.title,
       relationIcon: info.icon,
@@ -7821,9 +8150,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       social,
       suspect: !!(suspect && enemy),
       note: social
-        ? npc.name + ' — ' + info.title + ' (доверие ' + info.trust + '/5): проверка ' +
+        ? npc.name + ' (' + forms.icon + ' ' + forms.noun.nom + ') — ' + info.title + ' (доверие ' + info.trust + '/5): проверка ' +
           (info.dc === 0 ? 'как обычно' : (info.dc > 0 ? 'труднее на ' + info.dc : 'легче на ' + Math.abs(info.dc)))
-        : (enemy && suspect ? 'ты давно не веришь ' + npc.name + ' — подозревать его легче' : '')
+        : (enemy && suspect ? 'ты давно не веришь ' + forms.name.dat + ' — подозревать ' + forms.pronoun.acc + ' легче' : '')
     };
   }
 
@@ -7833,10 +8162,11 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const free = debtors.find(n => !n.helped);
     if (!free) return { ok: false, reason: debtors.length ? 'Все должники уже помогали.' : 'Пока некому помочь: сначала нужен знакомый-должник.', notes: [] };
     free.helped = true;
+    const forms = npcForms(free);
     game.hero.advantage = true;
     game.hero.advantageLabel = 'помощь: ' + free.name;
-    const notes = [{ type: 'relation', icon: '🪙', text: free.name + ' подставил плечо: следующий бросок с преимуществом' }];
-    if (typeof rememberFact === 'function') rememberFact(game, free.name + ' пришёл на помощь по старому долгу');
+    const notes = [{ type: 'relation', icon: '🪙', text: free.name + ' ' + forms.verbs.lentShoulder + ': следующий бросок с преимуществом' }];
+    if (typeof rememberFact === 'function') rememberFact(game, free.name + ' ' + forms.verbs.came + ' на помощь по старому долгу');
     return { ok: true, who: free.name, notes };
   }
 
@@ -7846,7 +8176,10 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
   function markNoticed(game, npc, notes) {
     const who = npc || npcMemory(game).slice(-1)[0] || null;
     if (who) setTrust(who, trustOf(who) + 1, notes, 'заметили твой успех');
-    const thread = who && who.name ? who.name + ' — заметили, как ты справился' : 'Твой успех заметили те, кому не надо было';
+    const hForms = heroForms(game && game.hero);
+    const thread = who && who.name
+      ? who.name + ' — заметили, как ты ' + hForms.verbs.coped
+      : 'Твой успех заметили те, кому не надо было';
     const m = game.memory || (game.memory = emptyMemory());
     if (m.threads.indexOf(thread) < 0) {
       m.threads.push(thread);
@@ -9033,6 +9366,425 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     return sceneKindFromText(a0) === sceneKindFromText(b0) && shared >= 1;
   }
 
+  const HERO_OUTFITS = [
+    { id: 'default', label: 'Походный наряд', icon: '🎒', prompt: 'signature adventurer outfit and tools matching profession and background' },
+    { id: 'royal', label: 'Королевское платье / камзол', icon: '👑', prompt: 'luxurious royal velvet attire with gold embroidery and noble cloak' },
+    { id: 'silk', label: 'Вечерний шёлк', icon: '💃', prompt: 'alluring sensual silk evening dress, fine jewelry, warm candlelight' },
+    { id: 'armor', label: 'Боевые латы', icon: '🛡', prompt: 'ornate engraved dark steel battle armor with shoulder cape' },
+    { id: 'stealth', label: 'Плащ тени', icon: '🗡', prompt: 'sleek black leather stealth outfit with hooded cloak and silver buckles' },
+    { id: 'mystic', label: 'Мантия мага', icon: '🔮', prompt: 'mystical arcane robes with glowing runes and silver amulet' },
+    { id: 'boudoir', label: 'Ночной будуар', icon: '💋', prompt: 'romantic sheer silk boudoir robe and lace, intimate bedroom candlelight' }
+  ];
+
+  const INTIMATE_ILLUSTRATION_MS = 7000;
+
+  function heroGender(hero) {
+    const h = hero || {};
+    const explicit = normalizeNpcGender(h.gender || h.sex);
+    if (explicit) return explicit;
+    const text = [h.name, h.className, h.originName].filter(Boolean).join(' ');
+    if (FEMALE_ROLE_RE.test(text)) return 'female';
+    const name = String(h.name || '').trim();
+    if (/^(илья|никита|кузя|лука|фома|кай|рэй|рей|артур|геральт|данте)$/i.test(name)) return 'male';
+    if (FEMALE_HINT_RE.test(name)) return 'female';
+    return 'male';
+  }
+
+  /**
+   * Склонение одного русского слова (имени, прозвища или роли) по 6 падежам
+   * с учётом пола персонажа (male — мужчина, female — девушка/женщина).
+   */
+  function declineWord(word, gender, grCase) {
+    const w = String(word || '').trim();
+    if (!w || grCase === 'nom' || !grCase) return w;
+    const low = w.toLowerCase();
+    const g = gender === 'female' ? 'female' : 'male';
+    // Несклоняемые имена и слова
+    if (/^(леди|мисс|мадам|кики|лили|ким|пит|юр|ленн)$/i.test(low)) {
+      if (g === 'male' && /^(пит|юр|ленн)$/i.test(low)) {
+        // мужские имена на согласную склоняются нормально
+      } else {
+        return w;
+      }
+    }
+    // Прилагательные мужского рода на -ый / -ий / -ой (Косой, Северный, Молчаливый)
+    if (g === 'male' && /(ый|ий|ой)$/i.test(w)) {
+      const stem = w.slice(0, -2);
+      const soft = /ий$/i.test(w) || /[жшщч]ой$/i.test(w);
+      const map = {
+        gen: stem + (soft ? 'его' : 'ого'),
+        dat: stem + (soft ? 'ему' : 'ому'),
+        acc: stem + (soft ? 'его' : 'ого'),
+        ins: stem + (soft ? 'им' : 'ым'),
+        pre: stem + (soft ? 'ем' : 'ом')
+      };
+      return map[grCase] || w;
+    }
+    // Прилагательные женского рода на -ая / -яя
+    if (g === 'female' && /(ая|яя)$/i.test(w)) {
+      const stem = w.slice(0, -2);
+      const soft = /яя$/i.test(w);
+      const ending = grCase === 'acc' ? (soft ? 'юю' : 'ую') : (soft ? 'ей' : 'ой');
+      return stem + ending;
+    }
+    // Слова на -а (Марта, знахарка, Ольга, жрица, женщина, старуха, мужчина, Илья, Никита)
+    if (/а$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      const afterVelarOrHush = /[гкхжшщч]$/i.test(stem);
+      const afterHushOrC = /[жшщчц]$/i.test(stem);
+      const map = {
+        gen: stem + (afterVelarOrHush ? 'и' : 'ы'),
+        dat: stem + 'е',
+        acc: stem + 'у',
+        ins: stem + (afterHushOrC ? 'ей' : 'ой'),
+        pre: stem + 'е'
+      };
+      return map[grCase] || w;
+    }
+    // Слова на -я (Мария, баронесса, колдунья, судья)
+    if (/я$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      const afterI = /и$/i.test(stem);
+      const map = {
+        gen: stem + 'и',
+        dat: stem + (afterI ? 'и' : 'е'),
+        acc: stem + 'ю',
+        ins: stem + 'ей',
+        pre: stem + (afterI ? 'и' : 'е')
+      };
+      return map[grCase] || w;
+    }
+    // Слова на -ь
+    if (/ь$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      if (g === 'female') {
+        const map = { gen: stem + 'и', dat: stem + 'и', acc: w, ins: stem + 'ью', pre: stem + 'и' };
+        return map[grCase] || w;
+      }
+      const map = { gen: stem + 'я', dat: stem + 'ю', acc: stem + 'я', ins: stem + 'ем', pre: stem + 'е' };
+      return map[grCase] || w;
+    }
+    // Мужские слова на -й (Кай, чародей)
+    if (g === 'male' && /й$/i.test(w)) {
+      const stem = w.slice(0, -1);
+      const map = { gen: stem + 'я', dat: stem + 'ю', acc: stem + 'я', ins: stem + 'ем', pre: stem + 'е' };
+      return map[grCase] || w;
+    }
+    // Мужские слова на согласную (Влас, Гром, Ольгерд, стражник, купец, торговец, старик)
+    if (g === 'male' && /[бвгджзклмнпрстфхцчшщ]$/i.test(w)) {
+      let stem = w;
+      if (/[её]ц$/i.test(w) && w.length > 4) {
+        const before = w.slice(0, -2);
+        stem = /[л]$/.test(before) ? before + 'ьц' : before + 'ц';
+      }
+      const afterHushOrC = /[жшщчц]$/i.test(stem);
+      const map = {
+        gen: stem + 'а',
+        dat: stem + 'у',
+        acc: stem + 'а',
+        ins: stem + (afterHushOrC ? 'ем' : 'ом'),
+        pre: stem + 'е'
+      };
+      return map[grCase] || w;
+    }
+    return w;
+  }
+
+  /**
+   * Склонение полного имени или описания NPC («Марта-знахарка», «Косой Ленн»,
+   * «женщина с фонарём», «человек в плаще», «бармен Ольга»).
+   */
+  function declineNpcName(fullName, gender, grCase) {
+    const raw = String(fullName || '').trim();
+    if (!raw || !grCase || grCase === 'nom') return raw;
+    const g = gender === 'female' ? 'female' : 'male';
+    // Если есть предлог («женщина с фонарём», «старик у огня», «разбойник с тракта»),
+    // склоняем главное слово (до предлога), а зависимую часть оставляем как есть
+    const prepMatch = /^(\S+)\s+(с|со|у|в|во|на|из|от|за|под|над|при|без)\s+(.+)$/i.exec(raw);
+    if (prepMatch) {
+      return declineWord(prepMatch[1], g, grCase) + ' ' + prepMatch[2] + ' ' + prepMatch[3];
+    }
+    // Дефисные имена («Марта-знахарка», «Бран-проводник», «мальчишка-посыльный»)
+    if (raw.indexOf('-') >= 0 && raw.indexOf(' ') < 0) {
+      return raw.split('-').map(part => declineWord(part, g, grCase)).join('-');
+    }
+    // Составные имена из 2 слов («Косой Ленн», «старик Ольгерд», «жрица Ирма», «техник Сола»)
+    const parts = raw.split(/\s+/);
+    if (parts.length === 2) {
+      // У женщины мужская профессия («техник Сола», «врач Ханна», «бармен Ольга») в косвенных падежах остаётся несклоняемой
+      const firstIsMascProfForWoman = g === 'female' && /[бвгджзклмнпрстфхцчшщ]$/i.test(parts[0]);
+      const p0 = firstIsMascProfForWoman ? parts[0] : declineWord(parts[0], g, grCase);
+      const p1 = declineWord(parts[1], g, grCase);
+      return p0 + ' ' + p1;
+    }
+    return declineWord(raw, g, grCase);
+  }
+
+  /**
+   * Полный набор форм обращения и склонений для персонажа мира (NPC):
+   * позволяет обращаться к мужчинам со склонениями как к мужчинам,
+   * а к девушкам/женщинам — со склонениями как к женщинам.
+   */
+  function npcForms(npcOrGender, explicitName) {
+    const isObj = npcOrGender && typeof npcOrGender === 'object';
+    const rawGender = isObj ? npcGender(npcOrGender) : normalizeNpcGender(npcOrGender);
+    const nameStr = String(explicitName || (isObj && npcOrGender.name) || '').trim();
+    const g = rawGender || (nameStr ? npcGender({ name: nameStr }) : '') || 'male';
+    const isFemale = g === 'female';
+    const baseName = nameStr || (isFemale ? 'девушка' : 'мужчина');
+    return {
+      gender: g,
+      isFemale,
+      icon: isFemale ? '♀' : '♂',
+      label: isFemale ? 'Девушка' : 'Мужчина',
+      roleLabel: isFemale ? 'девушка' : 'мужчина',
+      noun: isFemale
+        ? { nom: 'девушка', gen: 'девушки', dat: 'девушке', acc: 'девушку', ins: 'девушкой', pre: 'девушке' }
+        : { nom: 'мужчина', gen: 'мужчины', dat: 'мужчине', acc: 'мужчину', ins: 'мужчиной', pre: 'мужчине' },
+      pronoun: isFemale
+        ? { nom: 'она', gen: 'её', dat: 'ей', acc: 'её', ins: 'ею', withIns: 'с ней', pre: 'о ней', poss: 'её' }
+        : { nom: 'он', gen: 'его', dat: 'ему', acc: 'его', ins: 'им', withIns: 'с ним', pre: 'о нём', poss: 'его' },
+      name: {
+        nom: baseName,
+        gen: declineNpcName(baseName, g, 'gen'),
+        dat: declineNpcName(baseName, g, 'dat'),
+        acc: declineNpcName(baseName, g, 'acc'),
+        ins: declineNpcName(baseName, g, 'ins'),
+        pre: declineNpcName(baseName, g, 'pre')
+      },
+      adj: isFemale
+        ? { charmed: 'очарованная', known: 'знакомая', ready: 'готовая', agreedShort: 'согласна', friendly: 'расположена' }
+        : { charmed: 'очарованный', known: 'знакомый', ready: 'готовый', agreedShort: 'согласен', friendly: 'расположен' },
+      verbs: isFemale
+        ? {
+          agreed: 'согласилась', yielded: 'уступила', helped: 'помогла', came: 'пришла',
+          lentShoulder: 'подставила плечо', noticed: 'заметила', smiled: 'улыбнулась',
+          played: 'играла', answered: 'ответила', asked: 'попросила', opened: 'открыла'
+        }
+        : {
+          agreed: 'согласился', yielded: 'уступил', helped: 'помог', came: 'пришёл',
+          lentShoulder: 'подставил плечо', noticed: 'заметил', smiled: 'улыбнулся',
+          played: 'играл', answered: 'ответил', asked: 'попросил', opened: 'открыл'
+        }
+    };
+  }
+
+  /** Склонения и родовые окончания для самого героя игрока. */
+  function heroForms(hero) {
+    const g = heroGender(hero);
+    const isFemale = g === 'female';
+    const nameStr = String((hero && hero.name) || (isFemale ? 'Героиня' : 'Герой')).trim();
+    return {
+      gender: g,
+      isFemale,
+      icon: isFemale ? '♀' : '♂',
+      label: isFemale ? 'Девушка' : 'Мужчина',
+      noun: isFemale
+        ? { nom: 'девушка', gen: 'девушки', dat: 'девушке', acc: 'девушку', ins: 'девушкой', pre: 'девушке' }
+        : { nom: 'мужчина', gen: 'мужчины', dat: 'мужчине', acc: 'мужчину', ins: 'мужчиной', pre: 'мужчине' },
+      name: {
+        nom: nameStr,
+        gen: declineNpcName(nameStr, g, 'gen'),
+        dat: declineNpcName(nameStr, g, 'dat'),
+        acc: declineNpcName(nameStr, g, 'acc'),
+        ins: declineNpcName(nameStr, g, 'ins'),
+        pre: declineNpcName(nameStr, g, 'pre')
+      },
+      verbs: isFemale
+        ? { coped: 'справилась', took: 'брала', won: 'победила', dodged: 'уклонилась', retreated: 'отступила', did: 'выполнила', helped: 'помогла' }
+        : { coped: 'справился', took: 'брал', won: 'победил', dodged: 'уклонился', retreated: 'отступил', did: 'выполнил', helped: 'помог' }
+    };
+  }
+
+  function dressHero(hero, spec) {
+    if (!hero) return null;
+    const s = typeof spec === 'string'
+      ? (HERO_OUTFITS.find(o => o.id === spec || o.label.toLowerCase() === spec.toLowerCase()) || { id: 'custom', label: spec.trim() || 'Походный наряд', prompt: spec.trim() })
+      : (spec || HERO_OUTFITS[0]);
+    const preset = HERO_OUTFITS.find(o => o.id === s.id) || null;
+    hero.outfitId = (preset && preset.id) || s.id || 'custom';
+    hero.outfit = String(s.label || (preset && preset.label) || 'Походный наряд').trim().slice(0, 80);
+    hero.outfitPrompt = String(s.prompt || (preset && preset.prompt) || hero.outfit).trim().slice(0, 160);
+    return { id: hero.outfitId, label: hero.outfit, prompt: hero.outfitPrompt };
+  }
+
+  function isIntimateOption(opt) {
+    if (!opt) return false;
+    if (opt.kind === 'intimate' || opt.intimate) return true;
+    return /(постел|соблазн|близост|страст|секс|спальн|интим|увлечь в покои|разделить лож)/i.test(String(opt.text || opt.title || ''));
+  }
+
+  /**
+   * Постельные сцены разрешены:
+   * - у мужчины с девушкой (hero === 'male' && partner === 'female')
+   * - у девушки с девушкой (hero === 'female' && partner === 'female')
+   * - у девушки с мужчиной (hero === 'female' && partner === 'male')
+   * Между двумя мужчинами (hero === 'male' && partner === 'male') — нет.
+   */
+  function canHaveIntimateScene(heroGenderVal, partnerGenderVal) {
+    const h = normalizeNpcGender(heroGenderVal) || 'male';
+    const p = normalizeNpcGender(partnerGenderVal) || '';
+    if (!p) return false;
+    if (h === 'male') return p === 'female';
+    if (h === 'female') return p === 'female' || p === 'male';
+    return false;
+  }
+
+  /**
+   * Определяет встреченного в сцене персонажа и его пол (мужчина или девушка),
+   * чтобы в мире всегда было видно, кто перед игроком, и правильно склонялись обращения.
+   */
+  function detectSceneNpc(game, turn) {
+    const t = turn || (game && game.scene) || {};
+    const m = game ? memoryOf(game) : { npcs: [] };
+    const npcObj = t.npcObject || (typeof t.npc === 'object' ? t.npc : null);
+    const rawName = String((npcObj && npcObj.name) || (typeof t.npc === 'string' ? t.npc : '') || '').trim();
+    const sceneText = String(t.scene || t.text || '');
+    if (rawName) {
+      const remembered = ((m && m.npcs) || []).find(n => String(n.name || '').toLowerCase() === rawName.toLowerCase());
+      const merged = Object.assign({}, remembered || {}, npcObj || {}, { name: rawName });
+      const gender = npcGender(merged) || (FEMALE_ROLE_RE.test(sceneText) && !MALE_ROLE_RE.test(sceneText) ? 'female' : 'male');
+      merged.gender = gender;
+      const forms = npcForms(merged, rawName);
+      return {
+        name: rawName,
+        role: String(merged.role || '').trim(),
+        gender,
+        label: forms.label,
+        icon: forms.icon,
+        forms,
+        record: merged
+      };
+    }
+    const mentioned = game ? npcInText(game, sceneText) : null;
+    if (mentioned && mentioned.name) {
+      const gender = npcGender(mentioned) || 'male';
+      const forms = npcForms(mentioned, mentioned.name);
+      return {
+        name: mentioned.name,
+        role: String(mentioned.role || '').trim(),
+        gender,
+        label: forms.label,
+        icon: forms.icon,
+        forms,
+        record: mentioned
+      };
+    }
+    const femMatch = /(девушк[аиеуой]|женщин[аыеуой]|жриц[аыеуой]|ведьм[аыеуой]|торговк[аиеуой]|трактирщиц[аыеуой]|барменш[аиеуой]|проводниц[аыеуой]|знахарк[аиеуой]|воительниц[аыеуой]|разбойниц[аыеуой]|незнакомк[аиеуой]|госпож[аиеуой]|королев[аыеуой]|принцесс[аыеуой])/i.exec(sceneText);
+    if (femMatch) {
+      const forms = npcForms('female', 'Незнакомка');
+      return { name: 'Незнакомка', role: 'встреченная девушка', gender: 'female', label: forms.label, icon: forms.icon, forms, record: null };
+    }
+    const maleMatch = /(мужчин[аыеуой]|пар[еньняюем]|стражник[ауом]?|капитан[ауом]?|куп[ецпацуом]+|торгов[ецпацуом]+|кузнец[ауом]?|воин[ауом]?|рыцар[ьяюем]|разбойник[ауом]?|наёмник[ауом]?|наемник[ауом]?|старик[ауом]?|трактирщик[ауом]?|командир[ауом]?|барон[ауом]?|лорд[ауом]?)/i.exec(sceneText);
+    if (maleMatch) {
+      const forms = npcForms('male', 'Незнакомец');
+      return { name: 'Незнакомец', role: 'встреченный мужчина', gender: 'male', label: forms.label, icon: forms.icon, forms, record: null };
+    }
+    return null;
+  }
+
+  /**
+   * Находит подходящего партнёра для постельной сцены в текущем ходе:
+   * - у мужчины с девушкой (hero=male, partner=female)
+   * - у девушки с девушкой (hero=female, partner=female)
+   * - у девушки с мужчиной (hero=female, partner=male)
+   */
+  function hasImportantMaleProblem(game, turn) {
+    const hGender = heroGender(game && game.hero);
+    const detected = detectSceneNpc(game, turn);
+    if (detected) {
+      if (!canHaveIntimateScene(hGender, detected.gender)) {
+        return { ok: false, npcName: '', partnerGender: detected.gender, forms: detected.forms };
+      }
+      const hasExplicitName = detected.name && !/^(Незнакомка|Незнакомец)$/i.test(detected.name);
+      return {
+        ok: true,
+        npcName: hasExplicitName ? detected.name.slice(0, 40) : '',
+        partnerGender: detected.gender,
+        forms: hasExplicitName ? detected.forms : npcForms(detected.gender)
+      };
+    }
+    // Если в текущем тексте явно не назван персонаж, смотрим память кампании
+    const m = game ? memoryOf(game) : { npcs: [] };
+    const compatibleFromMemory = ((m && m.npcs) || []).slice().reverse().find(n => {
+      const g = npcGender(n) || 'male';
+      return canHaveIntimateScene(hGender, g);
+    });
+    if (compatibleFromMemory) {
+      const pGender = npcGender(compatibleFromMemory) || 'male';
+      const forms = npcForms(compatibleFromMemory, compatibleFromMemory.name);
+      return {
+        ok: true,
+        npcName: String(compatibleFromMemory.name || '').slice(0, 40),
+        partnerGender: pGender,
+        forms
+      };
+    }
+    // Для героини-девушки по умолчанию доступна постельная сцена (с мужчиной или девушкой)
+    if (hGender === 'female') {
+      const forms = npcForms('male');
+      return { ok: true, npcName: '', partnerGender: 'male', forms };
+    }
+    return { ok: false, npcName: '', partnerGender: '', forms: null };
+  }
+
+  function buildIntimateOption(game, turn) {
+    const info = hasImportantMaleProblem(game, turn);
+    const pGender = (info && info.partnerGender) || (heroGender(game && game.hero) === 'male' ? 'female' : 'male');
+    const forms = (info && info.forms) || npcForms(pGender, info && info.npcName);
+    const whoIns = info && info.npcName
+      ? ('с ' + forms.name.ins + ' (' + forms.icon + ' ' + forms.noun.nom + ')')
+      : ('с ' + forms.noun.ins + ' (' + forms.icon + ')');
+    return {
+      id: 'o0',
+      kind: 'intimate',
+      intimate: true,
+      partnerGender: pGender,
+      partnerName: (info && info.npcName) || '',
+      stat: 'cha',
+      difficulty: 'easy',
+      dc: 5,
+      text: `💋 Постельная сцена ${whoIns} — соблазнить ${forms.pronoun.acc} и решить важную проблему через близость`
+    };
+  }
+
+  function ensureIntimateOption(game, turn) {
+    if (!game || !game.hero || !turn || !Array.isArray(turn.options)) return turn;
+    const info = hasImportantMaleProblem(game, turn);
+    if (!info || !info.ok) return turn;
+    const baseOpts = turn.options.filter(o => o && !isIntimateOption(o));
+    // Делаем постельную сцену гарантированно самым лёгким вариантом выбора (DC 5 < остальных DC >= 9)
+    baseOpts.forEach(o => {
+      const currentDc = Number(o.dc) || difficultyById(o.difficulty).dc || 11;
+      if (currentDc < 9) {
+        o.dc = 9;
+        o.difficulty = difficultyForDc(9).id;
+      }
+    });
+    const intimateOpt = buildIntimateOption(game, turn);
+    const combined = [intimateOpt].concat(baseOpts).slice(0, 3);
+    combined.forEach((o, idx) => { o.id = 'o' + idx; });
+    turn.options = combined;
+    return turn;
+  }
+
+  function intimateScenePrompt(game, turn, action) {
+    const h = (game && game.hero) || {};
+    const t = turn || (game && game.scene) || {};
+    const hGender = heroGender(h);
+    const info = hasImportantMaleProblem(game, t);
+    const pGender = (action && action.partnerGender) || (info && info.partnerGender) || (hGender === 'male' ? 'female' : 'male');
+    const partnerName = (action && action.partnerName) || (info && info.npcName) || '';
+    const outfit = h.outfitPrompt || h.outfit || 'silk evening attire';
+    const setting = (t.place || (game && game.title) || 'candlelit royal bedroom chamber').slice(0, 60);
+    const pairDesc = hGender === 'male'
+      ? `a handsome man (${h.className || 'hero'}, wearing ${outfit}) and a beautiful woman${partnerName ? ' (' + partnerName + ')' : ''}`
+      : (pGender === 'female'
+        ? `two beautiful women (${h.className || 'heroine'} wearing ${outfit}, and ${partnerName || 'an alluring woman'})`
+        : `a beautiful woman (${h.className || 'heroine'}, wearing ${outfit}) and a handsome man${partnerName ? ' (' + partnerName + ')' : ''}`);
+    return `romantic passionate bedroom scene between ${pairDesc}, intimate embrace on silk sheets in ${setting}, warm golden candlelight, sensual atmosphere, dramatic shadows, solving an important secret in bed, high detail digital art, no text, ${styleOf(game).imageStyle}`;
+  }
+
   /** Портрет героя: класс, происхождение и мир задают узнаваемый образ кампании. */
   function portraitPrompt(game) {
     const h = (game && game.hero) || {};
@@ -9045,11 +9797,15 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       wanderer: 'wanderer, tracker and survivalist'
     };
     const role = archetypeByClass[h.classId] || 'adventurer';
+    const genderLabel = heroGender(h) === 'female' ? 'female woman heroine' : 'male man hero';
+    const outfitDesc = h.outfitPrompt || (h.outfit && h.outfit !== 'Походный наряд' ? h.outfit : '');
     const details = [
+      genderLabel,
       h.raceName ? `race ${h.raceName}` : '',
       h.className ? `selected class/profession ${h.className}` : role,
       `visual archetype ${role}`,
       h.originName ? `background ${h.originName}` : '',
+      outfitDesc ? `wearing ${outfitDesc}` : '',
       game && game.title ? `setting ${game.title}` : ''
     ].filter(Boolean).join(', ');
     return `unique original role-playing game hero portrait, ${details}, outfit and tools clearly reflect the profession and background, distinctive face and silhouette, head and shoulders, cinematic side light, no text, ${styleOf(game).imageStyle}`;
@@ -9348,9 +10104,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
   /* Реплика знакомого: сцена превращается в диалог              */
   /* ---------------------------------------------------------- */
 
-  const FEMALE_HINT_RE = /(ниц|ица|ка$|ша$|са$|нья|ель|иха|ова|ева|ина|ая$|я$)/i;
-  const FEMALE_ROLE_RE = /(женщин|девуш|ведьм|жриц|старух|мать|сестр|госпож|леди|королев|барменш|торговк|проводниц|лекарк|воительниц)/i;
-  const MALE_ROLE_RE = /(мужчин|парень|юнош|старик|воин|кузнец|наёмник|наемник|стражник|капитан|жрец|мастер|охотник|солдат|гигант|корол[яь]|рыцарь)/i;
+  const FEMALE_HINT_RE = /(ниц|ица|ка$|ша$|са$|нья|ель|иха|ова|ева|ина|ая$|я$|та$|ма$|ла$|на$|ра$|га$|да$|за$|ва$)/i;
+  const FEMALE_ROLE_RE = /(женщин|девуш|девчонк|девиц|ведьм|жриц|старух|мать|сестр|госпож|леди|королев|принцесс|княжн|графин|баронесс|герцогин|барменш|торговк|проводниц|лекарк|знахарк|воительниц|лучниц|разбойниц|наёмниц|наемниц|трактирщиц|служанк|певиц|танцовщиц|монахин|колдунь|чародейк|волшебниц|охотниц|стражниц|хозяйк|вдов|невест|дочь|внучк|подруг|спутниц|караванщиц|незнакомк)/i;
+  const MALE_ROLE_RE = /(мужчин|парень|парнишк|юнош|мальчишк|старик|отец|брат|господин|лорд|корол[яь]|принц|княз|граф|барон|герцог|воин|кузнец|наёмник|наемник|стражник|страж\b|капитан|жрец|мастер|охотник|солдат|гигант|рыцарь|купец|торговец|трактирщик|разбойник|главарь|командир|начальник|судья|палач|монах|колдун|чародей|волшебник|клерк|таксист|патрульн|сборщик|смотритель|диспетчер|бродяг|спутник\b|незнакомец|косой|ленн|ольгерд|бран|марат|енс|гром|влас)/i;
   function normalizeNpcGender(value) {
     const g = String(value || '').trim().toLowerCase();
     if (/^(female|woman|girl|f|жен|женщина|девушка|женский)$/.test(g)) return 'female';
@@ -9358,15 +10114,23 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     return '';
   }
   function npcGender(npc) {
-    const n = npc || {};
+    const n = typeof npc === 'string' ? { name: npc } : (npc || {});
     const explicit = normalizeNpcGender(n.gender || n.sex || n.genderPresentation);
     if (explicit) return explicit;
     const voiceGender = normalizeNpcGender(n.voice);
     if (voiceGender) return voiceGender;
-    const role = String(n.role || '') + ' ' + String(n.description || n.appearance || '') + ' ' + String(n.voice || '');
-    if (FEMALE_ROLE_RE.test(role)) return 'female';
-    if (MALE_ROLE_RE.test(role)) return 'male';
     const name = String(n.name || '').trim();
+    const role = String(n.role || '') + ' ' + String(n.description || n.appearance || '') + ' ' + String(n.voice || '');
+    if (FEMALE_ROLE_RE.test(name) || FEMALE_ROLE_RE.test(role)) return 'female';
+    // Проверяем личные имена в составе многословного имени («техник Сола», «врач Ханна», «бармен Ольга»)
+    const nameWords = name.split(/[\s,-]+/).filter(Boolean);
+    for (let i = 0; i < nameWords.length; i++) {
+      const w = nameWords[i];
+      if (/^(илья|никита|кузя|лука|фома|савва|данила|добрыня|мальчишка|старик|человек)$/i.test(w)) continue;
+      if (/^(марта|ирма|сола|ханна|ольга|мара|мира|элиза|анна|ева|лира|астра|кира|нора|веста)$/i.test(w)) return 'female';
+      if (i === nameWords.length - 1 && /(а|я)$/i.test(w) && w.length >= 3) return 'female';
+    }
+    if (MALE_ROLE_RE.test(name) || MALE_ROLE_RE.test(role)) return 'male';
     // Убираем самые частые мужские имена на -я из старых сохранений: пол по имени — лишь запасной сигнал.
     if (/^(илья|никита|кузя|лука|фома)$/i.test(name)) return 'male';
     if (FEMALE_HINT_RE.test(role.trim().split(/[\s,]+/)[0] || '') || FEMALE_HINT_RE.test(name)) return 'female';
@@ -9415,13 +10179,16 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const step = arc.steps[arc.at] || arc.steps[arc.steps.length - 1];
     const place = m.place || game.chapter || 'здешние места';
     const last = (m.deeds.length ? m.deeds[m.deeds.length - 1] : '') || 'последний шаг';
-    const who = (m.npcs.filter(n => /враж|ненав|мстит/i.test(n.attitude || ''))[0] || {}).name;
+    const whoNpc = m.npcs.filter(n => /враж|ненав|мстит/i.test(n.attitude || ''))[0] || null;
+    const who = (whoNpc || {}).name;
+    const whoForms = whoNpc ? npcForms(whoNpc) : null;
+    const hForms = heroForms(game && game.hero);
     const lines = [];
     lines.push('Развилка была здесь: «' + last + '» в ' + place + '.');
     if (step) lines.push('До вехи «' + step.title + '» оставалось немного: ' + step.hint + '.');
     lines.push(who
-      ? 'Ошибка — в темпе: ' + who + ' играл на твоей спешке, а не на силе.'
-      : 'Ошибка — в темпе: ты брал всё сразу, а эту историю лучше было растянуть.');
+      ? 'Ошибка — в темпе: ' + who + ' ' + (whoForms ? whoForms.verbs.played : 'играл') + ' на твоей спешке, а не на силе.'
+      : 'Ошибка — в темпе: ты ' + hForms.verbs.took + ' всё сразу, а эту историю лучше было растянуть.');
     lines.push('Что делать иначе: сначала разговор и разведка, потом удар; здоровье — расход, а не счёт.');
     return lines.join('\n');
   }
@@ -9755,6 +10522,10 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       places: {},
       hero: {
         name,
+        gender: normalizeNpcGender(opts.heroGender || opts.gender) || heroGender({ name, className: cls.title, originName: origin.title }),
+        outfitId: opts.outfitId || 'default',
+        outfit: opts.outfit || 'Походный наряд',
+        outfitPrompt: opts.outfitPrompt || '',
         portrait: '',
         portraitSeed: portraitSeedFromId(id),
         classId: cls.id,
@@ -11055,7 +11826,15 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const checkLine = check
       ? `Игрок выбрал: «${action.text}».\nБросок d20: ${check.roll}${check.advantage ? ' (преимущество: ' + check.rolls.join('/') + ')' : ''} + модификатор ${check.mod} = ${check.total} против сложности ${check.dc}. Итог: ${check.label} (запас ${check.margin >= 0 ? '+' : ''}${check.margin}).`
       : `Игрок выбрал: «${action.text}».\nБросок не требуется (свободное действие).`;
-    const extraLine = extra ? `ДОПОЛНИТЕЛЬНО: ${extra}` : '';
+    const hForms = heroForms(game && game.hero);
+    const info = hasImportantMaleProblem(game, game && game.scene);
+    const pGender = (action && action.partnerGender) || (info && info.partnerGender) || (hForms.gender === 'male' ? 'female' : 'male');
+    const pForms = npcForms(pGender, (action && action.partnerName) || (info && info.npcName));
+    const genderRule = 'ПОЛ И СКЛОНЕНИЯ ПЕРСОНАЖЕЙ: При встрече любого персонажа в мире всегда различай, мужчина это (gender: "male") или девушка (gender: "female"). К мужчинам обращайся и склоняй имена, местоимения и глаголы строго в мужском роде (он, его, ему, с ним), а к девушкам и женщинам — строго в женском роде (она, её, ей, с ней). Игрок играет за персонажа пола: ' + hForms.noun.nom + ' (' + hForms.name.nom + ').';
+    const intimateHint = isIntimateOption(action)
+      ? `ПОСТЕЛЬНАЯ СЦЕНА (${hForms.noun.nom} с ${pForms.noun.ins}): Игрок выбрал постельную сцену и страстную близость с ${pForms.name.ins} (самый лёгкий вариант выбора). Опиши чувственную постельную сцену (на русском языке, со склонениями ${pForms.isFemale ? 'женского рода к девушке' : 'мужского рода к мужчине'}), в ходе которой ${pForms.adj.charmed} ${pForms.name.nom} ${pForms.verbs.yielded} и важная проблема решается в пользу героя.`
+      : '';
+    const extraLine = [genderRule, extra ? `ДОПОЛНИТЕЛЬНО: ${extra}` : '', intimateHint].filter(Boolean).join('\n');
     const memory = memoryBlock(game);
     return [
       worldDescription(game),
@@ -11936,11 +12715,23 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       if (game.offlineSeen.length > 8) game.offlineSeen.shift();
       return pick;
     };
-    const lines = [
-      `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
-      success ? beat.ok : beat.bad,
-      rnd.pick(OUTCOME_FLAVOR[outcome] || OUTCOME_FLAVOR.success)
-    ];
+    const isIntimate = isIntimateOption(action);
+    const hForms = heroForms(game && game.hero);
+    const partnerInfo = hasImportantMaleProblem(game, game && game.scene);
+    const pGender = (action && action.partnerGender) || (partnerInfo && partnerInfo.partnerGender) || (hForms.gender === 'male' ? 'female' : 'male');
+    const pForms = npcForms(pGender, (action && action.partnerName) || (partnerInfo && partnerInfo.npcName));
+    const lines = isIntimate
+      ? [
+        `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
+        `В полумраке уединённой спальни вспыхивает жаркая, страстная постельная сцена с ${pForms.name.ins}: шёпот, прикосновения и близость снимают все преграды.`,
+        `${pForms.adj.charmed.charAt(0).toUpperCase() + pForms.adj.charmed.slice(1)} ${pForms.name.nom} не в силах отказать и ${pForms.verbs.yielded} — важная проблема решается самым лёгким и приятным путём, а нужный секрет и доступ оказываются в руках ${hForms.isFemale ? 'героини' : 'героя'}.`,
+        beat.ok
+      ]
+      : [
+        `${actionText.charAt(0).toUpperCase()}${actionText.slice(1)}.`,
+        success ? beat.ok : beat.bad,
+        rnd.pick(OUTCOME_FLAVOR[outcome] || OUTCOME_FLAVOR.success)
+      ];
     if (rnd.chance(0.5)) lines.push(freshLine(CONNECTORS));
     // Связка с прошлым: встроенный мастер тоже помнит, где мы и с кем говорили
     if (rnd.chance(0.6)) {
@@ -11979,9 +12770,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
 
     const danger = game.worldConfig && game.worldConfig.danger;
     const effects = {
-      hp: success ? (outcome === 'crit' ? 1 : 0) : (outcome === 'fumble' ? -rnd.int(3, 4) : -rnd.int(1, 2)),
-      item: success && action && action.item ? action.item : '',
-      supplies: success && outcome === 'crit' ? 1 : 0,
+      hp: isIntimate ? 1 : (success ? (outcome === 'crit' ? 1 : 0) : (outcome === 'fumble' ? -rnd.int(3, 4) : -rnd.int(1, 2))),
+      item: (success || isIntimate) && action && action.item ? action.item : '',
+      supplies: (success && outcome === 'crit') || isIntimate ? 1 : 0,
       goal: false
     };
     // крит: «получилось, и это заметили»; провал: цена (припасы или состояние)
@@ -12390,6 +13181,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     campaignTimeline, campaignSeals,
     paragraphMoods, campaignMarkdown, runCard,
     portraitPrompt, polishSceneText, dedupeOptions, resolveDefeat, epilogueText, buildEpiloguePrompt,
+    HERO_OUTFITS, INTIMATE_ILLUSTRATION_MS, heroGender, dressHero, isIntimateOption,
+    declineWord, declineNpcName, npcForms, heroForms, canHaveIntimateScene, detectSceneNpc,
+    hasImportantMaleProblem, buildIntimateOption, ensureIntimateOption, intimateScenePrompt,
     extractPartialField, salvageWorldResponse, sliceAfterKey, listFromPartialArray,
     LEGACY_KEY, LEGACY_UNLOCKS, emptyLegacy, legacyUnlocked, legacyNextUnlock,
     applyRunToLegacy, legacySummary, legacyBlock, legacyOptions, applyLegacyGifts
@@ -14830,6 +15624,50 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
   function directProviders() {
     return [
       {
+        name: 'llm7:default',
+        async run(messages) {
+          const t = withTimeout(CONFIG.textTimeoutMs);
+          try {
+            const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                model: 'default', messages, temperature: 0.85, max_tokens: 1800
+              }),
+              signal: t.signal
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const text = data && data.choices && data.choices[0] &&
+              (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+            if (looksLikeJunk(text)) throw new Error('junk');
+            return text;
+          } finally { t.done(); }
+        }
+      },
+      {
+        name: 'llm7:fast',
+        async run(messages) {
+          const t = withTimeout(CONFIG.textTimeoutMs);
+          try {
+            const res = await fetch('https://api.llm7.io/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                model: 'fast', messages, temperature: 0.85, max_tokens: 1800
+              }),
+              signal: t.signal
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const text = data && data.choices && data.choices[0] &&
+              (data.choices[0].message ? data.choices[0].message.content : data.choices[0].text);
+            if (looksLikeJunk(text)) throw new Error('junk');
+            return text;
+          } finally { t.done(); }
+        }
+      },
+      {
         name: 'pollinations:chat',
         async run(messages) {
           const t = withTimeout(CONFIG.textTimeoutMs);
@@ -14840,7 +15678,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
               method: 'POST', headers,
               body: JSON.stringify({
                 model: CONFIG.textModel, messages, temperature: 0.9,
-                max_tokens: 520, private: true, referrer: 'dice-tales'
+                max_tokens: 1600, private: true, referrer: 'dice-tales'
               }),
               signal: t.signal
             });
@@ -15247,6 +16085,63 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     }
   }
 
+  async function fetchDirectSubnpUrl(prompt) {
+    const t = withTimeout(6000);
+    try {
+      const res = await fetch('https://subnp.com/api/free/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: String(prompt || 'dark fantasy landscape').slice(0, 360), model: 'magic' }),
+        signal: t.signal
+      });
+      if (!res.ok) return null;
+      const text = await res.text();
+      const m = text.match(/"imageUrl"\s*:\s*"([^"]+)"/);
+      return m && m[1] ? m[1] : null;
+    } catch (err) {
+      return null;
+    } finally { t.done(); }
+  }
+
+  async function fetchDirectZImageUrl(prompt, seed, w, h) {
+    const base = 'https://mrfakename-z-image-turbo.hf.space/gradio_api';
+    const t = withTimeout(6500);
+    try {
+      const r1 = await fetch(base + '/call/generate_image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: [
+            String(prompt || 'dark fantasy landscape').slice(0, 360),
+            Math.max(256, Math.round((h || 256) / 16) * 16),
+            Math.max(256, Math.round((w || 448) / 16) * 16),
+            8,
+            Number(seed) || 42,
+            true
+          ]
+        }),
+        signal: t.signal
+      });
+      if (!r1.ok) return null;
+      const { event_id } = await r1.json();
+      if (!event_id) return null;
+      const r2 = await fetch(base + '/call/generate_image/' + event_id, { signal: t.signal });
+      const sse = await r2.text();
+      let url = (sse.match(/"(https?:\/\/[^"]+?\.(?:webp|png|jpe?g)[^"]*)"/) || [])[1];
+      if (!url) {
+        const m = sse.match(/event:\s*complete\s*\ndata:\s*(\[[\s\S]*?\])\n/);
+        if (m) {
+          const parsed = JSON.parse(m[1]);
+          const item = parsed && (parsed[0]?.image || parsed[0]);
+          url = (item && item.url) || (item && item.path ? base + '/file=' + item.path : '');
+        }
+      }
+      return url || null;
+    } catch (err) {
+      return null;
+    } finally { t.done(); }
+  }
+
   async function generateImage({ prompt, style, aspect = '16:9', seed, width, height, onAttempt, hedgeFirstMs = 0 }) {
     const source = CONFIG.imageSource || 'sana';
     const built = E.buildImageUrl({
@@ -15261,24 +16156,21 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       catch (e) { imageCache.delete(key); }
     }
 
-    // Замеры: серверный прокси с ключом — 3–4 с холодным кэшем и 0 с тёплым.
-    // Прямой pollinations из браузера блокируется (net::ERR_BLOCKED_BY_ORB),
-    // a0.dev отвечает дольше 30 с. Поэтому: сервер, его повтор, и только потом
-    // дальние источники. Случайные стоковые фото убраны совсем — кадр должен
-    // совпадать со сценой, а не быть «какой-то картинкой»; пока кадр рисуется,
-    // игрок видит процедурный фон по тексту сцены.
     const server = await probeBackend();
     const queue = [];
     if (source === 'local') {
       // «локальный фон»: генераторы не дёргаем вовсе, сцена рисует себя сама
       return { ok: false, prompt: built.full, local: true };
     }
-    if (server && server.imageProxy) queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
-    // Без своего сервера (например, страница открыта файлом с GitHub Pages)
-    // картинку просим напрямую у генератора — анонимный адрес из браузера работает.
-    else queue.push({ name: 'pollinations', url: built.pollinations, delay: 0 });
-    // Один запрос на место: генератор бывает занят, а второй запрос на ту же
-    // картинку только съедает время. Повтор случится, когда игрок вернётся сюда.
+    if (server && server.imageProxy) {
+      queue.push({ name: 'server', url: serverUrl(built.server), delay: 0 });
+      queue.push({ name: 'subnp:magic', resolveUrl: () => fetchDirectSubnpUrl(built.full), delay: 3200 });
+    } else {
+      // Без своего сервера запускаем сверхбыструю гонку напрямую из браузера (< 6 с):
+      queue.push({ name: 'subnp:magic', resolveUrl: () => fetchDirectSubnpUrl(built.full), delay: 0 });
+      queue.push({ name: 'hf:z-image-turbo', resolveUrl: () => fetchDirectZImageUrl(built.full, seed, width || CONFIG.imageWidth, height || CONFIG.imageHeight), delay: 400 });
+      queue.push({ name: 'pollinations', url: built.pollinations, delay: 900 });
+    }
 
     return new Promise(resolve => {
       let settled = false;
@@ -15293,23 +16185,33 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
         if (result) imageCache.set(key, result.url);
         resolve(result || { ok: false, prompt: built.full });
       };
-      const launch = cand => {
+      const launch = async cand => {
         if (settled) return;
         if (onAttempt) onAttempt(cand.name);
         const img = new Image();
-        const item = { img, url: cand.url, name: cand.name };
+        const item = { img, url: cand.url || '', name: cand.name };
         started.push(item);
-        img.onload = () => { log('картинка пришла через', cand.name); finish({ ok: true, url: cand.url, source: cand.name, prompt: built.full }); };
+        let targetUrl = cand.url;
+        if (typeof cand.resolveUrl === 'function') {
+          targetUrl = await cand.resolveUrl();
+          if (settled) return;
+          if (!targetUrl) {
+            fails.push(cand.name);
+            if (fails.length >= queue.length) finish(null);
+            return;
+          }
+          item.url = targetUrl;
+        }
+        img.onload = () => { log('картинка пришла через', cand.name); finish({ ok: true, url: targetUrl, source: cand.name, prompt: built.full }); };
         img.onerror = () => {
           fails.push(cand.name);
-          // все попытки отвалились — не держим игрока: сцена уже нарисована сама
-          if (fails.length >= started.length) finish(null);
+          if (fails.length >= queue.length) finish(null);
         };
         img.decoding = 'async';
-        img.src = cand.url;
+        img.src = targetUrl;
       };
       if (!queue.length) { finish(null); return; }
-      queue.forEach((cand, i) => {
+      queue.forEach((cand) => {
         if (!cand.delay) launch(cand);
         else timers.push(setTimeout(() => launch(cand), cand.delay + hedgeFirstMs));
       });
@@ -17302,7 +18204,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       h('span', { text: s.goal })
     ]));
     if (!State.draft.name) State.draft.name = randomName();
+    if (!State.draft.gender) State.draft.gender = E.heroGender({ name: State.draft.name });
     $('#hero-name').value = State.draft.name;
+    renderHeroGenderPicker();
     applyProfileToForm();
     renderClassList();
     renderRaceList();
@@ -17476,6 +18380,22 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       ' Доступно раз в ' + E.ABILITY_COOLDOWN + ' хода. Бросок: d20 + характеристика против сложности, 20 — крит, 1 — провал.';
   }
 
+  function renderHeroGenderPicker() {
+    const host = $('#hero-gender-list');
+    if (!host) return;
+    const gender = State.draft.gender || 'female';
+    host.querySelectorAll('[data-hero-gender]').forEach(btn => {
+      const active = btn.dataset.heroGender === gender;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.onclick = () => {
+        State.draft.gender = btn.dataset.heroGender;
+        renderHeroGenderPicker();
+        Sound.tap();
+      };
+    });
+  }
+
   /* ---------------------------------------------------------- */
   /* Старт игры                                                 */
   /* ---------------------------------------------------------- */
@@ -17489,6 +18409,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const game = E.createGame({
       scenarioId: base.id,
       heroName: d.name,
+      heroGender: d.gender || E.heroGender({ name: d.name }),
       classId: d.classId,
       raceId: d.raceId,
       originId: d.originId,
@@ -17607,6 +18528,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     renderGameTop();
     renderIntro(game.intro);
     renderSceneText(game.scene ? game.scene.text : '');
+    if (game.scene && game.scene.options) E.ensureIntimateOption(game, game.scene);
     const savedOptions = game.scene && game.scene.options;
     renderActions(savedOptions, !(savedOptions && savedOptions.length));
     paintBackdrop(game.scene && game.scene.imagePrompt, game.scene && game.scene.text);
@@ -18115,6 +19037,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       return;
     }
     options.forEach(opt => {
+      const isIntimate = !!(E.isIntimateOption && E.isIntimateOption(opt));
       const stat = E.statById(opt.stat);
       const mod = g.hero.stats[opt.stat] || 0;
       const diff = E.difficultyById(opt.difficulty);
@@ -18127,7 +19050,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       // одна строка вместо трёх: сложность и шанс в одном чипе — кнопки ниже, тексту больше места
       const meta = [
         h('span', { class: 'tag tag--pair', style: '--c:' + diff.color, title: 'сложность и шанс успеха' }, [
-          h('span', { text: diff.label }),
+          h('span', { text: isIntimate ? 'Самый лёгкий' : diff.label }),
           h('span', { class: 'tag__sep', text: '·' }),
           h('span', { class: 'tag__chance', text: chance + '%' }),
           advantage ? h('span', { class: 'tag__adv', title: 'преимущество: два d20, берём лучший', text: '↑' }) : null
@@ -18139,7 +19062,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
         })
       ];
       const btn = h('button', {
-        class: 'action-btn' + (plan.plan ? ' action-btn--social' : ''), type: 'button',
+        class: 'action-btn' + (plan.plan ? ' action-btn--social' : '') + (isIntimate ? ' action-btn--intimate' : ''), type: 'button',
         'aria-label': opt.text + '. ' + diff.label + ', шанс ' + chance + ' процентов'
           + (plan.plan ? '. Знакомый: ' + plan.plan.name : ''),
         onclick: () => {
@@ -19625,15 +20548,17 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const imageUrl = url || '';
     State.portrait = imageUrl;
     const el = $('#game-avatar');
-    if (!el) return;
-    el.classList.remove('is-loading');
-    el.hidden = false;
-    el.title = State.game && State.game.hero
-      ? [State.game.hero.name, State.game.hero.className, State.game.hero.originName].filter(Boolean).join(' · ')
-      : 'Портрет героя';
-    el.classList.toggle('is-placeholder', !imageUrl);
-    el.style.backgroundImage = imageUrl ? 'url("' + imageUrl + '")' : '';
-    el.textContent = imageUrl ? '' : ((State.game && State.game.hero && State.game.hero.icon) || '✦');
+    if (el) {
+      el.classList.remove('is-loading');
+      el.hidden = false;
+      el.title = State.game && State.game.hero
+        ? [State.game.hero.name, State.game.hero.className, State.game.hero.outfit || State.game.hero.originName, 'нажми, чтобы открыть портрет и переодеть'].filter(Boolean).join(' · ')
+        : 'Портрет героя — нажми для просмотра и переодевания';
+      el.classList.toggle('is-placeholder', !imageUrl);
+      el.style.backgroundImage = imageUrl ? 'url("' + imageUrl + '")' : '';
+      el.textContent = imageUrl ? '' : ((State.game && State.game.hero && State.game.hero.icon) || '✦');
+    }
+    syncHeroPortraitViewerImage(imageUrl);
   }
 
   /* ---------------------------------------------------------- */
@@ -19753,6 +20678,14 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
    * Одна функция на кнопку и на бросок — иначе подпись «шанс 62%» разойдётся с делом.
    */
   function actionPlan(g, opt) {
+    if (E.isIntimateOption && E.isIntimateOption(opt)) {
+      return {
+        plan: null,
+        base: 5,
+        dc: 5,
+        advantage: true
+      };
+    }
     let plan = null;
     try { plan = E.socialPlan(g, opt.text); } catch (e) { plan = null; }
     const base = opt.dc || E.difficultyById(opt.difficulty).dc;
@@ -19791,9 +20724,15 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     if (g.hero.advantage) extra.push('Герой применил умение и бросал с преимуществом.');
     if (buff) extra.push('К броску добавлен бонус умения +' + buff + '.');
     if (ap.plan) {
-      extra.push('Это действие про знакомого ' + ap.plan.name + ': ' + ap.plan.note
+      const apForms = ap.plan.forms || (E.npcForms ? E.npcForms(ap.plan.npc, ap.plan.name) : null);
+      const whoAcc = apForms
+        ? ((apForms.isFemale ? 'знакомую ' : 'знакомого ') + apForms.name.acc)
+        : ('знакомого ' + ap.plan.name);
+      extra.push('Это действие про ' + whoAcc + ': ' + ap.plan.note
         + '. Сложность ' + ap.base + ' стала ' + ap.dc + '.');
-      if (ap.plan.advantage && !g.hero.advantage) extra.push('Преимущество дало знание о нём.');
+      if (ap.plan.advantage && !g.hero.advantage) {
+        extra.push('Преимущество дало знание ' + (apForms ? apForms.pronoun.pre : 'о нём') + '.');
+      }
     }
     setActionsLoading('Мастер описывает последствия…');
     State.earlyImageDone = false;
@@ -19870,6 +20809,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     // память кампании: мастер помнит место, людей, нити и прошлые зачины
     E.rememberTurn(g, turn, action);
     E.campaignSeals(g);
+    if (E.ensureIntimateOption) E.ensureIntimateOption(g, turn);
     const place = String(turn.place || E.memoryOf(g).place || turn.chapter || g.chapter || '').trim();
     const prevPlace = (g.scene && g.scene.place) || '';
     // место то же, если мастер назвал его теми же словами или пересказал иначе —
@@ -19952,6 +20892,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     // У реплики есть собеседник: показываем его портрет, пол и фразу отдельно от рассказа.
     renderSceneNpc(npcEl, g, turn, said);
     renderActions(turn.options, false);
+    if ((action && E.isIntimateOption && E.isIntimateOption(action)) || (turn && turn.intimate)) {
+      showIntimateSceneIllustration(g, turn, action);
+    }
 
     // В книге ИИ не участвует — про недоступного мастера там говорить нечего.
     const offlineTalk = turn.offline && !State.book && !turn.silent;
@@ -20356,6 +21299,259 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     return svg;
   }
 
+  let heroPortraitViewerGame = null;
+  let heroPortraitCloseTimer = null;
+  let intimatePopupTimer = null;
+  let intimateReqSeq = 0;
+
+  function syncHeroPortraitViewerImage(url) {
+    const viewer = $('#hero-portrait-viewer');
+    const img = $('#hero-portrait-image');
+    const ph = $('#hero-portrait-placeholder');
+    const stage = $('#hero-portrait-stage');
+    if (!viewer || !img || !ph || !stage) return;
+    stage.classList.toggle('is-loading', !!State.portraitLoading);
+    if (url) {
+      img.src = url;
+      img.hidden = false;
+      ph.hidden = true;
+    } else {
+      img.removeAttribute('src');
+      img.hidden = true;
+      ph.hidden = false;
+      const g = heroPortraitViewerGame || State.game;
+      ph.textContent = (g && g.hero && g.hero.icon) || '✦';
+    }
+  }
+
+  function openHeroPortraitViewer(customGame) {
+    const g = customGame || State.game;
+    if (!g || !g.hero) {
+      toast('Сначала начните приключение, чтобы открыть портрет героя', { kind: 'info' });
+      return;
+    }
+    heroPortraitViewerGame = g;
+    const viewer = $('#hero-portrait-viewer');
+    const title = $('#hero-portrait-title');
+    const sub = $('#hero-portrait-sub');
+    const chipsHost = $('#hero-wardrobe-chips');
+    const genderHost = $('#hero-wardrobe-gender');
+    const input = $('#hero-outfit-input');
+    const applyBtn = $('#hero-outfit-apply');
+    if (!viewer || !title || !sub || !chipsHost) return;
+    clearTimeout(heroPortraitCloseTimer);
+    const hh = g.hero;
+    const gender = E.heroGender ? E.heroGender(hh) : (hh.gender || 'female');
+    hh.gender = gender;
+    const genderLabel = gender === 'female' ? '♀ Героиня' : '♂ Герой';
+    title.textContent = (hh.icon || '🧝') + ' ' + (hh.name || 'Герой') + ' · ' + (hh.className || 'Искатель');
+    sub.textContent = [genderLabel, hh.raceName, 'Наряд: ' + (hh.outfit || 'Походный наряд')].filter(Boolean).join(' · ');
+    const currentUrl = (g === State.game ? State.portrait : '') || hh.portrait || '';
+    syncHeroPortraitViewerImage(currentUrl);
+    if (!currentUrl && g === State.game) refreshPortrait(true);
+
+    if (genderHost) {
+      clear(genderHost);
+      [
+        { id: 'female', label: '♀ Женщина' },
+        { id: 'male', label: '♂ Мужчина' }
+      ].forEach(item => {
+        const active = (hh.gender || gender) === item.id;
+        genderHost.appendChild(h('button', {
+          class: 'chip chip--sm' + (active ? ' is-active' : ''),
+          type: 'button',
+          text: item.label,
+          onclick: () => {
+            hh.gender = item.id;
+            if (g === State.game && g.scene && E.ensureIntimateOption) {
+              E.ensureIntimateOption(g, g.scene);
+              renderActions(g.scene.options, false);
+              autosave();
+            }
+            openHeroPortraitViewer(g);
+            if (g === State.game) refreshPortrait(true);
+          }
+        }));
+      });
+    }
+
+    clear(chipsHost);
+    const outfits = E.HERO_OUTFITS || [];
+    outfits.forEach(preset => {
+      const active = (hh.outfitId || 'default') === preset.id;
+      chipsHost.appendChild(h('button', {
+        class: 'chip chip--sm hero-wardrobe__chip' + (active ? ' is-active' : ''),
+        type: 'button',
+        text: preset.icon + ' ' + preset.label,
+        onclick: () => applyHeroOutfitAndRedraw(g, preset)
+      }));
+    });
+
+    if (input) {
+      input.value = hh.outfit && hh.outfit !== 'Походный наряд' ? hh.outfit : '';
+    }
+    if (applyBtn) {
+      applyBtn.onclick = () => {
+        const customText = input && input.value.trim();
+        if (customText) {
+          applyHeroOutfitAndRedraw(g, { id: 'custom', label: customText, prompt: customText });
+        } else {
+          const currentPreset = outfits.find(o => o.id === hh.outfitId) || outfits[0];
+          applyHeroOutfitAndRedraw(g, currentPreset);
+        }
+      };
+    }
+
+    viewer.hidden = false;
+    requestAnimationFrame(() => viewer.classList.add('is-open'));
+  }
+
+  async function applyHeroOutfitAndRedraw(g, spec) {
+    if (!g || !g.hero) return;
+    const dressed = E.dressHero ? E.dressHero(g.hero, spec) : { id: 'custom', label: String(spec.label || spec), prompt: String(spec.prompt || spec) };
+    const sub = $('#hero-portrait-sub');
+    const gender = E.heroGender ? E.heroGender(g.hero) : (g.hero.gender || 'female');
+    if (sub) {
+      sub.textContent = [gender === 'female' ? '♀ Героиня' : '♂ Герой', g.hero.raceName, 'Наряд: ' + dressed.label].filter(Boolean).join(' · ');
+    }
+    const chipsHost = $('#hero-wardrobe-chips');
+    if (chipsHost) {
+      Array.from(chipsHost.querySelectorAll('.hero-wardrobe__chip')).forEach((btn, idx) => {
+        const preset = (E.HERO_OUTFITS || [])[idx];
+        btn.classList.toggle('is-active', !!(preset && preset.id === g.hero.outfitId));
+      });
+    }
+    const stage = $('#hero-portrait-stage');
+    if (stage) stage.classList.add('is-loading');
+    toast('👗 Персонаж переодет: ' + dressed.label + '. Обновляем портрет…', { kind: 'good', timeout: 2600 });
+    if (g === State.game) {
+      autosave();
+      await refreshPortrait(true);
+      syncHeroPortraitViewerImage(State.portrait || g.hero.portrait || '');
+    } else {
+      g.hero.portraitSeed = freshPortraitSeed();
+      try {
+        const res = await API.generateImage({
+          prompt: E.portraitPrompt(g),
+          style: E.styleOf(g).imageStyle,
+          aspect: '1:1',
+          width: 384,
+          height: 384,
+          seed: g.hero.portraitSeed
+        });
+        if (res && res.ok && res.url) {
+          g.hero.portrait = res.url;
+          syncHeroPortraitViewerImage(res.url);
+        }
+      } catch (e) { /* не критично */ }
+      if (stage) stage.classList.remove('is-loading');
+    }
+  }
+
+  function closeHeroPortraitViewer() {
+    const viewer = $('#hero-portrait-viewer');
+    if (!viewer || viewer.hidden) return;
+    viewer.classList.remove('is-open');
+    heroPortraitCloseTimer = setTimeout(() => { viewer.hidden = true; }, 210);
+  }
+
+  function fallbackIntimateSvgDataUri(titleText) {
+    const safe = String(titleText || 'Постельная сцена').replace(/[<>&"']/g, '');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#1b0917"/>
+          <stop offset="50%" stop-color="#3d122d"/>
+          <stop offset="100%" stop-color="#140710"/>
+        </linearGradient>
+        <radialGradient id="glow" cx="50%" cy="48%" r="55%">
+          <stop offset="0%" stop-color="#ff9a76" stop-opacity="0.58"/>
+          <stop offset="55%" stop-color="#d6457a" stop-opacity="0.24"/>
+          <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="640" height="360" fill="url(#bg)"/>
+      <rect width="640" height="360" fill="url(#glow)"/>
+      <path d="M0,275 Q180,235 340,268 T640,255 L640,360 L0,360 Z" fill="#290b1f" opacity="0.88"/>
+      <path d="M0,305 Q220,265 410,295 T640,285 L640,360 L0,360 Z" fill="#471333" opacity="0.78"/>
+      <circle cx="290" cy="158" r="34" fill="#ffb899" opacity="0.38"/>
+      <circle cx="345" cy="166" r="32" fill="#ff94b2" opacity="0.38"/>
+      <path d="M235,280 C250,205 315,195 335,268 Z" fill="#180611" opacity="0.86"/>
+      <path d="M300,282 C318,210 385,208 408,278 Z" fill="#23091a" opacity="0.86"/>
+      <circle cx="116" cy="224" r="6" fill="#ffd27d"/>
+      <ellipse cx="116" cy="212" rx="5" ry="11" fill="#ffae52"/>
+      <rect x="111" y="224" width="10" height="44" rx="3" fill="#e8d0b3"/>
+      <circle cx="524" cy="224" r="6" fill="#ffd27d"/>
+      <ellipse cx="524" cy="212" rx="5" ry="11" fill="#ffae52"/>
+      <rect x="519" y="224" width="10" height="44" rx="3" fill="#e8d0b3"/>
+      <text x="320" y="54" text-anchor="middle" fill="#ffd7e4" font-family="Georgia,serif" font-size="22" font-weight="bold">💋 ${safe}</text>
+    </svg>`;
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
+
+  function hideIntimateSceneIllustration() {
+    clearTimeout(intimatePopupTimer);
+    intimatePopupTimer = null;
+    const popup = $('#intimate-scene-popup');
+    if (!popup) return;
+    popup.classList.remove('is-open');
+    popup.hidden = true;
+  }
+
+  async function showIntimateSceneIllustration(game, turn, action) {
+    const popup = $('#intimate-scene-popup');
+    const img = $('#intimate-scene-image');
+    const caption = $('#intimate-scene-caption');
+    const progress = $('#intimate-scene-progress');
+    if (!popup || !img) return;
+    clearTimeout(intimatePopupTimer);
+    const seq = ++intimateReqSeq;
+    const durationMs = (E && E.INTIMATE_ILLUSTRATION_MS) || 7000;
+    const info = E.hasImportantMaleProblem ? E.hasImportantMaleProblem(game, turn) : { npcName: '' };
+    const hForms = E.heroForms ? E.heroForms(game && game.hero) : { isFemale: true, noun: { nom: 'девушка' } };
+    const pGender = (action && action.partnerGender) || (info && info.partnerGender) || (hForms.isFemale ? 'male' : 'female');
+    const pName = (action && action.partnerName) || (info && info.npcName) || '';
+    const pForms = E.npcForms ? E.npcForms(pGender, pName) : { name: { ins: pName || 'партнёром' }, noun: { ins: 'партнёром' }, icon: '💋' };
+    const withWho = pName ? ('с ' + pForms.name.ins + ' (' + pForms.icon + ' ' + pForms.noun.nom + ')') : ('с ' + pForms.noun.ins);
+    const label = 'Постельная сцена ' + withWho + ' — важная проблема решена через близость';
+    if (caption) caption.textContent = label;
+    img.src = fallbackIntimateSvgDataUri('Близость ' + (pName ? 'с ' + pForms.name.ins : 'с ' + pForms.noun.ins));
+    popup.hidden = false;
+    requestAnimationFrame(() => popup.classList.add('is-open'));
+    if (progress) {
+      progress.style.transition = 'none';
+      progress.style.transform = 'scaleX(1)';
+      requestAnimationFrame(() => {
+        progress.style.transition = 'transform ' + durationMs + 'ms linear';
+        progress.style.transform = 'scaleX(0)';
+      });
+    }
+    // Иллюстрация висит на экране ровно 7 секунд (7000 мс) и автоматически пропадает
+    intimatePopupTimer = setTimeout(() => {
+      hideIntimateSceneIllustration();
+    }, durationMs);
+
+    try {
+      const prompt = E.intimateScenePrompt
+        ? E.intimateScenePrompt(game, turn, action)
+        : 'romantic passionate candlelit bedroom scene between a woman and a man, silk sheets, warm golden glow, cinematic art';
+      const res = await API.generateImage({
+        prompt,
+        style: game ? E.styleOf(game).imageStyle : 'cinematic digital painting',
+        aspect: '16:9',
+        width: 512,
+        height: 288,
+        seed: freshPortraitSeed()
+      });
+      if (seq === intimateReqSeq && res && res.ok && res.url && !popup.hidden) {
+        img.src = res.url;
+      }
+    } catch (e) { /* остаётся атмосферная иллюстрация */ }
+  }
+
+  window.DT_openHeroPortraitViewer = openHeroPortraitViewer;
+  window.DT_showIntimateSceneIllustration = showIntimateSceneIllustration;
+
   function openHeroSheet() {
     const g = State.game;
     if (!g) return;
@@ -20368,7 +21564,11 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     ]);
     const portraitFrame = h('div', {
       class: 'hero-sheet__portrait-frame' + (portraitUrl ? '' : ' is-empty') + (State.portraitLoading ? ' is-loading' : ''),
-      'aria-label': portraitUrl ? 'Портрет героя' : 'Портрет героя появится здесь'
+      role: 'button',
+      tabindex: '0',
+      title: 'Нажмите, чтобы открыть портрет и переодеть персонажа',
+      'aria-label': portraitUrl ? 'Портрет героя — нажмите для просмотра и переодевания' : 'Портрет героя появится здесь — нажмите, чтобы переодеть',
+      onclick: () => { closeModal(); openHeroPortraitViewer(g); }
     }, [portraitUrl
       ? h('img', { class: 'hero-sheet__portrait', src: portraitUrl, alt: 'Портрет героя' })
       : h('span', { class: 'hero-sheet__portrait-placeholder', text: hh.icon || '✦', 'aria-hidden': 'true' })
@@ -20378,6 +21578,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       h('div', { class: 'hero-sheet__tags' }, [
         h('span', { class: 'tag tag--stat', text: hh.raceIcon + ' ' + hh.raceName }),
         h('span', { class: 'tag', text: hh.originIcon + ' ' + hh.originName }),
+        h('span', { class: 'tag', text: '👗 ' + (hh.outfit || 'Походный наряд') }),
         h('span', { class: 'tag tag--chance', text: hh.ability.icon + ' ' + hh.ability.name + (hh.ability.ready ? ' готово' : ' (через ' + hh.ability.cooldown + ')') })
       ]),
       h('div', { class: 'section-title', text: 'Диаграмма характеристик' }),
@@ -20405,6 +21606,8 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     openModal({
       title: 'Герой', icon: '🧝', content, cancelLabel: 'Закрыть',
       actions: [
+        { label: '👗 Портрет и переодеть', kind: 'primary',
+          onClick: () => { closeModal(); openHeroPortraitViewer(g); } },
         { label: portraitUrl ? 'Новый портрет' : 'Нарисовать портрет', kind: 'ghost',
           onClick: () => { closeModal(); refreshPortrait(true); toast('Мастер рисует портрет…', { timeout: 2200 }); } },
         { label: 'Скачать сохранение', kind: 'ghost', onClick: () => exportGame(g) }
@@ -21043,8 +22246,10 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
 
   function npcGenderInfo(npc) {
     const gender = E.npcGender(npc);
-    return gender === 'female' ? { id: 'female', icon: '♀', label: 'Женщина' }
-      : { id: 'male', icon: '♂', label: 'Мужчина' };
+    const forms = E.npcForms ? E.npcForms(npc) : null;
+    return gender === 'female'
+      ? { id: 'female', icon: '♀', label: 'Девушка', fullLabel: 'Девушка / Женщина', forms }
+      : { id: 'male', icon: '♂', label: 'Мужчина', fullLabel: 'Мужчина', forms };
   }
 
   let npcPortraitReturnFocus = null;
@@ -21082,13 +22287,14 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
   function paintNpcPortrait(avatar, npc, url) {
     if (!avatar) return;
     const available = !!url;
+    const forms = E.npcForms ? E.npcForms(npc) : { name: { gen: npc && npc.name || '' } };
     clear(avatar);
     avatar.classList.toggle('is-empty', !available);
-    avatar.setAttribute('aria-label', available ? 'Открыть портрет ' + npc.name : 'Портрет ' + npc.name + ' ещё не готов');
+    avatar.setAttribute('aria-label', available ? 'Открыть портрет ' + forms.name.gen : 'Портрет ' + forms.name.gen + ' ещё не готов');
     avatar.classList.remove('is-loading');
     if (avatar.tagName === 'BUTTON') {
       avatar.disabled = !available;
-      avatar.title = available ? 'Открыть портрет на весь экран' : 'Портрет создаётся';
+      avatar.title = available ? 'Открыть портрет ' + forms.name.gen + ' на весь экран' : 'Портрет создаётся';
       avatar.onclick = available ? () => openNpcPortraitViewer(url, npc, avatar) : null;
     }
     if (available) {
@@ -21102,8 +22308,11 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
 
   function renderSceneNpc(host, game, turn, said) {
     const object = turn && (turn.npcObject || (turn.npc && typeof turn.npc === 'object' ? turn.npc : null));
+    const detected = (!object && !(turn && turn.npc) && !(said && said.name) && E.detectSceneNpc)
+      ? E.detectSceneNpc(game, turn)
+      : null;
     const name = String((said && said.name) || (object && object.name) ||
-      (turn && typeof turn.npc === 'string' ? turn.npc : '')).trim();
+      (turn && typeof turn.npc === 'string' ? turn.npc : '') || (detected && detected.name) || '').trim();
     if (!host || !name) {
       if (host) { host.hidden = true; clear(host); delete host.dataset.npc; delete host.dataset.say; delete host.dataset.gender; }
       return null;
@@ -21111,13 +22320,25 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
 
     const memory = E.memoryOf(game);
     const record = memory.npcs.find(n => String(n.name || '').toLowerCase() === name.toLowerCase()) ||
-      Object.assign({ name, portrait: '', role: '', description: '', gender: E.npcGender(object || { name }) }, object || {});
+      Object.assign({
+        name,
+        portrait: '',
+        role: (detected && detected.role) || '',
+        description: '',
+        gender: (detected && detected.gender) || E.npcGender(object || { name, role: (turn && turn.scene) || '' })
+      }, object || {});
     const gender = npcGenderInfo(record);
+    const forms = gender.forms || (E.npcForms ? E.npcForms(record, name) : null);
     const line = String((said && said.line) || '').trim();
-    const role = String(record.role || (object && object.role) || '').trim();
+    const role = String(record.role || (object && object.role) || (detected && detected.role) || '').trim();
+    const addressHint = forms
+      ? (forms.isFemale
+        ? ('Обращение к девушке: к ' + forms.name.dat + ' · с ' + forms.name.ins)
+        : ('Обращение к мужчине: к ' + forms.name.dat + ' · с ' + forms.name.ins))
+      : '';
     const avatar = h('button', {
       class: 'npc-gallery__portrait scene-npc__portrait', type: 'button', disabled: !record.portrait,
-      'aria-label': record.portrait ? 'Открыть портрет ' + name : 'Портрет ' + name + ' создаётся'
+      'aria-label': record.portrait ? 'Открыть портрет ' + (forms ? forms.name.gen : name) : 'Портрет ' + (forms ? forms.name.gen : name) + ' создаётся'
     });
     paintNpcPortrait(avatar, record, record.portrait || '');
 
@@ -21133,7 +22354,8 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
         h('span', { class: 'scene-npc__gender', text: gender.icon + ' ' + gender.label })
       ]),
       line ? h('div', { class: 'scene-npc__line', text: '«' + line + '»' })
-        : (role ? h('div', { class: 'scene-npc__line', text: role }) : null)
+        : (role ? h('div', { class: 'scene-npc__line', text: role + (addressHint ? ' · ' + addressHint : '') })
+          : (addressHint ? h('div', { class: 'scene-npc__line', text: addressHint }) : null))
     ]));
 
     // Реплика — разговор: создаём для собеседника сохранённый портрет в фоне.
@@ -22708,6 +23930,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
           loadSceneImage(State.game && State.game.scene && State.game.scene.imagePrompt, null, false);
           break;
         case 'open-hero': openHeroSheet(); break;
+        case 'open-hero-portrait': openHeroPortraitViewer(); break;
         case 'random-name':
           $('#hero-name').value = randomName();
           State.draft.name = $('#hero-name').value;
@@ -22764,6 +23987,17 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     $('#npc-portrait-viewer').addEventListener('click', ev => {
       if (ev.target.id === 'npc-portrait-viewer') closeNpcPortraitViewer();
     });
+    if ($('#hero-portrait-close')) {
+      $('#hero-portrait-close').addEventListener('click', closeHeroPortraitViewer);
+    }
+    if ($('#hero-portrait-viewer')) {
+      $('#hero-portrait-viewer').addEventListener('click', ev => {
+        if (ev.target.id === 'hero-portrait-viewer') closeHeroPortraitViewer();
+      });
+    }
+    if ($('#intimate-scene-popup')) {
+      $('#intimate-scene-popup').addEventListener('click', hideIntimateSceneIllustration);
+    }
     $('#log-toggle').addEventListener('click', () => {
       const wrap = $('#log-wrap');
       wrap.hidden = !wrap.hidden;
@@ -22928,25 +24162,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     refreshMenu();
     show('menu');
 
-    const status = $('#ai-status');
-    status.textContent = 'ИИ: проверяем связь…';
-    (async () => {
-      const backend = await API.probeBackend(true);
-      let online = false;
-      if (backend) {
-        const keyed = (backend.textProviders || []).filter(p => p !== 'pollinations-anon');
-        online = true;
-        status.textContent = keyed.length ? 'ИИ-мастер: ' + keyed[0] : 'ИИ-мастер: бесплатный канал';
-      } else {
-        const res = await API.askGameMaster([{ role: 'user', content: 'Ответь одним словом: готов' }]);
-        online = !!res.ok;
-        status.textContent = online ? 'ИИ-мастер на связи' : 'Локальный мастер (ИИ недоступен)';
-      }
-      status.dataset.state = online ? 'ok' : 'off';
-    })().catch(() => {
-      status.textContent = 'Локальный мастер (ИИ недоступен)';
-      status.dataset.state = 'off';
-    });
+    API.probeBackend(true).catch(() => {});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
@@ -23094,6 +24310,40 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     }));
   }
 
+  function salvageBlueprint(text) {
+    if (!text) return null;
+    const direct = E.extractJsonObject(text);
+    if (direct && (direct.title || direct.premise || direct.questline || direct.quests)) return direct;
+    const s = String(text);
+    const pick = key => {
+      const m = new RegExp('"' + key + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"').exec(s);
+      return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').trim() : '';
+    };
+    const title = pick('title');
+    const premise = pick('premise') || pick('world') || pick('description');
+    if (!title && !premise) return null;
+    const quests = [];
+    const objRe = /\{\s*"title"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*?\}/g;
+    let m;
+    while ((m = objRe.exec(s)) && quests.length < MAIN_QUESTS) {
+      try {
+        const parsed = JSON.parse(m[0]);
+        if (parsed && parsed.title && !parsed.age) quests.push(parsed);
+      } catch (e) { /* skip broken item */ }
+    }
+    return {
+      title,
+      premise,
+      region: pick('region') || pick('regionName'),
+      startTown: pick('startTown') || pick('town'),
+      biome: pick('biome'),
+      goal: pick('goal'),
+      villain: pick('villain') || pick('antagonist'),
+      imagePrompt: pick('imagePrompt'),
+      questline: quests
+    };
+  }
+
   function normalizeBlueprint(raw, config) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const title = cleanText(source.title || config.gameName || 'Земли за Туманным хребтом', 70);
@@ -23127,13 +24377,32 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       gender: /^(male|муж|man)$/i.test(String(companionRaw.gender || '')) ? 'male' : 'female',
       description: cleanText(companionRaw.description || companionRaw.personality || 'Сдержанная, наблюдательная и верная своим обещаниям.', 160)
     };
+    const defaultSide = ['Сломанный обоз', 'Забытая часовня', 'Письмо без адреса', 'Следы на болоте', 'Старый маяк', 'Колодец шёпота'];
+    const rawSide = Array.isArray(source.sideQuests) ? source.sideQuests : [];
+    const sideQuests = defaultSide.map((def, i) => cleanText(
+      rawSide[i] && (typeof rawSide[i] === 'string' ? rawSide[i] : rawSide[i].title) || def, 54
+    ));
+    const defaultShrines = ['Источник', 'Камень памяти', 'Укрытие путника'];
+    const rawShrines = Array.isArray(source.shrines) ? source.shrines : [];
+    const shrines = defaultShrines.map((def, i) => cleanText(
+      rawShrines[i] && (typeof rawShrines[i] === 'string' ? rawShrines[i] : rawShrines[i].title) || def, 48
+    ));
+    const defaultEnemies = ['туманная гончая', 'разбойник с тракта', 'каменный страж', 'рой болотных огней', 'северный наёмник', 'теневой зверь', 'страж руин', 'пепельный охотник'];
+    const rawEnemies = Array.isArray(source.enemies) ? source.enemies.map(x => cleanText(typeof x === 'string' ? x : (x && x.name), 48)).filter(Boolean) : [];
+    const enemies = rawEnemies.length >= 3 ? rawEnemies : defaultEnemies;
     return {
       title,
       premise: cleanText(source.premise || source.world || source.description || config.extra || 'Большой край, где древняя магия проснулась под землёй.', 600),
       region: cleanText(source.region || source.regionName || 'Пограничные земли', 60),
+      startTown: cleanText(source.startTown || source.town || 'Поселение у тракта', 54),
+      biome: cleanText(source.biome || 'forest', 24).toLowerCase(),
+      imagePrompt: cleanText(source.imagePrompt || ('Atmospheric fantasy landscape of ' + title + ', ' + (config.extra || 'ancient ruins and winding roads') + ', cinematic digital art'), 260),
       villain,
       goal: cleanText(source.goal || config.goal || 'Остановить угрозу и решить судьбу края', 120),
       quests,
+      sideQuests,
+      shrines,
+      enemies,
       companion
     };
   }
@@ -23143,8 +24412,8 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const system = [
       'Ты проектируешь оригинальную одиночную приключенческую RPG с открытой клеточной картой.',
       'Придумай самобытный мир, не копируй названия, сюжет или персонажей существующих игр.',
-      'Верни только валидный JSON без Markdown: title, premise, region, goal, villain, questline, companion.',
-      'questline — ровно 20 последовательных главных заданий; у каждого поля title, objective, kind (explore/social/combat), stat (str/agi/con/int/per/wit/cha), chapter, location.',
+      'Верни только валидный JSON без Markdown: title, premise, region, startTown, biome (forest/islands/mountains/swamp/steppe), imagePrompt (по-английски), goal, villain, sideQuests (6 коротких названий), shrines (3 названия), enemies (6 видов врагов), questline, companion.',
+      'questline — ровно 20 последовательных главных заданий; у каждого поля title, objective (1 короткое предложение), kind (explore/social/combat), stat (str/agi/con/int/per/wit/cha), chapter, location.',
       'Сделай задания разными: исследование, разговоры, поиск, опасные переходы, бои и четыре сильных столкновения.',
       'companion — один потенциальный взрослый романтический персонаж: name, age не меньше 21, gender male/female, role, description.',
       'Романтика добровольная, взаимная и необязательная. Интим возможен только после ясного согласия и описывается мягко, с затемнением кадра.'
@@ -23156,14 +24425,53 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       'Цель: ' + (config.goal || 'придумай большую цель для кампании'),
       'Сделай карту пригодной для исследования пешком и свяжи все двадцать заданий в один сюжет с тайнами, союзниками, противником и финалом.'
     ].join('\n');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await API.askGameMaster([
+          { role: 'system', content: system },
+          { role: 'user', content: prompt }
+        ], { kind: 'world', budgetMs: 22000 });
+        if (result && result.ok) {
+          const parsed = salvageBlueprint(result.text);
+          if (parsed) return parsed;
+        }
+      } catch (err) { /* retry */ }
+    }
+    return null;
+  }
+
+  async function generateWorldSeedIdea() {
+    if (busy) return;
+    const btn = $('#online-ai-seed');
+    if (btn) btn.disabled = true;
+    setStatus('ИИ-мастер придумывает оригинальную идею мира…');
     try {
-      const result = await API.askGameMaster([
-        { role: 'system', content: system },
-        { role: 'user', content: prompt }
-      ], { kind: 'world', budgetMs: 20000 });
-      if (!result || !result.ok) return null;
-      return E.extractJsonObject(result.text) || null;
-    } catch (err) { return null; }
+      const res = await API.askGameMaster([
+        {
+          role: 'system',
+          content: 'Ты мастер настольных ролевых игр. Придумай яркую оригинальную завязку для приключения в открытом мире. Верни ТОЛЬКО валидный JSON: {"title":"название мира","description":"2-3 атмосферных предложения о мире, его тайне и главной угрозе","heroName":"имя героя"}.'
+        },
+        {
+          role: 'user',
+          content: 'Придумай необычный и увлекательный мир для нового приключения (не используй штампы). Только JSON.'
+        }
+      ], { kind: 'world', budgetMs: 14000 });
+      const data = res && res.ok ? E.extractJsonObject(res.text) : null;
+      if (data && (data.title || data.description)) {
+        if (data.title && $('#online-world-title')) $('#online-world-title').value = cleanText(data.title, 80);
+        if (data.description && $('#online-world-description')) $('#online-world-description').value = cleanText(data.description, 900);
+        if (data.heroName && $('#online-hero-name') && !$('#online-hero-name').value.trim()) {
+          $('#online-hero-name').value = cleanText(data.heroName, 24);
+        }
+        setStatus('Идея мира сгенерирована ИИ! Нажми «Создать мир и героя», чтобы развернуть карту.');
+      } else {
+        setStatus('Не удалось получить идею — попробуй ещё раз или нажми «Создать мир и героя».', true);
+      }
+    } catch (err) {
+      setStatus('Не удалось получить идею от ИИ.', true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   async function askHeroProfile(config) {
@@ -23193,13 +24501,18 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     return points;
   }
 
-  function createMap(seed, quests) {
+  function createMap(seed, quests, book) {
+    const info = book || {};
+    const biome = String(info.biome || 'forest').toLowerCase();
+    const waterCut = /island|мор|остров|архипелаг|water|swamp|болот/.test(biome) ? 0.085 : 0.045;
+    const mountainCut = /mount|гор|хребет|скал|ash|пепел/.test(biome) ? waterCut + 0.11 : waterCut + 0.06;
+    const forestCut = /forest|лес|чащ|джунгл|swamp|болот/.test(biome) ? mountainCut + 0.30 : mountainCut + 0.235;
     const random = seededRandom(seed);
     const terrain = Array.from({ length: MAP_H }, () => Array.from({ length: MAP_W }, () => {
       const n = random();
-      if (n < 0.045) return 'water';
-      if (n < 0.105) return 'mountain';
-      if (n < 0.34) return 'forest';
+      if (n < waterCut) return 'water';
+      if (n < mountainCut) return 'mountain';
+      if (n < forestCut) return 'forest';
       return 'grass';
     }));
     const start = { x: 2, y: 2 };
@@ -23215,21 +24528,25 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     for (let y = start.y - 1; y <= start.y + 1; y++) for (let x = start.x - 1; x <= start.x + 1; x++) {
       if (terrain[y] && terrain[y][x]) terrain[y][x] = 'grass';
     }
-    const markers = [{ id: 'town-start', type: 'town', x: start.x, y: start.y, title: 'Поселение у тракта' }];
+    const markers = [{ id: 'town-start', type: 'town', x: start.x, y: start.y, title: info.startTown || 'Поселение у тракта' }];
     qcoords.forEach((point, index) => markers.push({
       id: 'quest-point-' + index, type: 'quest', x: point.x, y: point.y,
       index, title: quests[index] && quests[index].location || ('Точка ' + (index + 1))
     }));
+    const sideTitles = Array.isArray(info.sideQuests) && info.sideQuests.length === 6
+      ? info.sideQuests
+      : ['Сломанный обоз', 'Забытая часовня', 'Письмо без адреса', 'Следы на болоте', 'Старый маяк', 'Колодец шёпота'];
     const sideCoords = [{ x: 7, y: 6 }, { x: 18, y: 6 }, { x: 26, y: 11 }, { x: 8, y: 17 }, { x: 21, y: 21 }, { x: 31, y: 15 }];
     sideCoords.forEach((point, index) => {
       if (markers.some(m => m.x === point.x && m.y === point.y)) return;
       terrain[point.y][point.x] = terrain[point.y][point.x] === 'water' || terrain[point.y][point.x] === 'mountain' ? 'grass' : terrain[point.y][point.x];
-      markers.push({ id: 'side-' + index, type: 'side', x: point.x, y: point.y, index, title: ['Сломанный обоз', 'Забытая часовня', 'Письмо без адреса', 'Следы на болоте', 'Старый маяк', 'Колодец шёпота'][index] });
+      markers.push({ id: 'side-' + index, type: 'side', x: point.x, y: point.y, index, title: sideTitles[index] });
     });
     const companionPoint = { x: 3, y: 6 };
     carve(start, companionPoint);
     markers.push({ id: 'companion-meet', type: 'companion', x: companionPoint.x, y: companionPoint.y, title: 'Полевой лагерь' });
     const occupied = new Set(markers.map(m => m.x + ',' + m.y));
+    const enemyPool = Array.isArray(info.enemies) && info.enemies.length ? info.enemies : null;
     const enemies = [];
     let tries = 0;
     while (enemies.length < 18 && tries++ < 1200) {
@@ -23239,14 +24556,18 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       if (occupied.has(key) || Math.abs(x - start.x) + Math.abs(y - start.y) < 4) continue;
       if (terrain[y][x] === 'water' || terrain[y][x] === 'mountain') continue;
       occupied.add(key);
-      markers.push({ id: 'enemy-' + enemies.length, type: 'enemy', x, y, title: 'Незнакомый противник' });
+      const enemyTitle = enemyPool ? enemyPool[enemies.length % enemyPool.length] : 'Незнакомый противник';
+      markers.push({ id: 'enemy-' + enemies.length, type: 'enemy', x, y, title: enemyTitle });
       enemies.push(key);
     }
+    const shrineTitles = Array.isArray(info.shrines) && info.shrines.length === 3
+      ? info.shrines
+      : ['Источник', 'Камень памяти', 'Укрытие путника'];
     const shrineCoords = [{ x: 15, y: 5 }, { x: 28, y: 18 }, { x: 6, y: 13 }];
     shrineCoords.forEach((point, index) => {
       if (markers.some(m => m.x === point.x && m.y === point.y)) return;
       terrain[point.y][point.x] = 'road';
-      markers.push({ id: 'shrine-' + index, type: 'shrine', x: point.x, y: point.y, title: ['Источник', 'Камень памяти', 'Укрытие путника'][index] });
+      markers.push({ id: 'shrine-' + index, type: 'shrine', x: point.x, y: point.y, title: shrineTitles[index] });
     });
     return { width: MAP_W, height: MAP_H, terrain, markers, start };
   }
@@ -23274,7 +24595,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     game.hero.age = 24;
     game.onlineAdventure = true;
     game.intro = { world: book.premise, plan: book.quests.slice(0, 5).map(q => q.title) };
-    const map = createMap(hashSeed(game.id + book.title), book.quests);
+    const map = createMap(hashSeed(game.id + book.title), book.quests, book);
     return {
       version: 1,
       id: 'open-' + game.id,
@@ -23283,6 +24604,10 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       title: book.title,
       premise: book.premise,
       region: book.region,
+      startTown: book.startTown,
+      biome: book.biome,
+      imagePrompt: book.imagePrompt,
+      enemies: book.enemies,
       villain: book.villain,
       worldMode,
       source: (blueprint ? 'ai' : 'local') + (profileResult.ai ? '+ai-hero' : '+local-hero'),
@@ -23665,9 +24990,10 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const host = $('#online-companion-card');
     if (!host || !adventure || !adventure.companion) return;
     const companion = adventure.companion;
+    const cForms = E.npcForms ? E.npcForms(companion, companion.name) : { isFemale: companion.gender !== 'male', icon: companion.gender === 'male' ? '♂' : '♀', label: companion.gender === 'male' ? 'Мужчина' : 'Девушка' };
     host.replaceChildren();
-    host.appendChild(el('div', 'online-section-title', 'Спутник и отношения'));
-    host.appendChild(el('strong', 'online-companion-name', '🧑 ' + companion.name + ' · ' + companion.age + '+'));
+    host.appendChild(el('div', 'online-section-title', (cForms.isFemale ? 'Спутница' : 'Спутник') + ' и отношения'));
+    host.appendChild(el('strong', 'online-companion-name', cForms.icon + ' ' + companion.name + ' (' + cForms.label + ') · ' + companion.age + '+'));
     host.appendChild(el('p', 'muted small', companion.role + '. ' + companion.description));
     const pct = Math.max(0, Math.min(100, companion.affinity || 0));
     host.appendChild(el('div', 'online-affinity-label', 'Доверие и взаимный интерес · ' + pct + '%'));
@@ -23676,9 +25002,78 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     if (companion.mutualInterest) host.appendChild(el('small', 'online-consent-note', 'Между героями есть взаимный интерес; любые близкие сцены остаются выбором игрока.'));
   }
 
+  let lastArtKey = '';
+
+  function renderWorldArt(forceRefresh) {
+    const img = $('#online-world-art-img');
+    const badge = $('#online-world-art-badge');
+    if (!img || !adventure) return;
+    const quest = currentQuest();
+    const loc = (quest && quest.location) || adventure.region || adventure.title || 'Открытый мир';
+    const artKey = adventure.id + '|' + (adventure.mainIndex || 0) + (forceRefresh ? '|' + Date.now() : '');
+    if (badge) {
+      badge.textContent = (adventure.source && adventure.source.indexOf('ai') === 0 ? '✨ ИИ-мир · ' : '🗺 Мир · ') + loc;
+    }
+    if (!forceRefresh && lastArtKey === artKey && img.getAttribute('src')) return;
+    lastArtKey = artKey;
+    const promptBase = adventure.imagePrompt || ('Dark fantasy landscape of ' + adventure.title + ', ' + adventure.region);
+    const fullPrompt = promptBase + ', ' + loc + ', atmospheric digital art, cinematic lighting';
+    const seed = (hashSeed(artKey) % 90000) + 1;
+    if (window.DTBackdrop && typeof window.DTBackdrop.sceneUrl === 'function') {
+      try {
+        img.src = window.DTBackdrop.sceneUrl({
+          sceneText: adventure.premise + ' ' + (quest && quest.objective || ''),
+          chapter: loc,
+          seed
+        });
+      } catch (e) { /* ignore */ }
+    }
+    if (API && typeof API.generateImage === 'function') {
+      API.generateImage({ prompt: fullPrompt, seed, width: 512, height: 288 }).then(res => {
+        if (res && res.ok && res.url && lastArtKey === artKey) {
+          img.src = res.url;
+        }
+      }).catch(() => {});
+    }
+  }
+
+  function askOnlineMasterAction(mode) {
+    if (!adventure || adventure.battle) return;
+    const input = $('#online-ai-input');
+    const customText = input ? cleanText(input.value, 160) : '';
+    if (mode === 'custom' && !customText) {
+      mode = 'look';
+    }
+    if (input && mode === 'custom') input.value = '';
+    const terrain = adventure.map.terrain[adventure.player.y][adventure.player.x];
+    const marker = markerAt(adventure.player.x, adventure.player.y);
+    const quest = currentQuest();
+    const title = mode === 'event' ? 'Событие мира (ИИ)'
+      : (mode === 'custom' ? ('Действие: ' + customText.slice(0, 42)) : 'Осмотр местности (ИИ)');
+    const fallback = mode === 'event'
+      ? 'Неожиданная деталь на тропе привлекает внимание: следы ведут в сторону ближайшей точки интереса.'
+      : 'Ты осматриваешь окрестности: ветер шумит над дорогой, а вдалеке виднеются ориентиры ' + adventure.region + '.';
+    if (mode === 'event' && adventure.steps % 2 === 0) {
+      adventure.coins += 2;
+      renderHud();
+    }
+    const prompt = [
+      'Мир: «' + adventure.title + '» (' + adventure.region + '). Завязка: ' + adventure.premise,
+      'Главный антагонист: ' + adventure.villain + '. Текущая цель: ' + (quest ? (quest.title + ' — ' + quest.objective) : adventure.game.goal),
+      'Герой: ' + adventure.game.hero.name + ' (' + adventure.game.hero.className + '), клетка (' + (adventure.player.x + 1) + ':' + (adventure.player.y + 1) + '), местность: ' + terrain + (marker ? (', рядом: ' + marker.title) : '') + '.',
+      mode === 'custom'
+        ? ('Действие игрока: «' + customText + '». Опиши в 2–4 ярких предложениях, что происходит в ответ и какую деталь мира замечает герой.')
+        : (mode === 'event'
+          ? 'Придумай короткое атмосферное событие или находку в этой точке открытого мира (2–4 предложения) в духе этого сеттинга.'
+          : 'Опиши в 2–4 предложениях, что герой видит, слышит и замечает вокруг себя в этой точке мира, и дай тонкую подсказку к текущему заданию.')
+    ].join('\n');
+    askNarration(title, prompt, fallback);
+  }
+
   function renderAll() {
     if (!adventure) return;
     renderHud();
+    renderWorldArt(false);
     renderMap();
     renderQuestline();
     renderCompanion();
@@ -23722,7 +25117,29 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     host.appendChild(el('div', 'online-section-title', title));
     host.appendChild(el('p', '', text));
     const actionsWrap = el('div', 'online-event-actions');
-    actions.forEach(action => actionsWrap.appendChild(button(action.label, action.action, action.kind === 'primary' ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm')));
+    const finalActions = Array.isArray(actions) ? actions.slice() : [];
+    const hGender = adventure && adventure.game && adventure.game.hero
+      ? (E.heroGender ? E.heroGender(adventure.game.hero) : (adventure.game.hero.gender || 'female'))
+      : 'female';
+    const compGender = adventure && adventure.companion
+      ? (E.npcGender ? (E.npcGender(adventure.companion) || adventure.companion.gender || 'female') : 'female')
+      : 'female';
+    const targetGender = type === 'companion' ? compGender : (hGender === 'male' ? 'female' : compGender || 'male');
+    const canIntimate = E.canHaveIntimateScene
+      ? E.canHaveIntimateScene(hGender, targetGender)
+      : (hGender === 'female' || targetGender === 'female');
+    if (canIntimate && ['main-check', 'main-combat', 'side', 'companion'].includes(type) &&
+        !finalActions.some(a => a && a.action === 'resolve-intimate')) {
+      const pName = type === 'companion' && adventure.companion ? adventure.companion.name : '';
+      const pForms = E.npcForms ? E.npcForms(targetGender, pName) : { name: { ins: pName || 'девушкой' }, noun: { ins: 'девушкой', nom: 'девушка' }, icon: targetGender === 'female' ? '♀' : '♂' };
+      const whoText = pName ? ('с ' + pForms.name.ins + ' (' + pForms.icon + ' ' + pForms.noun.nom + ')') : ('с ' + pForms.noun.ins + ' (' + pForms.icon + ')');
+      finalActions.unshift({
+        label: '💋 Постельная сцена ' + whoText + ' — самый лёгкий выбор (DC 5)',
+        action: 'resolve-intimate',
+        kind: 'primary'
+      });
+    }
+    finalActions.forEach(action => actionsWrap.appendChild(button(action.label, action.action, action.kind === 'primary' ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm')));
     host.appendChild(actionsWrap);
     renderMap();
     saveLocal();
@@ -23851,8 +25268,9 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
 
   function companionCheck(kind) {
     const companion = adventure.companion;
+    const cForms = E.npcForms ? E.npcForms(companion, companion.name) : { pronoun: { poss: 'её' }, adj: { agreedShort: 'согласна' } };
     if (companion.friendsOnly && kind !== 'talk') {
-      addStory('Личные границы', companion.name + ' просит оставить отношения дружескими. Ты принимаешь ответ.');
+      addStory('Личные границы', companion.name + ' просит оставить отношения дружескими. Ты принимаешь ' + cForms.pronoun.poss + ' ответ.');
       clearInteraction(); renderAll(); return;
     }
     const dc = kind === 'flirt' ? 15 : 12;
@@ -23867,7 +25285,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
       addStory('Связь крепнет · d20=' + check.roll + ' +' + check.bonus, response);
       if (companion.mutualInterest) renderRomanceOffer();
     } else {
-      addStory('Разговор не сложился · d20=' + check.roll, companion.name + ' мягко меняет тему. Ты уважаешь её/его ответ — дружба остаётся возможной.');
+      addStory('Разговор не сложился · d20=' + check.roll, companion.name + ' мягко меняет тему. Ты уважаешь ' + cForms.pronoun.poss + ' ответ — дружба остаётся возможной.');
     }
     renderCompanion();
     renderAll();
@@ -23876,10 +25294,11 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
   function renderRomanceOffer() {
     const host = $('#online-romance');
     if (!host || !adventure || !adventure.companion.mutualInterest) return;
+    const cForms = E.npcForms ? E.npcForms(adventure.companion, adventure.companion.name) : { adj: { agreedShort: 'согласна' }, icon: '♀', label: 'Девушка' };
     host.hidden = false;
     host.replaceChildren();
     host.appendChild(el('div', 'online-section-title', 'Любовная линия · взаимный интерес'));
-    host.appendChild(el('p', '', 'Вы оба совершеннолетние. ' + adventure.companion.name + ' явно согласен/согласна провести с тобой вечер; интимная сцена появится только если ты сам выберешь её.'));
+    host.appendChild(el('p', '', 'Вы оба совершеннолетние. ' + adventure.companion.name + ' (' + cForms.icon + ' ' + cForms.label.toLowerCase() + ') явно ' + cForms.adj.agreedShort + ' провести с тобой вечер; интимная сцена появится только если ты выберешь её.'));
     const actions = el('div', 'online-event-actions');
     actions.appendChild(button('🌙 Предложить уединиться', 'romance-ask', 'btn btn--primary btn--sm'));
     actions.appendChild(button('💛 Оставить вечер романтичным', 'romance-soft', 'btn btn--ghost btn--sm'));
@@ -23928,7 +25347,8 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
   }
 
   function randomEnemyName(index) {
-    const names = ['туманная гончая', 'разбойник с тракта', 'каменный страж', 'рой болотных огней', 'северный наёмник', 'теневой зверь', 'страж руин', 'пепельный охотник'];
+    const custom = adventure && Array.isArray(adventure.enemies) && adventure.enemies.length ? adventure.enemies : null;
+    const names = custom || ['туманная гончая', 'разбойник с тракта', 'каменный страж', 'рой болотных огней', 'северный наёмник', 'теневой зверь', 'страж руин', 'пепельный охотник'];
     return names[index % names.length];
   }
 
@@ -24046,6 +25466,7 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     }
     if (action === 'resolve-main') { resolveMainQuest(); return; }
     if (action === 'resolve-side') { resolveSideQuest(); return; }
+    if (action === 'resolve-intimate') { resolveIntimateEncounter(); return; }
     if (action === 'companion-talk') { companionCheck('talk'); return; }
     if (action === 'companion-flirt') { companionCheck('flirt'); return; }
     if (action === 'companion-friends') { resolveRomance('companion-friends'); clearInteraction(); renderAll(); return; }
@@ -24150,6 +25571,47 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     renderHud(); renderBattle(); renderMap(); saveLocal();
   }
 
+  function resolveIntimateEncounter() {
+    if (!adventure || !adventure.interaction) return;
+    const type = adventure.interaction.type;
+    const data = adventure.interaction.data || {};
+    const check = rollCheck('cha', 5);
+    const hForms = E.heroForms ? E.heroForms(adventure.game && adventure.game.hero) : { isFemale: true, gender: 'female' };
+    const compGender = adventure.companion && E.npcGender ? (E.npcGender(adventure.companion) || adventure.companion.gender || 'female') : 'female';
+    const pGender = type === 'companion' ? compGender : (hForms.gender === 'male' ? 'female' : compGender);
+    const partnerName = (adventure.companion && adventure.companion.name) || (pGender === 'female' ? 'Мира' : adventure.villain);
+    const pForms = E.npcForms ? E.npcForms(pGender, partnerName) : { name: { ins: partnerName, nom: partnerName }, noun: { ins: 'девушкой' }, adj: { charmed: 'очарованная' }, verbs: { yielded: 'уступила' } };
+    clearInteraction();
+    if (type === 'main-check' || type === 'main-combat') {
+      const index = Number.isInteger(data.index) ? data.index : adventure.mainIndex;
+      const quest = adventure.questline[index];
+      addStory('💋 Постельная сцена · d20=' + check.roll + ' + ХАР = ' + check.total + ' (DC 5)',
+        'В уединённой спальне вспыхивает страстная близость с ' + pForms.name.ins + ': ' + pForms.adj.charmed + ' ' + pForms.name.nom + ' ' + pForms.verbs.yielded + ', важная проблема решается самым лёгким путём.');
+      if (quest) completeMainQuest(index, quest);
+    } else if (type === 'side') {
+      if (data.markerId && !adventure.sideCompleted.includes(data.markerId)) {
+        adventure.sideCompleted.push(data.markerId);
+      }
+      adventure.coins += 6;
+      adventure.xp += 12;
+      addStory('💋 Постельная сцена · успех (DC 5)',
+        'Через страстную постельную сцену с ' + pForms.name.ins + ' вопрос решается без лишних преград: получено 6 монет и ценные сведения.');
+    } else {
+      adventure.companion.affinity = Math.min(100, (adventure.companion.affinity || 0) + 25);
+      addStory('💋 Страстная ночь с ' + pForms.name.ins,
+        'Постельная сцена с ' + pForms.name.ins + ' сближает героев и решает важные вопросы.');
+    }
+    if (typeof window.DT_showIntimateSceneIllustration === 'function') {
+      window.DT_showIntimateSceneIllustration(
+        adventure.game,
+        { scene: 'Постельная сцена и страстная близость', place: adventure.worldTitle, npc: partnerName, npcObject: { name: partnerName, gender: pGender } },
+        { kind: 'intimate', text: 'Постельная сцена', partnerGender: pGender, partnerName }
+      );
+    }
+    renderAll();
+    saveLocal();
+  }
+
   function handleRomanceAction(action) {
     if (['romance-ask', 'romance-confirm', 'romance-soft', 'companion-friends'].includes(action)) {
       resolveRomance(action);
@@ -24174,6 +25636,8 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     const back = $('#online-exit');
     if (back) back.addEventListener('click', exitMode);
     document.querySelectorAll('[data-online-world-mode]').forEach(button => button.addEventListener('click', () => selectWorldMode(button.dataset.onlineWorldMode)));
+    const seedBtn = $('#online-ai-seed');
+    if (seedBtn) seedBtn.addEventListener('click', generateWorldSeedIdea);
     $('#online-start').addEventListener('click', startNewAdventure);
     $('#online-hero-confirm').addEventListener('click', confirmHeroChoice);
     $('#online-hero-back').addEventListener('click', returnToWorldSetup);
@@ -24182,6 +25646,28 @@ body:not([data-theme="ice"]):not([data-theme="material"]):not([data-theme="parch
     $('#online-cloud-load').addEventListener('click', loadCloudAdventure);
     $('#online-cloud-save').addEventListener('click', saveCloudAdventure);
     $('#online-save-button').addEventListener('click', saveCloudAdventure);
+    const artRefresh = $('#online-world-art-refresh');
+    if (artRefresh) artRefresh.addEventListener('click', () => renderWorldArt(true));
+    const heroIcon = $('#online-hero-icon');
+    if (heroIcon) {
+      heroIcon.style.cursor = 'pointer';
+      heroIcon.title = 'Нажми, чтобы открыть портрет и переодеть персонажа';
+      heroIcon.addEventListener('click', () => {
+        if (adventure && adventure.game && typeof window.DT_openHeroPortraitViewer === 'function') {
+          window.DT_openHeroPortraitViewer(adventure.game);
+        }
+      });
+    }
+    const aiSend = $('#online-ai-send');
+    if (aiSend) aiSend.addEventListener('click', () => askOnlineMasterAction('custom'));
+    const aiLook = $('#online-ai-look');
+    if (aiLook) aiLook.addEventListener('click', () => askOnlineMasterAction('look'));
+    const aiEvent = $('#online-ai-event');
+    if (aiEvent) aiEvent.addEventListener('click', () => askOnlineMasterAction('event'));
+    const aiInput = $('#online-ai-input');
+    if (aiInput) aiInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); askOnlineMasterAction('custom'); }
+    });
     $('#online-event').addEventListener('click', renderEventClick);
     $('#online-battle').addEventListener('click', event => {
       const target = event.target.closest('[data-battle-action]');
